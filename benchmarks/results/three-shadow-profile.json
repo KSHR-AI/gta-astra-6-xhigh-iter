@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "source": "astra-three-shadow-trace.json",
+  "eventCount": 87693,
+  "purpose": "Separate Three.js shadows-on diagnostic; excluded from the 24-run controlled benchmark dataset.",
+  "measurement": {
+    "selection": "Between astra-benchmark-measure and astra-benchmark-complete user-timing markers; timestamps and durations in trace are microseconds.",
+    "mainThread": {
+      "pid": 62328,
+      "tid": 62328,
+      "name": "CrRendererMain"
+    },
+    "markersUs": {
+      "astra-benchmark-start": 12106796761,
+      "astra-benchmark-measure": 12110834344,
+      "astra-benchmark-complete": 12122907690
+    },
+    "warmupMarkerDifferenceMs": 4037.583,
+    "windowMs": 12073.346,
+    "method": "Task wall coverage is the union of clipped RunTask intervals on one thread. Nested ThreadControllerImpl::RunTask, FunctionCall and rendering events are not added. RAF duration statistics use callbacks whose start lies in the marked window; the final callback includes completion bookkeeping and extends slightly past the marker."
+  },
+  "mainThread": {
+    "intersectingTaskCount": 1757,
+    "taskWallCoverageMs": 531.064,
+    "taskWallCoveragePercent": 4.399,
+    "largestTaskWallMs": 12.017,
+    "tasksOver50Ms": 0,
+    "threadCpuClockAdvanceBetweenMarkersMs": 1249.857,
+    "fullyContainedTaskThreadCpuMs": 504.16,
+    "coverageCaution": "Instrumented RunTask coverage is not total thread CPU or utilization; the marker thread-clock delta is larger. Profiling/instrumentation and unrepresented work are included in that clock delta.",
+    "minorGcCount": 8,
+    "minorGcWallUnionMs": 2.889,
+    "fullTraceTasksOver50MsOutsideWindow": [
+      {
+        "startRelativeToMeasureMs": -4184.537,
+        "wallMs": 83.743
+      }
+    ]
+  },
+  "rafCallbacks": {
+    "duration": {
+      "count": 196,
+      "minMs": 1.48,
+      "medianMs": 1.757,
+      "p95Ms": 2.546,
+      "p99Ms": 4.094,
+      "maxMs": 6.008
+    },
+    "tasksOver50Ms": 0,
+    "consecutiveStartIntervals": {
+      "count": 195,
+      "minMs": 29.388,
+      "medianMs": 60.811,
+      "p95Ms": 70.77,
+      "p99Ms": 76.253,
+      "maxMs": 103.182
+    },
+    "diagnosticCallbackRateHz": 16.239,
+    "intervalsOver50Ms": 192,
+    "intervalsOver100Ms": 1,
+    "callbackEndToNextStartGaps": {
+      "count": 195,
+      "minMs": 27.64,
+      "medianMs": 58.912,
+      "p95Ms": 68.931,
+      "p99Ms": 74.183,
+      "maxMs": 101.497
+    },
+    "largestGaps": [
+      {
+        "startAfterMeasureMs": 4983.776,
+        "durationMs": 101.497,
+        "mainTaskCoverageMs": 0.707,
+        "gpuThreadTaskCoverageMs": 101.456,
+        "longestOverlappingGpuTaskWallMs": 102.155,
+        "thatGpuTaskThreadCpuMs": 7.286
+      },
+      {
+        "startAfterMeasureMs": 5682.567,
+        "durationMs": 78.113,
+        "mainTaskCoverageMs": 0.768,
+        "gpuThreadTaskCoverageMs": 78.09,
+        "longestOverlappingGpuTaskWallMs": 79.511,
+        "thatGpuTaskThreadCpuMs": 6.264
+      },
+      {
+        "startAfterMeasureMs": 7523.052,
+        "durationMs": 73.932,
+        "mainTaskCoverageMs": 0.678,
+        "gpuThreadTaskCoverageMs": 73.906,
+        "longestOverlappingGpuTaskWallMs": 74.883,
+        "thatGpuTaskThreadCpuMs": 7.456
+      }
+    ]
+  },
+  "gpuProcessMainThread": {
+    "pid": 38901,
+    "tid": 38901,
+    "name": "CrGpuMain",
+    "taskWallCoverageMs": 12064.394,
+    "taskWallCoveragePercent": 99.926,
+    "fullyContainedTaskThreadCpuMs": 1577.226,
+    "largestTaskWallMs": 102.155,
+    "tasksOver50Ms": 179,
+    "interpretation": "Long GPU-service scheduler tasks overlap the long callback gaps. Their wall duration substantially exceeds their recorded CPU duration, consistent with waiting or off-thread graphics work. This is not a GPU hardware execution-time measurement; the GPU process is shared."
+  },
+  "conclusions": [
+    "The slow diagnostic cadence is dominated by time between short main-thread RAF callbacks, not by long JavaScript tasks in the marked window.",
+    "The longest 101.497ms callback gap overlaps a 102.155ms GPU-thread task whose recorded thread CPU duration is only 7.286ms. This supports investigating graphics-service waiting/backpressure or off-thread rendering.",
+    "The trace does not establish which render pass, graphics driver operation, raster worker, or competing OS process caused the waits. It does not prove shadows or Three.js JavaScript are the primary cause.",
+    "This profiled diagnostic is not a controlled FPS trial. Profiler overhead and possible dev-server startup near the trace tail are confounders; do not combine its callback rate with the 24-run dataset."
+  ],
+  "suggestions": [
+    "Keep this trace as diagnostic evidence only; preserve the separately collected benchmark results.",
+    "Compare otherwise identical shadows-off/on traces and one-factor resolution or scene-complexity changes with known background activity documented.",
+    "For pass-level attribution, collect supported WebGL GPU timer queries with disjoint checks or driver/system scheduling evidence; current task spans alone cannot provide that attribution."
+  ]
+}

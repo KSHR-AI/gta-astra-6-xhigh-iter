@@ -5,3 +5,5 @@ dist/
 .DS_Store
 *.blend1
 *.blend2
+benchmarks/engines/.build-metrics/
+benchmarks/.*-build-sha

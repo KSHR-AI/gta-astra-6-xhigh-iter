@@ -1,0 +1,6 @@
+.godot/
+assets/
+web/
+build-times.json
+*.uid
+__pycache__/

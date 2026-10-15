@@ -5,3 +5,18 @@ services:
   - name: blender
     command: bash .niteshift/blender-desktop
     port: 6082
+  - name: engine-bench
+    command: npm run serve
+    cwd: benchmarks/engines
+    port: 3100
+  - name: godot-editor
+    command: bash .niteshift/godot-editor
+    environment:
+      - name: DISPLAY
+        value: ':100'
+      - name: LIBGL_ALWAYS_SOFTWARE
+        value: '1'
+      - name: LP_NUM_THREADS
+        value: '4'
+    autostart: false
+    restart: on-failure

@@ -1,0 +1,122 @@
+{
+  "capturedAt": "2026-10-15T23:38:10.829Z",
+  "aggregation": "Median across three runs per engine/profile; FPS is frames divided by summed frame intervals. P95 is the median of per-run P95s, not a pooled percentile.",
+  "environment": {
+    "devicePixelRatio": 1,
+    "drawingBuffer": [
+      960,
+      540
+    ],
+    "hardwareConcurrency": 16,
+    "renderer": "ANGLE (Mesa, Vulkan 1.4.318 (llvmpipe (LLVM 20.1.2 256 bits) (0x00000000)), llvmpipe)",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+    "vendor": "Google Inc. (Mesa)"
+  },
+  "sceneSha256": "5e628733d26f7f4409e4783c846a3c76efcd0d2ad78ed0d433c07fc36ef488e3",
+  "rows": [
+    {
+      "engine": "three",
+      "profiles": [
+        {
+          "shadows": false,
+          "trials": 3,
+          "fps": 29.33623648497037,
+          "fpsMin": 28.13394746669987,
+          "fpsMax": 29.37700770626321,
+          "p95FrameMs": 50,
+          "loadMs": 322.30000000074506
+        },
+        {
+          "shadows": true,
+          "trials": 3,
+          "fps": 16.266235113490186,
+          "fpsMin": 15.353334163243286,
+          "fpsMax": 16.311313060701387,
+          "p95FrameMs": 66.70000000000073,
+          "loadMs": 362.9000000003726
+        }
+      ],
+      "buildSeconds": 1.4702732719999998,
+      "javascriptBytes": 991330,
+      "javascriptGzipBytes": 210919
+    },
+    {
+      "engine": "babylon",
+      "profiles": [
+        {
+          "shadows": false,
+          "trials": 3,
+          "fps": 27.62936702118806,
+          "fpsMin": 26.63071520114512,
+          "fpsMax": 27.92321116928447,
+          "p95FrameMs": 50,
+          "loadMs": 532.1999999992549
+        },
+        {
+          "shadows": true,
+          "trials": 3,
+          "fps": 14.68940619942736,
+          "fpsMin": 14.377249042209275,
+          "fpsMax": 14.709670985381743,
+          "p95FrameMs": 83.30000000000109,
+          "loadMs": 592.5
+        }
+      ],
+      "buildSeconds": 21.09208251,
+      "javascriptBytes": 5446708,
+      "javascriptGzipBytes": 1208193
+    },
+    {
+      "engine": "playcanvas",
+      "profiles": [
+        {
+          "shadows": false,
+          "trials": 3,
+          "fps": 29.83511734592115,
+          "fpsMin": 28.960902781245316,
+          "fpsMax": 30.16729134290155,
+          "p95FrameMs": 50,
+          "loadMs": 373.4000000003726
+        },
+        {
+          "shadows": true,
+          "trials": 3,
+          "fps": 16.432217104444167,
+          "fpsMin": 16.326733575886163,
+          "fpsMax": 16.515208099921157,
+          "p95FrameMs": 66.79999999999927,
+          "loadMs": 446.19999999925494
+        }
+      ],
+      "buildSeconds": 3.951398572,
+      "javascriptBytes": 2608038,
+      "javascriptGzipBytes": 606338
+    },
+    {
+      "engine": "godot",
+      "profiles": [
+        {
+          "shadows": false,
+          "trials": 3,
+          "fps": 15.535690548983114,
+          "fpsMin": 15.515710694224335,
+          "fpsMax": 15.633445594777765,
+          "p95FrameMs": 73.195,
+          "loadMs": 1286.5999999996277
+        },
+        {
+          "shadows": true,
+          "trials": 3,
+          "fps": 12.291440008637226,
+          "fpsMin": 12.270345559461433,
+          "fpsMax": 12.58820021863716,
+          "p95FrameMs": 91.975,
+          "loadMs": 1327.4000000003723
+        }
+      ],
+      "exportSeconds": 3.215,
+      "coldImportSeconds": 3.393,
+      "webBytes": 42497906
+    }
+  ]
+}

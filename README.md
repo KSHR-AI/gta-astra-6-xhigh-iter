@@ -72,6 +72,10 @@ Niteshift runs the Vite service on port 3000 using `.niteshift/`. A read-only `w
 
 Blender 4.5.14 LTS is available through a separate interactive desktop on port 6082. Use `ns preview 6082` to model assets, then `ns preview 3000` to return to the game. See [the Blender workspace guide](art/blender/README.md) for controls, source files, exports, and command-line automation.
 
+## Engine comparison workspace
+
+Three.js, Babylon.js, PlayCanvas, and Godot are installed in an isolated [engine lab](benchmarks/README.md). Run `ns preview 3100` to compare the same scene and export raw frame timings. Godot also has an optional native editor on the Blender desktop: `ns services start godot-editor`, then `ns preview 6082`. The game remains on its existing Three.js stack. See [the measured results and recommendation](benchmarks/RESULTS.md).
+
 ## Prototype limits and asset terms
 
 This is a compact prototype, not a finished AAA game or GTA V recreation. It contains one mission chain, a limited population and patrol, simplified road routing, and a small set of accessible ground-floor spaces. Most buildings and motel guest rooms remain scenery. It has no multiplayer, extensive campaign, cloud saves, advanced ragdolls, facial capture, spoken dialogue, or fully simulated vehicle interiors. Character interaction poses are partly procedural, and occasional clipping can occur. Driving uses custom arcade handling rather than a full rigid-body vehicle simulator.

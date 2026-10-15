@@ -5,3 +5,5 @@ if [[ ! -d node_modules || ! -f node_modules/.package-lock.json || package-lock.
   npm ci --no-audit --no-fund
 fi
 bash .niteshift/install-blender
+bash .niteshift/install-godot
+bash benchmarks/setup
