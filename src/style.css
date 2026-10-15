@@ -217,3 +217,181 @@ h1.title-lockup > .title-astra { color: #ddc398; font-size: 151px; line-height: 
   .setting-row { min-height: 46px; }
   .resume-button { width: 100%; }
 }
+
+/* Mission and vehicle information stays close to the player's current task. */
+.story-label { display: block; margin-bottom: 9px; color: #b7ad93; font-size: 6px; font-weight: 500; letter-spacing: 2.1px; }
+.welcome-heading { font-size: 19px; }
+.welcome-copy { margin-bottom: 24px; }
+.objective-card { max-width: 335px; padding-top: 13px; padding-bottom: 14px; }
+.objective-content { min-width: 205px; }
+.objective-eyebrow { gap: 18px; }
+.objective-eyebrow > #mission-chapter { color: #d3bd96; font-size: 7px; letter-spacing: 1.45px; max-width: 185px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.objective-eyebrow > #objective-distance { flex: none; font-size: 8px; color: #d6d9c8; letter-spacing: .8px; }
+.objective-card h2 { margin: 7px 0 6px; font-size: 14px; line-height: 1.3; }
+.objective-card p { line-height: 1.65; }
+.mission-progress { width: 100%; height: 2px; background: #d7d6bb1f; margin-top: 13px; overflow: hidden; }
+.mission-progress > span { display: block; height: 100%; background: #d7c297; transition: width .6s ease; }
+.wanted-panel { min-width: 150px; gap: 8px; }
+.wanted-panel > #wanted-caption { color: #efd6ae; font-size: 8px; letter-spacing: 1.5px; }
+.wanted-panel > .police-instruction { font-size: 9px; letter-spacing: .15px; color: #d2d7cb; }
+.wanted-stars { margin-bottom: 2px; }
+.wanted-stars > .is-active { color: #d6be93; filter: drop-shadow(0 0 4px #d6be9333); }
+.game-ui[data-police-state="pursuit"] .wanted-stars > .is-active { color: #df927b; }
+.game-ui[data-police-state="pursuit"] #wanted-caption { color: #e8ad92; }
+.game-ui[data-police-state="reported"] #wanted-caption { color: #e3c29b; }
+.game-ui[data-police-state="searching"] .wanted-stars > .is-active { color: #d5cc9c; }
+.police-search { width: 145px; margin-top: 3px; }
+.police-search-track { width: 100%; height: 3px; background: #e1d7b629; overflow: hidden; }
+.police-search-track > span { display: block; height: 100%; background: #c5cca1; transition: width .25s linear; }
+.police-search > span { display: block; color: #bdc8ad; font-size: 6px; letter-spacing: 1.6px; margin-top: 7px; }
+.interaction-prompt { bottom: 110px; max-width: min(420px, 65vw); gap: 12px; padding: 12px 17px 12px 12px; border-color: #d6bb8a38; cursor: pointer; text-align: left; transition: background .2s, border-color .2s; }
+.interaction-prompt:hover { background: #263229ed; border-color: #d6bb8a88; }
+.interaction-prompt:active { transform: translateX(-50%) translateY(1px); }
+.interaction-prompt > kbd { height: 31px; width: auto; min-width: 31px; padding: 0 7px; font-size: 12px; font-weight: 600; }
+.interaction-copy { display: flex; flex-direction: column; gap: 6px; min-width: 140px; }
+.interaction-copy > span { font-size: 7px; letter-spacing: 1.3px; color: #d0ba95; }
+.interaction-copy > strong { font-size: 11px; line-height: 1.4; font-weight: 500; }
+.interaction-icon { display: flex; color: #beccaf; margin-left: 8px; }
+.interaction-icon > svg { width: 18px; height: 18px; }
+.game-bottom-hint { bottom: 25px; font-size: 6px; opacity: .65; }
+.equipment-hint { opacity: .68; }
+.weapon-row { margin-bottom: 10px; }
+.vehicle-telemetry { margin-bottom: 12px; }
+.rpm-label { display: flex; align-items: center; justify-content: space-between; font-size: 6px; letter-spacing: 1.2px; color: #bdc6b4; margin: 3px 0 6px; }
+.rpm-label > #rpm-value { color: #e3dec8; font-size: 7px; letter-spacing: .7px; }
+.speed-track { height: 3px; margin-bottom: 10px; }
+.speed-track > span { background: #d8c49b; }
+.engine-redline .speed-track > span { background: #e19b7c; }
+.vehicle-condition { display: flex; align-items: center; gap: 9px; font-size: 6px; letter-spacing: 1.1px; color: #b6c2ae; }
+.vehicle-condition > strong { font-size: 7px; font-weight: 500; letter-spacing: .3px; color: #dce0ce; min-width: 24px; }
+.condition-track { flex: 1; height: 2px; background: #c7d0b929; overflow: hidden; }
+.condition-track > span { height: 100%; display: block; width: 100%; background: #aebf9f; transition: width .3s; }
+.vehicle-damaged .vehicle-condition > strong { color: #e6a387; }
+.vehicle-damaged .condition-track > span { background: #d89175; }
+.dialogue-panel { position: absolute; bottom: 61px; left: 50%; transform: translateX(-50%); width: min(550px, calc(100vw - 640px)); padding: 15px 20px 16px; background: linear-gradient(90deg, #101b1ceb, #101b1ce0); border-left: 2px solid #d6bb8a8f; border-radius: 1px; backdrop-filter: blur(9px); box-shadow: 0 7px 28px #0002; }
+.dialogue-speaker { display: block; font-size: 7px; font-weight: 600; letter-spacing: 2px; color: #dcc398; margin-bottom: 7px; }
+.dialogue-panel p { font-size: 12px; font-weight: 400; line-height: 1.65; letter-spacing: .1px; color: #f2f0e4; margin: 0; }
+.has-subtitle .game-bottom-hint { display: none; }
+.has-subtitle .interaction-prompt { bottom: 185px; }
+.mission-complete { position: absolute; top: 24%; left: 50%; transform: translateX(-50%); width: 335px; max-width: 80vw; display: flex; align-items: center; gap: 20px; padding: 22px 25px; background: linear-gradient(110deg, #182522f2, #182522dc); border: 1px solid #d6bb8a39; border-top: 2px solid #d6bb8abf; border-radius: 2px; backdrop-filter: blur(13px); box-shadow: 0 12px 50px #0003; animation: complete-arrive .4s ease-out; }
+.complete-symbol { display: flex; color: #dfc89c; }
+.complete-symbol > svg { width: 35px; height: 35px; }
+.complete-eyebrow { font-size: 7px; letter-spacing: 2.2px; font-weight: 600; color: #d1bc92; }
+.mission-complete h2 { font-family: 'Barlow Condensed', Impact, sans-serif; font-size: 28px; line-height: 1.1; letter-spacing: .2px; font-weight: 500; margin: 6px 0 10px; }
+.mission-complete p { color: #c7d5b6; font-size: 9px; letter-spacing: 1.3px; margin: 0; }
+.has-completion .toast { top: 43%; }
+.session-summary { display: flex; justify-content: space-between; gap: 10px; margin: 9px 0 18px; color: #aab79e; font-size: 6px; letter-spacing: 1px; }
+@keyframes complete-arrive { from { opacity: 0; margin-top: -9px; } to { opacity: 1; margin-top: 0; } }
+@media (max-width: 1100px) {
+  .dialogue-panel { width: 380px; max-width: calc(100vw - 70px); bottom: 220px; padding: 13px 17px; }
+  .dialogue-panel p { font-size: 11px; }
+  .has-subtitle .interaction-prompt { bottom: 325px; }
+  .interaction-prompt { bottom: 60px; }
+  .wanted-panel { min-width: 135px; }
+  .wanted-panel > #wanted-caption { font-size: 7px; }
+  .police-search { width: 130px; }
+  .objective-content { min-width: 190px; }
+}
+@media (max-width: 800px) {
+  .objective-card { width: 265px; max-width: calc(100vw - 200px); padding: 11px 13px; }
+  .objective-content { min-width: 0; width: 100%; }
+  .objective-card h2 { font-size: 13px; }
+  .objective-eyebrow > #mission-chapter { font-size: 6px; letter-spacing: 1px; }
+  .objective-eyebrow > #objective-distance { font-size: 7px; }
+  .objective-icon { display: none; }
+  .wanted-panel > .police-instruction { font-size: 8px; }
+  .interaction-copy > strong { font-size: 10px; }
+  .interaction-prompt { max-width: 85vw; }
+  .dialogue-panel { bottom: 210px; }
+  .has-subtitle .interaction-prompt { bottom: 315px; }
+  .mission-complete { width: 305px; padding: 18px 21px; }
+}
+@media (max-width: 540px) {
+  .welcome-heading { font-size: 17px; }
+  .story-label { font-size: 6px; margin-bottom: 7px; }
+  .welcome-copy { font-size: 10px; }
+  .objective-card { width: calc(100vw - 158px); max-width: 245px; padding: 10px 11px; }
+  .objective-card h2 { font-size: 12px; margin: 6px 0 4px; }
+  .objective-card p { font-size: 8px; line-height: 1.6; }
+  .objective-eyebrow { gap: 8px; }
+  .objective-eyebrow > #mission-chapter { font-size: 6px; letter-spacing: .8px; max-width: 120px; }
+  .objective-eyebrow > #objective-distance { font-size: 6px; }
+  .mission-progress { margin-top: 10px; }
+  .wanted-panel { min-width: 105px; max-width: 108px; gap: 6px; }
+  .wanted-panel > #wanted-caption { display: block; font-size: 6px; letter-spacing: .65px; line-height: 1.4; }
+  .wanted-panel > .police-instruction { display: block; font-size: 7px; letter-spacing: 0; line-height: 1.5; }
+  .police-search { width: 100px; margin-top: 1px; }
+  .police-search > span { font-size: 5px; letter-spacing: .8px; margin-top: 5px; }
+  .interaction-prompt { bottom: 300px; padding: 10px 12px 10px 10px; width: auto; min-width: 245px; max-width: calc(100vw - 55px); }
+  .interaction-copy { min-width: 135px; }
+  .interaction-copy > span { font-size: 6px; letter-spacing: 1px; }
+  .interaction-copy > strong { font-size: 10px; }
+  .interaction-icon { margin-left: 2px; }
+  .interaction-prompt > kbd { height: 29px; min-width: 29px; font-size: 11px; }
+  .dialogue-panel { top: 193px; bottom: auto; width: calc(100vw - 48px); max-width: none; padding: 12px 15px; }
+  .dialogue-panel p { font-size: 10px; line-height: 1.65; }
+  .dialogue-speaker { font-size: 6px; letter-spacing: 1.5px; margin-bottom: 5px; }
+  .has-subtitle .interaction-prompt { bottom: 300px; }
+  .mission-complete { top: 26%; max-width: calc(100vw - 48px); padding: 17px 20px; gap: 16px; }
+  .mission-complete h2 { font-size: 25px; }
+  .has-completion .dialogue-panel { top: auto; bottom: 315px; }
+  .has-completion .toast { top: 44%; }
+  .rpm-label { font-size: 5px; letter-spacing: .7px; }
+  .rpm-label > #rpm-value { font-size: 6px; letter-spacing: .1px; }
+  .vehicle-condition { font-size: 5px; letter-spacing: .5px; gap: 5px; }
+  .vehicle-condition > strong { font-size: 6px; min-width: 21px; }
+  .vehicle-telemetry { margin-bottom: 0; }
+}
+@media (pointer: coarse) {
+  .mobile-controls { bottom: 176px; align-items: flex-end; }
+  .touch-key { width: 44px; height: 44px; }
+  .mobile-dpad { grid-template-columns: 44px 44px 44px; grid-template-rows: 44px 44px; }
+  .mobile-actions { grid-template-columns: 44px 44px; gap: 5px; }
+  .touch-key.touch-utility { font-size: 6px; letter-spacing: .15px; height: 32px; color: #ced4bf; background: #1420226b; }
+  .touch-interact { color: #e1d0ab; }
+  .has-interaction .touch-interact { background: #d6bb8a30; border-color: #ddc39880; }
+  .is-driving .touch-utility { visibility: hidden; }
+  .is-driving .touch-fire { visibility: hidden; }
+  .is-driving .touch-key[data-code="ShiftLeft"] { visibility: hidden; }
+  .interaction-prompt { bottom: 312px; }
+  .has-subtitle .interaction-prompt { bottom: 312px; }
+}
+@media (max-height: 560px) and (min-width: 541px) {
+  .story-label { display: none; }
+  .welcome-heading { font-size: 13px; }
+  .welcome-copy { margin-bottom: 14px; }
+  .objective-card { padding: 8px 11px; max-width: 265px; }
+  .objective-card h2 { font-size: 11px; }
+  .objective-card p { font-size: 8px; }
+  .mission-progress { margin-top: 8px; }
+  .wanted-panel { top: 80px; }
+  .dialogue-panel { top: auto; bottom: 135px; width: 360px; max-width: calc(100vw - 420px); padding: 9px 12px; }
+  .dialogue-panel p { font-size: 9px; }
+  .dialogue-speaker { font-size: 6px; margin-bottom: 4px; }
+  .interaction-prompt { bottom: 125px; min-width: 0; padding: 8px 10px; }
+  .has-subtitle .interaction-prompt { bottom: 220px; }
+  .interaction-copy { min-width: 115px; }
+  .interaction-copy > strong { font-size: 9px; }
+  .interaction-copy > span { font-size: 6px; }
+  .interaction-prompt > kbd { min-width: 25px; height: 25px; font-size: 10px; }
+  .mission-complete { top: 27%; padding: 14px 19px; }
+  .mission-complete h2 { font-size: 23px; margin: 5px 0 8px; }
+  .has-completion .dialogue-panel { top: auto; bottom: 125px; }
+}
+@media (pointer: coarse) and (max-height: 560px) {
+  .mobile-controls { bottom: 23px; left: 207px; right: 185px; }
+  .touch-key { width: 34px; height: 34px; font-size: 7px; }
+  .mobile-dpad { grid-template-columns: 34px 34px 34px; grid-template-rows: 34px 34px; }
+  .mobile-actions { grid-template-columns: 34px 34px; gap: 3px; }
+  .touch-key.touch-utility { height: 25px; font-size: 5px; }
+}
+@media (pointer: coarse) and (max-width: 540px) and (max-height: 700px) {
+  .mobile-controls { bottom: 158px; }
+  .touch-key { width: 37px; height: 37px; font-size: 7px; }
+  .mobile-dpad { grid-template-columns: 37px 37px 37px; grid-template-rows: 37px 37px; }
+  .mobile-actions { grid-template-columns: 37px 37px; gap: 4px; }
+  .touch-key.touch-utility { height: 28px; font-size: 5px; }
+  .interaction-prompt, .has-subtitle .interaction-prompt { bottom: 280px; padding: 8px 11px; }
+  .dialogue-panel { padding: 10px 13px; }
+  .dialogue-panel p { font-size: 9px; line-height: 1.55; }
+}

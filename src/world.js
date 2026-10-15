@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import { applyCityMaterials } from './world-materials.js';
+import { addAuthoredDistrict } from './world-district.js';
+import { addStreetDetails } from './world-streets.js';
+import { createPalmAssets } from './world-palms.js';
+import { createShrubBuilder } from './world-shrubs.js';
 
 // Everything in the district is real geometry. Repeated architectural details
 // share instanced meshes, so the dense streetscape stays inexpensive to render.
 export function createWorld(scene) {
   const root = new THREE.Group();
-  root.name = 'Pacific district';
+  root.name = 'Grand Theft Astra — Pacific district';
   scene.add(root);
   const colliders = [];
   const lampPositions = [];
@@ -99,6 +103,7 @@ export function createWorld(scene) {
     return texture;
   }
   const { ready } = applyCityMaterials(materials, canvasTexture, random);
+  const shrub = createShrubBuilder({ instance, materials, canvasTexture, random, range });
   const breeze = { value: 0 };
   materials.leaves.onBeforeCompile = shader => {
     shader.uniforms.breezeTime = breeze;
@@ -129,10 +134,14 @@ export function createWorld(scene) {
   const segments = [[-240, -100], [-80, -10], [10, 80], [100, 200]];
   for (const [start, end] of segments) {
     for (const x of [-14.1, 14.1, 66.8, 93.2]) {
-      box(materials.sidewalk, x, 0.10, (start + end) / 2, 5.7, 0.24, end - start, 0, false);
       const curbX = x < 0 ? -11.25 : x < 30 ? 11.25 : x < 80 ? 69.65 : 90.35;
-      box(materials.curb, curbX, 0.18, (start + end) / 2, 0.24, 0.32, end - start, 0, false);
-      for (let z = start + 3; z < end; z += 4) box(materials.concrete, x, 0.225, z, 5.5, 0.01, 0.025, 0, false);
+      // The repair shop has a flush, wide driveway through the actual curb.
+      const pavement = x === 14.1 && start < -132 && end > -120 ? [[start, -132], [-120, end]] : [[start, end]];
+      for (const [a, b] of pavement) {
+        box(materials.sidewalk, x, 0.10, (a + b) / 2, 5.7, 0.24, b - a, 0, false);
+        box(materials.curb, curbX, 0.18, (a + b) / 2, 0.24, 0.32, b - a, 0, false);
+        for (let z = a + 3; z < b; z += 4) box(materials.concrete, x, 0.225, z, 5.5, 0.01, 0.025, 0, false);
+      }
     }
     for (const x of [-0.15, 0.15, 79.85, 80.15]) box(materials.yellow, x, 0.039, (start + end) / 2, 0.1, 0.012, end - start, 0, false);
     for (const x of [-10.4, 10.4, 70.6, 89.4]) box(materials.paint, x, 0.04, (start + end) / 2, 0.11, 0.012, end - start, 0, false);
@@ -337,7 +346,7 @@ export function createWorld(scene) {
       for (let k = 0; k < 10; k++) box(materials.trunkLight, x - width * .27 + k * width * .06, terraceY + 2.9, z, .14, .17, depth * .58);
       for (const dz of [-1, 1]) {
         box(materials.concrete, x, height + .8, z + dz * depth * .37, width * .72, .8, .8);
-        for (let k = 0; k < 5; k++) instance(sphereGeometry, materials.shrub, [x - width * .29 + k * width * .145, height + 1.3, z + dz * depth * .37], [1.1, .6, .5]);
+        for (let k = 0; k < 5; k++) shrub(x - width * .29 + k * width * .145, height + 1.3, z + dz * depth * .37, 2.2, 1.2, 1);
       }
     }
     if (style === 4) {
@@ -375,18 +384,8 @@ export function createWorld(scene) {
     [33, 122, 32, 30, 9, 0], [32, 158, 30, 31, 6, 4],
     [-76, -55, 27, 36, 3, 0],
   ];
-  mainBuildings.forEach((b, i) => building(...b, i, b[0] < 0 ? 1 : -1));
-  const hotelTexture = canvasTexture(192, 1024, (ctx, w, h) => {
-    ctx.fillStyle = '#b96f53'; ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#f5d8ab'; ctx.lineWidth = 5; ctx.strokeRect(12, 12, w - 24, h - 24);
-    ctx.fillStyle = '#fff0ce'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = 'bold 116px Arial';
-    for (const [i, letter] of [...'HOTEL'].entries()) ctx.fillText(letter, w / 2, 123 + i * 192);
-  });
-  const hotelSign = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 9), new THREE.MeshStandardMaterial({ map: hotelTexture, emissiveMap: hotelTexture, emissive: '#ffd29e', emissiveIntensity: 0.18, roughness: 0.6 }));
-  hotelSign.position.set(-17.1, 12.7, -18.5); root.add(hotelSign);
-  box(materials.dark, -17.1, 12.7, -18.65, 1.9, 9.2, 0.25);
-  sign('THE PALM HOUSE', -33, 3.3, 44.35, 19, 0.85, 0, { background: '#c39772', color: '#fff0d0', fontSize: 63 });
+  const authoredLots = new Set([5, 6, 7, 12, 13, 16, 17]);
+  mainBuildings.forEach((b, i) => { if (!authoredLots.has(i)) building(...b, i, b[0] < 0 ? 1 : -1); });
   let index = mainBuildings.length;
   for (const z of [-210, -174, -139, -61, -28, 31, 65, 123, 159]) {
     building(111, z, 31, 25, Math.floor(range(4, 11)), index % 6, index++, -1);
@@ -403,62 +402,56 @@ export function createWorld(scene) {
     box(materials.teal, -86 + i * 4, 0.9, -34.2, 1.15, 0.12, 2.4);
   }
 
-  // Palm fronds have individually modeled tapered leaflets, not flat billboard foliage.
-  function createFrond(leaflets = 26) {
-    const positions = [], colors = [];
-    const addTriangle = (a, b, c, shade) => {
-      positions.push(...a, ...b, ...c);
-      for (let i = 0; i < 3; i++) colors.push(shade, shade * 1.1, shade * 0.87);
-    };
-    const path = t => [t * 5.3, Math.sin(t * Math.PI) * 1.15 - t * t * 1.65, 0];
-    for (let i = 0; i < leaflets; i++) {
-      const t = 0.06 + i * (0.91 / leaflets);
-      const base = path(t);
-      const end = path(t + 0.95 / leaflets);
-      const length = 1.02 * Math.pow(Math.sin(t * Math.PI), 0.7) + 0.1;
-      for (const side of [-1, 1]) {
-        const a = [base[0] - 0.035, base[1], 0];
-        const b = [base[0] + (leaflets < 20 ? 0.24 : 0.14), base[1] + 0.025, side * 0.08];
-        const c = [base[0] + 0.54 + t * 0.15, base[1] - 0.28 - t * 0.2, side * length];
-        const ridge = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3 + .045, c[2] * .35];
-        addTriangle(a, ridge, c, .68 + (i % 4) * .07);
-        addTriangle(ridge, b, c, .83 + (i % 3) * .05);
-      }
-      addTriangle([base[0], base[1] + 0.015, -0.035], [base[0], base[1] + 0.015, 0.035], [end[0], end[1] + 0.015, 0], 0.93);
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geometry.computeVertexNormals();
-    return geometry;
-  }
-  const frondGeometry = createFrond();
-  const distantFrondGeometry = createFrond(13);
+  // Broad curved fronds carry individually painted leaf silhouettes. Three
+  // irregular crown tiers produce canopy volume and readable cast shadows.
+  const palmAssets = createPalmAssets(canvasTexture, random);
+  const frondGeometry = palmAssets.near;
+  const distantFrondGeometry = palmAssets.far;
+  materials.leaves.map = palmAssets.map;
+  materials.leaves.color.set('#e8e9d8');
+  materials.leaves.alphaTest = .42;
+  materials.leaves.alphaToCoverage = true;
+  materials.leaves.roughness = .82;
+  materials.leaves.needsUpdate = true;
   function palm(x, z, height = 10, size = 1) {
-    const lean = range(-0.9, 0.9);
-    const leanZ = range(-0.5, 0.5);
-    const detailed = Math.abs(x) < 25 && z > -85 && z < 90;
+    const lean = range(-1.25, 1.25);
+    const leanZ = range(-.8, .8);
+    const detailed = Math.abs(x) < 45 && z > -85 && z < 90;
     const segments = detailed ? 11 : 7;
     for (let i = 0; i < segments; i++) {
       const a = i / segments, b = (i + 1) / segments;
       line(i % 3 === 0 ? materials.trunkLight : materials.trunk,
         [x + lean * a * a, a * height + 0.2, z + leanZ * a * a],
         [x + lean * b * b, b * height + 0.2, z + leanZ * b * b],
-        (0.23 - a * 0.085) * size, detailed ? trunkGeometry : distantTrunkGeometry);
+        (0.29 - a * 0.09) * size, detailed ? trunkGeometry : distantTrunkGeometry);
       // The fine horizontal bands give the trunk its characteristic ring texture.
-      if (detailed && i < 9) cylinder(materials.trunkLight, x + lean * a * a, a * height + 0.25, z + leanZ * a * a, (0.235 - a * 0.085) * size, 0.04, false);
+      if (detailed && i < 9) cylinder(materials.trunkLight, x + lean * a * a, a * height + 0.25, z + leanZ * a * a, (0.295 - a * 0.09) * size, 0.04, false);
     }
     const crown = [x + lean, height + 0.2, z + leanZ];
-    instance(sphereGeometry, materials.trunk, crown, [0.3, 0.4, 0.3]);
-    const leaves = detailed ? 12 : 8;
+    instance(sphereGeometry, materials.trunk, [crown[0], crown[1] - .12, crown[2]], [.4 * size, .72 * size, .4 * size]);
+    const leaves = detailed ? 25 : 15;
+    const phase = random() * Math.PI * 2;
     for (let i = 0; i < leaves; i++) {
-      instance(detailed ? frondGeometry : distantFrondGeometry, materials.leaves, crown, [size * range(0.78, 1.12), size, size], [range(-0.12, 0.12), i * Math.PI * 2 / leaves + random() * 0.15, range(-0.12, 0.45)], true);
+      const tier = i % 3;
+      const growth = tier === 0 ? range(.3, .55) : tier === 1 ? range(-.12, .18) : range(-.45, -.19);
+      const length = (tier === 0 ? .8 : tier === 1 ? 1.05 : .92) * size * range(.85, 1.12);
+      instance(detailed ? frondGeometry : distantFrondGeometry, materials.leaves,
+        [crown[0], crown[1] + (tier === 0 ? .22 : tier === 1 ? 0 : -.25), crown[2]],
+        [length, size * range(.9, 1.1), size * range(.85, 1.1)],
+        [range(-.22, .22), phase + i * 2.39996 + range(-.1, .1), growth], true);
+    }
+    // Upright spears fill the crown; dry retained leaf bases vary the trunk top.
+    if (detailed) for (let i = 0; i < 4; i++) {
+      instance(frondGeometry, materials.leaves, crown, [size * .53, size * .75, size * .48], [0, phase + i * 1.6, .92 + i * .07]);
+      line(materials.trunk, [crown[0], crown[1] - .65, crown[2]],
+        [crown[0] + Math.cos(i * 1.6) * .53, crown[1] - 1.5, crown[2] + Math.sin(i * 1.6) * .53], .09, distantTrunkGeometry);
     }
     if (detailed) for (let i = 0; i < 3; i++) instance(sphereGeometry, materials.trunk, [crown[0] + range(-0.2, 0.2), crown[1] - 0.3, crown[2] + range(-0.2, 0.2)], [0.15, 0.18, 0.15]);
   }
   for (let z = -218; z < 190; z += 23) {
     if (nearCross(z, 19)) continue;
     for (const side of [-1, 1]) {
+      if (side === 1 && z > -133 && z < -119) continue;
       const x = side * 13.5;
       box(materials.dark, x, 0.24, z, 1.6, 0.06, 1.6, 0, false);
       box(materials.soil, x, 0.28, z, 1.3, 0.04, 1.3, 0, false);
@@ -469,11 +462,16 @@ export function createWorld(scene) {
     palm(-103, z, range(9, 13), range(0.9, 1.15));
     if (!nearCross(z, 16)) palm(93.2, z, range(8, 11), 0.8);
   }
-  for (const [x, z, height] of [[-13.3, 22.5, 10.2], [13.3, 20.5, 10.8], [-13.3, -16.5, 10.5]]) {
+  for (const [x, z, height] of [[-13.3, 22.5, 9.2], [13.3, 20.5, 10.2], [-13.3, -16.5, 9.5]]) {
     box(materials.dark, x, 0.24, z, 1.6, 0.06, 1.6, 0, false);
     box(materials.soil, x, 0.28, z, 1.3, 0.04, 1.3, 0, false);
     palm(x, z, height, 0.95);
   }
+
+  const districtAPI = { box, panel, cylinder, line, instance, materials, canvasTexture,
+    root, colliders, panelGeometry, random, range, sign, palm, shrub };
+  const district = addAuthoredDistrict(districtAPI);
+  addStreetDetails(districtAPI);
 
   function streetLamp(x, z, inward) {
     lampPositions.push(new THREE.Vector3(x+inward*2.3,7.9,z));
@@ -489,21 +487,56 @@ export function createWorld(scene) {
     streetLamp(11.9, z + 6, -1);
     streetLamp(91.3, z, -1);
   }
-  function trafficLight(x, z, side, direction, green) {
-    cylinder(materials.blackMetal, x, 3.6, z, 0.095, 7.0);
-    line(materials.blackMetal, [x, 6.7, z], [x + side * 6.7, 6.7, z], 0.085);
-    box(materials.dark, x + side * 5.8, 5.95, z, 0.6, 1.65, 0.36);
-    for (let i = 0; i < 3; i++) {
-      const lightMaterial = (green && i === 2) ? materials.greenLight : (!green && i === 0) ? materials.redLight : materials.blackMetal;
-      instance(sphereGeometry, lightMaterial, [x + side * 5.8, 6.48 - i * 0.49, z + direction * 0.21], [0.18, 0.18, 0.07], [0, 0, 0], false);
-      box(materials.dark, x + side * 5.8, 6.68 - i * 0.49, z + direction * 0.34, 0.47, 0.06, 0.36, 0, false);
+  // Two shared lens materials per travel axis keep every intersection in step
+  // with simulation.js. Only their uniforms change at the 12-second boundary.
+  const signalMaterials = {
+    z: { red: materials.redLight, green: materials.greenLight },
+    x: { red: materials.redLight.clone(), green: materials.greenLight.clone() },
+  };
+  for (const axis of ['z', 'x']) for (const color of ['red', 'green']) {
+    signalMaterials[axis][color].name = `${axis === 'z' ? 'North-south' : 'East-west'} ${color} signal`;
+  }
+  let greenVertical = null;
+  function updateTrafficSignals(time) {
+    const next = Math.floor(time / 12) % 2 === 0;
+    if (next === greenVertical) return;
+    greenVertical = next;
+    for (const axis of ['z', 'x']) {
+      const green = axis === 'z' ? next : !next;
+      const lenses = signalMaterials[axis];
+      lenses.red.color.set(green ? '#35130e' : '#ff573e');
+      lenses.red.emissiveIntensity = green ? 0 : 1.8;
+      lenses.green.color.set(green ? '#93efbd' : '#102c20');
+      lenses.green.emissiveIntensity = green ? 1.8 : 0;
     }
-    box(materials.dark, x, 2.0, z, 0.33, 0.43, 0.28);
+  }
+  updateTrafficSignals(0);
+  function trafficLight(x, z, side, direction, axis = 'z', pole = true) {
+    const horizontal = axis === 'x';
+    const headX = x + (horizontal ? 0 : side * 5.8);
+    const headZ = z + (horizontal ? side * 5.8 : 0);
+    const rotation = horizontal ? Math.PI / 2 : 0;
+    if (pole) cylinder(materials.blackMetal, x, 3.6, z, 0.095, 7.0);
+    line(materials.blackMetal, [x, 6.7, z], [x + (horizontal ? 0 : side * 6.7), 6.7, z + (horizontal ? side * 6.7 : 0)], 0.085);
+    box(materials.dark, headX, 5.95, headZ, 0.6, 1.65, 0.36, rotation);
+    for (let i = 0; i < 3; i++) {
+      const lightMaterial = i === 0 ? signalMaterials[axis].red : i === 2 ? signalMaterials[axis].green : materials.blackMetal;
+      instance(sphereGeometry, lightMaterial,
+        [headX + (horizontal ? direction * .21 : 0), 6.48 - i * .49, headZ + (horizontal ? 0 : direction * .21)],
+        [.18, .18, .07], [0, rotation, 0], false);
+      box(materials.dark, headX + (horizontal ? direction * .34 : 0), 6.68 - i * .49,
+        headZ + (horizontal ? 0 : direction * .34), .47, .06, .36, rotation, false);
+    }
+    if (pole) box(materials.dark, x, 2.0, z, 0.33, 0.43, 0.28);
   }
   for (const z of intersections) {
-    trafficLight(-12.2, z - 11.8, 1, 1, true);
-    trafficLight(12.2, z + 11.8, -1, -1, true);
-    trafficLight(68.5, z - 11.8, 1, 1, false);
+    for (const roadX of [0, 80]) {
+      trafficLight(roadX - 12.2, z - 11.8, 1, 1);
+      trafficLight(roadX + 12.2, z + 11.8, -1, -1);
+      // Crossing heads share each corner mast and face the opposing traffic.
+      trafficLight(roadX - 12.2, z - 11.8, 1, 1, 'x', false);
+      trafficLight(roadX + 12.2, z + 11.8, -1, -1, 'x', false);
+    }
     sign(z === 0 ? 'OCEAN DRIVE' : z < 0 ? 'PALM AVENUE' : 'MARINA WAY', -12.08, 5.8, z - 11.3, 3.0, 0.55, 0, { background: '#356e65', border: false, fontSize: 59 });
   }
 
@@ -531,7 +564,7 @@ export function createWorld(scene) {
       const px = side * 15.7;
       box(materials.concrete, px, 0.54, z - 8, 1.1, 0.7, 2.7);
       box(materials.soil, px, 0.91, z - 8, 0.9, 0.06, 2.5, 0, false);
-      for (let i = 0; i < 4; i++) instance(sphereGeometry, materials.shrub, [px, 1.06, z - 8.9 + i * 0.6], [0.51, 0.4, 0.55]);
+      for (let i = 0; i < 3; i++) shrub(px, 1.31 + i % 2 * .07, z - 8.8 + i * .8, 1.15, .94, 1.2);
     }
   }
   // Café tables at the corner, with striped parasols and chairs.
@@ -696,6 +729,12 @@ export function createWorld(scene) {
   }
   return {
     root, colliders, roads, ready, lampPositions,
+    landmarks: district.landmarks,
+    zones: district.zones,
+    locationAt(x, z) {
+      return district.zones.find(zone => x >= zone.minX && x <= zone.maxX && z >= zone.minZ && z <= zone.maxZ)?.name
+        || (x < -100 ? 'Pacific Oceanfront' : z < -95 ? 'Palm Avenue' : z > 95 ? 'Marina Way' : 'Ocean Drive');
+    },
     setNight(value) {
       materials.lamp.emissiveIntensity=value?4.5:1.3;
       materials.glassWarm.emissiveMap=value?materials.glassWarm.map:null;
@@ -704,6 +743,6 @@ export function createWorld(scene) {
       illuminatedSigns.forEach(({material,intensity})=>material.emissiveIntensity=intensity*(value?3:1));
     },
     bounds: { minX: -148, maxX: 143, minZ: -238, maxZ: 194 },
-    update(dt, time) { waterMaterial.uniforms.time.value = time; breeze.value = time; },
+    update(dt, time) { waterMaterial.uniforms.time.value = time; breeze.value = time; updateTrafficSignals(time); },
   };
 }

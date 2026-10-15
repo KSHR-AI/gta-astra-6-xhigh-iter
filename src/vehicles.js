@@ -232,9 +232,13 @@ function makeWheel() {
  */
 function createOriginalCar({ color = 0xe4bb67, type = 'sport', police = false } = {}) {
   const mesh = new THREE.Group(); mesh.name = police ? 'Pacific Coast patrol coupe' : 'Comet GT';
-  const paint = new THREE.MeshPhysicalMaterial({ color: police ? 0xe8e8df : color, metalness: 0.45, roughness: 0.24, clearcoat: 0.85, clearcoatRoughness: 0.13 });
+  const paint = new THREE.MeshPhysicalMaterial({ color: police ? 0xe8e8df : color, metalness: 0.22, roughness: 0.34, clearcoat: 0.55, clearcoatRoughness: 0.24, envMapIntensity: 0.7 });
+  paint.name = 'body';
   const headlight = new THREE.MeshStandardMaterial({ color: 0xeaf8ee, metalness: 0.2, roughness: 0.12, emissive: 0xf4ffc9, emissiveIntensity: 0.8 });
   const tailLight = new THREE.MeshStandardMaterial({ color: 0x8b1010, metalness: 0.25, roughness: 0.16, emissive: 0xff2615, emissiveIntensity: 0.8 });
+  headlight.name = 'headlight_left'; tailLight.name = 'taillight_left';
+  const rightHeadlight = headlight.clone(); rightHeadlight.name = 'headlight_right';
+  const rightTailLight = tailLight.clone(); rightTailLight.name = 'taillight_right';
   mesh.add(bodyShell(paint));
 
   // Low glasshouse with full-height raked windscreen, rear glass, and a curved roof.
@@ -283,9 +287,9 @@ function createOriginalCar({ color = 0xe4bb67, type = 'sport', police = false } 
   box(mesh, cabinTrim, [1.46, 0.17, 0.31], [0, 0.86, 0.52], 0.065);
   box(mesh, charcoal, [0.23, 0.22, 0.94], [0, 0.68, -0.1], 0.05);
   for (const side of [-1, 1]) {
-    box(mesh, leather, [0.47, 0.13, 0.52], [side * 0.4, 0.66, -0.28], 0.06);
-    const back = box(mesh, leather, [0.46, 0.5, 0.13], [side * 0.4, 0.92, -0.55], 0.06); back.rotation.x = -0.13;
-    box(mesh, leather, [0.25, 0.19, 0.11], [side * 0.4, 1.22, -0.59], 0.04);
+    box(mesh, leather, [0.47, 0.13, 0.52], [side * 0.4, 0.56, -0.20], 0.06);
+    const back = box(mesh, leather, [0.46, 0.5, 0.13], [side * 0.4, 0.82, -0.45], 0.06); back.rotation.x = -0.13;
+    box(mesh, leather, [0.25, 0.19, 0.11], [side * 0.4, 1.12, -0.49], 0.04);
   }
   const steering = part(mesh, cached('steering-wheel', () => new THREE.TorusGeometry(0.14, 0.016, 6, 20)), charcoal, -0.4, 0.965, 0.32); steering.rotation.x = -0.38;
   box(mesh, charcoal, [0.2, 0.038, 0.035], [-0.4, 0.965, 0.32], 0.01);
@@ -296,13 +300,15 @@ function createOriginalCar({ color = 0xe4bb67, type = 'sport', police = false } 
   for (let i = -5; i <= 5; i++) box(mesh, bodyBottom, [0.018, 0.1, 0.025], [i * 0.1, 0.455, 2.262], 0.003);
   box(mesh, police ? blackPaint : paint, [0.065, 0.145, 0.055], [0, 0.455, 2.268], 0.01);
   for (const side of [-1, 1]) {
+    const activeHeadlight = side < 0 ? headlight : rightHeadlight;
+    const activeTailLight = side < 0 ? tailLight : rightTailLight;
     const lampHousing = part(mesh, cached('headlight-housing', () => new THREE.SphereGeometry(1, 16, 10)), charcoal, side * 0.645, 0.762, 1.985);
     lampHousing.scale.set(0.202, 0.143, 0.16); lampHousing.rotation.x = -0.53;
-    const lens = part(mesh, cached('headlight-lens', () => new THREE.SphereGeometry(1, 16, 10)), headlight, side * 0.645, 0.789, 2.025);
+    const lens = part(mesh, cached('headlight-lens', () => new THREE.SphereGeometry(1, 16, 10)), activeHeadlight, side * 0.645, 0.789, 2.025);
     lens.scale.set(0.168, 0.114, 0.12); lens.rotation.x = -0.53;
-    box(mesh, headlight, [0.24, 0.028, 0.035], [side * 0.61, 0.435, 2.266], 0.012);
+    box(mesh, activeHeadlight, [0.24, 0.028, 0.035], [side * 0.61, 0.435, 2.266], 0.012);
     box(mesh, charcoal, [0.625, 0.12, 0.055], [side * 0.47, 0.735, -2.18], 0.035);
-    box(mesh, tailLight, [0.572, 0.071, 0.06], [side * 0.47, 0.743, -2.21], 0.023);
+    box(mesh, activeTailLight, [0.572, 0.071, 0.06], [side * 0.47, 0.743, -2.21], 0.023);
     box(mesh, charcoal, [0.28, 0.095, 0.05], [side * 0.64, 0.43, -2.17], 0.02);
     const exhaust = part(mesh, cached('exhaust', () => new THREE.CylinderGeometry(0.045, 0.045, 0.17, 14, 1, true)), polished, side * 0.65, 0.35, -2.19); exhaust.rotation.x = Math.PI / 2;
     part(mesh, cached('exhaust-hole', () => new THREE.CircleGeometry(0.037, 14)), tread, side * 0.65, 0.35, -2.278).rotation.y = Math.PI;
@@ -416,9 +422,24 @@ function modelMaterialName(name) {
   return 'interior';
 }
 
+function addImportedPart(parent, geometry, category, getMaterial) {
+  if (category !== 'headlight' && category !== 'taillight') return part(parent, geometry, getMaterial(category));
+  const left = [], right = [], index = geometry.index, positions = geometry.attributes.position;
+  for (let i = 0; i < index.count; i += 3) {
+    const a = index.getX(i), b = index.getX(i + 1), c = index.getX(i + 2);
+    (positions.getX(a) + positions.getX(b) + positions.getX(c) < 0 ? left : right).push(a, b, c);
+  }
+  for (const [side, indices] of [['left', left], ['right', right]]) {
+    if (!indices.length) continue;
+    const half = geometry.clone(); half.setIndex(indices);
+    part(parent, half, getMaterial(`${category}_${side}`));
+  }
+  geometry.dispose();
+}
+
 function prepareImportedTemplate(scene) {
   scene.rotation.y = Math.PI;
-  scene.scale.setScalar(IMPORTED_SCALE);
+  scene.scale.set(-IMPORTED_SCALE, IMPORTED_SCALE, IMPORTED_SCALE);
   scene.updateMatrixWorld(true);
   const result = new THREE.Group();
   const bodyGroup = new THREE.Group(); bodyGroup.name = 'body_group'; result.add(bodyGroup);
@@ -461,12 +482,12 @@ function prepareImportedTemplate(scene) {
     }
     if (fixedIndices.length) {
       const fixed = geometry.clone(); fixed.setIndex(fixedIndices);
-      part(bodyGroup, fixed, material(category));
+      addImportedPart(bodyGroup, fixed, category, material);
     }
     if (movingIndices.length) {
       const moving = geometry.clone(); moving.setIndex(movingIndices);
       moving.translate(-door.position.x, -door.position.y, -door.position.z);
-      part(door, moving, material(category));
+      addImportedPart(door, moving, category, material);
     }
     geometry.dispose();
   });
@@ -497,19 +518,21 @@ export function loadVehicleAssets() {
 
 function importedPalette(color) {
   const palette = {
-    body: new THREE.MeshPhysicalMaterial({ color, metalness: 0.3, roughness: 0.27, clearcoat: 0.8, clearcoatRoughness: 0.16, envMapIntensity: 0.95 }),
-    rim: new THREE.MeshStandardMaterial({ color: 0xb9bfbd, metalness: 0.95, roughness: 0.2, envMapIntensity: 1.15 }),
+    body: new THREE.MeshPhysicalMaterial({ color, metalness: 0.2, roughness: 0.33, clearcoat: 0.55, clearcoatRoughness: 0.23, envMapIntensity: 0.72 }),
+    rim: new THREE.MeshStandardMaterial({ color: 0xadb5b2, metalness: 0.87, roughness: 0.29, envMapIntensity: 0.9 }),
     chrome: new THREE.MeshStandardMaterial({ color: 0xbec8ca, metalness: 1, roughness: 0.17 }),
     metal: new THREE.MeshStandardMaterial({ color: 0x505757, metalness: 0.83, roughness: 0.34 }),
     interior: new THREE.MeshStandardMaterial({ color: 0x171b1a, metalness: 0.12, roughness: 0.77 }),
     leather: new THREE.MeshStandardMaterial({ color: 0x483a2f, metalness: 0.02, roughness: 0.68 }),
     rubber: new THREE.MeshStandardMaterial({ color: 0x111516, metalness: 0, roughness: 0.92 }),
-    glass: new THREE.MeshStandardMaterial({ color: 0x819995, metalness: 0.32, roughness: 0.08, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 1.5 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0x708884, metalness: 0.18, roughness: 0.12, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 0.85 }),
     headlight: new THREE.MeshStandardMaterial({ color: 0xe9f4ed, roughness: 0.12, metalness: 0.25, emissive: 0xe5f4d9, emissiveIntensity: 0.35 }),
     taillight: new THREE.MeshStandardMaterial({ color: 0xa60909, roughness: 0.16, metalness: 0.2, emissive: 0xff130a, emissiveIntensity: 0.4 }),
     indicator: new THREE.MeshStandardMaterial({ color: 0xeb9224, roughness: 0.25, emissive: 0xfda52a, emissiveIntensity: 0.25 }),
     badge: new THREE.MeshStandardMaterial({ color: 0xc69c2e, roughness: 0.3, metalness: 0.7 }),
   };
+  palette.headlight_left = palette.headlight; palette.headlight_right = palette.headlight.clone();
+  palette.taillight_left = palette.taillight; palette.taillight_right = palette.taillight.clone();
   palette.glass.forceSinglePass = true;
   for (const [name, material] of Object.entries(palette)) { material.name = name; material.side = THREE.DoubleSide; }
   return palette;
@@ -567,6 +590,262 @@ function createImportedCar({ color }) {
 
 /** Full vehicle contract; original sedans keep traffic visually varied. */
 export function createCar({ color = 0xe4bb67, type = 'sport', police = false } = {}) {
-  if (type === 'sport' && !police && importedVehicleTemplates) return createImportedCar({ color });
-  return createOriginalCar({ color, type, police });
+  const imported = type === 'sport' && !police && Boolean(importedVehicleTemplates);
+  const vehicle = imported ? createImportedCar({ color }) : createOriginalCar({ color, type, police });
+  return enhanceVehicle(vehicle, { type: police ? 'police' : type, imported });
+}
+
+let smokeMap;
+function getSmokeMap() {
+  if (smokeMap) return smokeMap;
+  const size = 48, pixels = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const radius = Math.hypot((x + 0.5) / size * 2 - 1, (y + 0.5) / size * 2 - 1);
+    const i = (y * size + x) * 4;
+    pixels[i] = pixels[i + 1] = pixels[i + 2] = 255;
+    pixels[i + 3] = Math.round(Math.max(0, (1 - radius) ** 2) * (radius < 1 ? 180 : 0));
+  }
+  smokeMap = new THREE.DataTexture(pixels, size, size, THREE.RGBAFormat);
+  smokeMap.needsUpdate = true; smokeMap.magFilter = THREE.LinearFilter; smokeMap.minFilter = THREE.LinearFilter;
+  return smokeMap;
+}
+
+function makeWindshieldCracks(imported) {
+  const vertices = [];
+  const point = (u, v) => imported
+    ? new THREE.Vector3((u - 0.5) * (1.34 - v * 0.13), 0.85 + v * 0.331, 1.075 - v * 0.787 + 0.008)
+    : new THREE.Vector3((u - 0.5) * (1.52 - v * 0.29), 0.963 + v * 0.43, 0.918 - v * 0.565);
+  const add = (a, b) => vertices.push(...point(...a).toArray(), ...point(...b).toArray());
+  const center = [0.32, 0.48];
+  for (let spoke = 0; spoke < 11; spoke++) {
+    const angle = spoke * Math.PI * 2 / 11, extent = 0.24 + (spoke % 4) * 0.06;
+    let previous = center;
+    for (let step = 1; step <= 4; step++) {
+      const distance = extent * step / 4;
+      const next = [THREE.MathUtils.clamp(center[0] + Math.cos(angle + Math.sin(step * spoke) * 0.12) * distance, 0.02, 0.98), THREE.MathUtils.clamp(center[1] + Math.sin(angle) * distance, 0.02, 0.98)];
+      add(previous, next); previous = next;
+    }
+  }
+  for (const radius of [0.07, 0.14]) for (let spoke = 0; spoke < 11; spoke++) {
+    const a = spoke / 11 * Math.PI * 2, b = (spoke + 1) / 11 * Math.PI * 2;
+    add([center[0] + Math.cos(a) * radius, center[1] + Math.sin(a) * radius], [center[0] + Math.cos(b) * radius, center[1] + Math.sin(b) * radius]);
+  }
+  const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  const cracks = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xe4ece3, transparent: true, opacity: 0.58, depthWrite: false }));
+  cracks.name = 'damaged_windshield'; cracks.visible = false;
+  return cracks;
+}
+
+/** Adds suspension, staged damage, and consistent local interaction anchors. */
+function enhanceVehicle(vehicle, { type, imported }) {
+  vehicle.type = type;
+  vehicle.mesh.userData.vehicleType = type;
+  vehicle.mesh.userData.damageHealth = 100;
+  const chassis = [], wheelPivots = [], paintMeshes = [], glassMeshes = [], headlights = [], taillights = [];
+  const chassisFor = (parent, parts) => {
+    const body = new THREE.Group(); body.name = 'suspended_chassis'; parent.add(body);
+    for (const child of parts) body.add(child);
+    chassis.push(body); return body;
+  };
+  const lod = vehicle.mesh.children.find(child => child.isLOD);
+  if (lod) {
+    for (const level of lod.levels) {
+      const pivots = level.object.children.filter(child => /^wheel_[fr][lr]$/.test(child.name));
+      wheelPivots.push(...pivots);
+      chassisFor(level.object, level.object.children.filter(child => !pivots.includes(child)));
+    }
+  } else {
+    const pivots = [...new Set(vehicle.wheels.map(wheel => wheel.parent))];
+    wheelPivots.push(...pivots);
+    chassisFor(vehicle.mesh, vehicle.mesh.children.filter(child => !pivots.includes(child)));
+  }
+  const extras = new THREE.Group(); extras.name = 'vehicle_damage_effects'; vehicle.mesh.add(extras); chassis.push(extras);
+  if (lod) for (const child of [...vehicle.mesh.children]) if (child.isMesh) extras.add(child);
+  // Keep shared factory materials immutable; damage to one car never changes
+  // another car's windows or bodywork.
+  const glassCopies = new Map();
+  vehicle.mesh.traverse(object => {
+    if (!object.isMesh || Array.isArray(object.material)) return;
+    if (object.material === glass || object.material.name === 'glass') {
+      if (!glassCopies.has(object.material)) { const copy = object.material.clone(); copy.name = 'glass'; glassCopies.set(object.material, copy); }
+      object.material = glassCopies.get(object.material); glassMeshes.push(object);
+    }
+    if (object.material.name === 'body') paintMeshes.push(object);
+    if (object.material.name.startsWith('headlight_')) headlights.push(object.material);
+    if (object.material.name.startsWith('taillight_')) taillights.push(object.material);
+  });
+  const uniqueHeadlights = [...new Set(headlights)], uniqueTaillights = [...new Set(taillights)];
+  const originalPaint = new Map();
+  for (const object of paintMeshes) if (!originalPaint.has(object.material)) originalPaint.set(object.material, { color: object.material.color.clone(), roughness: object.material.roughness });
+  const cracks = makeWindshieldCracks(imported); extras.add(cracks);
+  const smokeGeometry = new THREE.BufferGeometry();
+  smokeGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12 * 3), 3));
+  const smoke = new THREE.Points(smokeGeometry, new THREE.PointsMaterial({ color: 0x666c69, map: getSmokeMap(), size: 0.95, transparent: true, opacity: 0.6, depthWrite: false, sizeAttenuation: true }));
+  smoke.name = 'engine_smoke'; smoke.visible = false; smoke.frustumCulled = false; extras.add(smoke);
+  const dentData = new WeakMap(), brokenGlassData = new WeakMap();
+  const wheelRest = wheelPivots.map(pivot => ({ pivot, y: pivot.position.y }));
+  const dynamics = { roll: 0, pitch: 0, heave: 0, brake: 0, slip: 0, speed: 0 };
+  const spring = { roll: 0, rollVelocity: 0, pitch: 0, pitchVelocity: 0, heave: 0, heaveVelocity: 0 };
+  let externalDynamics = false, damageHealth = 100, time = 0, lastSpeed = 0, lights = true;
+  const baseUpdate = vehicle.update.bind(vehicle), baseLights = vehicle.setLights.bind(vehicle);
+  function updateLamps() {
+    for (const material of uniqueHeadlights) {
+      const broken = damageHealth < (material.name.endsWith('left') ? 62 : 24);
+      material.emissiveIntensity = broken ? 0 : lights ? 2.1 : 0.2;
+      material.color.setHex(broken ? 0x303932 : 0xe9f2e9);
+    }
+    for (const material of uniqueTaillights) {
+      const broken = damageHealth < (material.name.endsWith('right') ? 18 : 8);
+      material.emissiveIntensity = broken ? 0 : 0.35 + (lights ? 0.65 : 0) + dynamics.brake * 3.2;
+      material.color.setHex(broken ? 0x2d1514 : 0x9c1110);
+    }
+  }
+  function deformBody(object, health) {
+    if (!dentData.has(object)) {
+      const source = object.geometry; object.geometry = source.clone();
+      const positions = new Float32Array(source.attributes.position.array);
+      const normals = new Float32Array(source.attributes.normal.array);
+      const groups = new Uint32Array(source.attributes.position.count), groupMap = new Map();
+      // Batching makes the geometry non-indexed. Recomputing its normals would
+      // turn every triangle into a visible flat facet. Preserve the original
+      // smoothing groups, including deliberately sharp seams, while denting.
+      for (let i = 0; i < groups.length; i++) {
+        const offset = i * 3;
+        const key = [0, 1, 2].map(axis => Math.round(positions[offset + axis] * 1e5)).join(',')
+          + ':' + [0, 1, 2].map(axis => Math.round(normals[offset + axis] * 1e3)).join(',');
+        if (!groupMap.has(key)) groupMap.set(key, groupMap.size);
+        groups[i] = groupMap.get(key);
+      }
+      dentData.set(object, { positions, normals, groups, sums: new Float32Array(groupMap.size * 3) });
+    }
+    const data = dentData.get(object), attribute = object.geometry.attributes.position, normal = object.geometry.attributes.normal;
+    const original = data.positions;
+    if (health >= 82) {
+      attribute.array.set(original); normal.array.set(data.normals);
+      attribute.needsUpdate = normal.needsUpdate = true;
+      object.geometry.computeBoundingSphere();
+      return;
+    }
+    vehicle.mesh.updateMatrixWorld(true);
+    const intoCar = new THREE.Matrix4().multiplyMatrices(vehicle.mesh.matrixWorld.clone().invert(), object.matrixWorld);
+    const fromCar = intoCar.clone().invert();
+    const point = new THREE.Vector3();
+    const frontDamage = Math.max(0, (82 - health) / 82), rearDamage = Math.max(0, (42 - health) / 42);
+    for (let i = 0; i < attribute.count; i++) {
+      point.fromArray(original, i * 3).applyMatrix4(intoCar);
+      const front = THREE.MathUtils.smoothstep(point.z, 1.3, 2.28) * Math.max(0, 1 - Math.abs(point.y - 0.5) / 0.75);
+      const rear = THREE.MathUtils.smoothstep(-point.z, 1.65, 2.28);
+      const side = point.x < 0 ? 1 : 0.45;
+      point.z -= front * frontDamage * (0.21 + 0.045 * Math.sin(point.x * 17 + point.y * 11)) * side;
+      point.x += front * frontDamage * (point.x < 0 ? 0.075 : -0.02);
+      point.y -= front * frontDamage * 0.045;
+      point.z += rear * rearDamage * 0.14;
+      point.applyMatrix4(fromCar); attribute.setXYZ(i, point.x, point.y, point.z);
+    }
+    const sums = data.sums; sums.fill(0);
+    const indices = object.geometry.index?.array;
+    const count = indices?.length ?? attribute.count;
+    const ab = new THREE.Vector3(), ac = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    for (let i = 0; i < count; i += 3) {
+      const ia = indices ? indices[i] : i, ib = indices ? indices[i + 1] : i + 1, ic = indices ? indices[i + 2] : i + 2;
+      a.fromBufferAttribute(attribute, ia); b.fromBufferAttribute(attribute, ib); c.fromBufferAttribute(attribute, ic);
+      ab.subVectors(b, a); ac.subVectors(c, a); ab.cross(ac);
+      a.fromArray(data.normals, ia * 3); b.fromArray(data.normals, ib * 3); c.fromArray(data.normals, ic * 3);
+      // The left-hand-drive source is mirrored before batching, which reverses
+      // triangle winding. Retain its existing outward normal orientation.
+      if (ab.dot(a.add(b).add(c)) < 0) ab.negate();
+      for (const vertex of [ia, ib, ic]) {
+        const offset = data.groups[vertex] * 3;
+        sums[offset] += ab.x; sums[offset + 1] += ab.y; sums[offset + 2] += ab.z;
+      }
+    }
+    for (let i = 0; i < attribute.count; i++) {
+      const offset = data.groups[i] * 3;
+      ab.fromArray(sums, offset);
+      if (ab.lengthSq() < 1e-16) ab.fromArray(data.normals, i * 3);
+      else ab.normalize();
+      a.fromArray(data.normals, i * 3);
+      if (ab.dot(a) < 0) ab.negate();
+      normal.setXYZ(i, ab.x, ab.y, ab.z);
+    }
+    attribute.needsUpdate = normal.needsUpdate = true;
+    object.geometry.computeBoundingSphere();
+  }
+  function shatterGlass(object, health) {
+    if (!brokenGlassData.has(object)) {
+      const geometry = object.geometry.clone(); object.geometry = geometry;
+      brokenGlassData.set(object, geometry.index ? Array.from(geometry.index.array) : Array.from({ length: geometry.attributes.position.count }, (_, i) => i));
+    }
+    const original = brokenGlassData.get(object);
+    if (health > 28) { object.geometry.setIndex(original); return; }
+    const indices = [], position = object.geometry.attributes.position;
+    for (let i = 0; i < original.length; i += 3) {
+      const a = original[i], b = original[i + 1], c = original[i + 2];
+      const x = (position.getX(a) + position.getX(b) + position.getX(c)) / 3;
+      const y = (position.getY(a) + position.getY(b) + position.getY(c)) / 3;
+      const z = (position.getZ(a) + position.getZ(b) + position.getZ(c)) / 3;
+      const windshieldHole = y > 0.9 && z > 0.25 && z < 1.14 && Math.abs(x + 0.19) < 0.42;
+      if (!windshieldHole) indices.push(a, b, c);
+    }
+    object.geometry.setIndex(indices);
+  }
+  vehicle.setDamage = (health = 100) => {
+    const next = THREE.MathUtils.clamp(Number.isFinite(health) ? health : 100, 0, 100);
+    if (next === damageHealth) return;
+    damageHealth = next; vehicle.mesh.userData.damageHealth = next;
+    for (const object of paintMeshes) deformBody(object, next);
+    for (const [material, original] of originalPaint) {
+      material.roughness = original.roughness + (1 - next / 100) * 0.16;
+      material.color.copy(original.color).lerp(new THREE.Color(0x44453f), (1 - next / 100) * 0.12);
+    }
+    cracks.visible = next < 58 && next > 28;
+    for (const object of glassMeshes) shatterGlass(object, next);
+    smoke.visible = next < 34;
+    smoke.material.color.setHex(next < 12 ? 0x32332f : 0x7a807b);
+    updateLamps();
+  };
+  vehicle.setDynamics = values => {
+    externalDynamics = true;
+    for (const key of ['roll', 'pitch', 'heave', 'brake', 'slip', 'speed']) if (Number.isFinite(values[key])) dynamics[key] = values[key];
+  };
+  vehicle.getDriverSeat = (target = new THREE.Vector3()) => {
+    target.set(imported ? -0.35 : -0.4, imported ? 0.44 : 0.65, imported ? -0.05 : -0.15);
+    chassis[0].updateMatrix(); return target.applyMatrix4(chassis[0].matrix);
+  };
+  vehicle.getDoorPosition = (target = new THREE.Vector3()) => target.set(-1.48, 0, -0.05);
+  vehicle.setLights = enabled => { lights = Boolean(enabled); baseLights(lights); updateLamps(); };
+  vehicle.update = (dt = 0, speed = 0, steer = 0) => {
+    const delta = THREE.MathUtils.clamp(Number.isFinite(dt) ? dt : 0, 0, 0.3);
+    time += delta; baseUpdate(delta, speed, steer);
+    if (!externalDynamics) {
+      const acceleration = delta > 0 ? THREE.MathUtils.clamp((speed - lastSpeed) / delta, -15, 12) : 0;
+      dynamics.roll = steer * speed * speed * 0.00007;
+      dynamics.pitch = -acceleration * 0.002;
+      dynamics.heave = 0; dynamics.brake = acceleration < -1.5 ? Math.min(1, -acceleration / 10) : 0;
+    }
+    externalDynamics = false; lastSpeed = speed;
+    const steps = Math.max(1, Math.ceil(delta * 120)), step = delta / steps;
+    const stiffness = type === 'sport' ? 125 : 85, damping = type === 'sport' ? 19 : 15;
+    const targets = { roll: THREE.MathUtils.clamp(dynamics.roll, -0.07, 0.07), pitch: THREE.MathUtils.clamp(dynamics.pitch, -0.055, 0.055), heave: THREE.MathUtils.clamp(dynamics.heave, -0.035, 0.035) };
+    for (let substep = 0; substep < steps; substep++) for (const key of ['roll', 'pitch', 'heave']) {
+      spring[`${key}Velocity`] += ((targets[key] - spring[key]) * stiffness - spring[`${key}Velocity`] * damping) * step;
+      spring[key] += spring[`${key}Velocity`] * step;
+    }
+    for (const body of chassis) {
+      body.rotation.z = spring.roll; body.rotation.x = spring.pitch;
+      body.position.y = spring.heave + Math.sin(time * 12) * Math.min(0.0025, Math.abs(speed) * 0.00013);
+    }
+    for (const { pivot, y } of wheelRest) pivot.position.y = y;
+    if (smoke.visible) {
+      const position = smokeGeometry.attributes.position;
+      for (let i = 0; i < position.count; i++) {
+        const life = (time * 0.37 + i / position.count) % 1;
+        position.setXYZ(i, Math.sin(i * 2.41 + time * 0.8) * life * 0.38, 0.82 + life * 1.9, (imported ? -1.4 : 1.5) - life * Math.min(0.9, Math.abs(speed) * 0.06));
+      }
+      position.needsUpdate = true;
+    }
+    updateLamps();
+  };
+  vehicle.setLights(true);
+  return vehicle;
 }

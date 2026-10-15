@@ -1,19 +1,17 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
+import { createHumanoidAnimator } from './character-animation.js';
 
 let characterAsset;
 let pedestrianAsset;
+let crowdAsset;
+let civilianMaleAsset;
 let pedestrianCount = 0;
 let loadingPromise;
-const tmpPosition = new THREE.Vector3();
-const tmpDirection = new THREE.Vector3();
-const tmpParentRotation = new THREE.Quaternion();
-const tmpRotation = new THREE.Quaternion();
-const tmpDelta = new THREE.Quaternion();
 const white = new THREE.Color(0xffffff);
 
-function prepareCharacterMaterial(original, { civilian, npc, color }) {
+function prepareCharacterMaterial(original, { civilian, male, npc, color, police }) {
   const material = original.clone();
   // Retain the source's baked textile, seams and normal maps at oblique angles.
   for (const texture of [material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.specularColorMap]) {
@@ -27,6 +25,9 @@ function prepareCharacterMaterial(original, { civilian, npc, color }) {
   material.color.copy(white);
   material.envMapIntensity = civilian ? 0.65 : 0.85;
   material.normalScale?.setScalar(civilian ? 0.85 : 1.12);
+  // UV V was flipped for glTF without altering the original bitmap, so the
+  // tangent-space bitangent must flip too to preserve the sculpted normal detail.
+  if (male && material.normalScale) material.normalScale.y *= -1;
   if (material.name.includes('Visor')) {
     material.color.set(0x839aa5);
     material.metalness = 0.62;
@@ -34,22 +35,28 @@ function prepareCharacterMaterial(original, { civilian, npc, color }) {
     return material;
   }
 
-  // Dye only the source's yellow fabric / tan armor. Faces, hands, hair,
-  // stitching, worn edges and red insignia retain their original texture.
-  const wardrobe = new THREE.Color(color ?? (npc ? 0x647078 : 0x526471));
-  material.roughness = civilian ? 0.9 : 0.72;
+  // Dye the civilian fabric while preserving skin, hair and baked textile detail.
+  const wardrobe = new THREE.Color(police ? 0x172b43 : color ?? (npc ? 0x647078 : 0x384c58));
+  material.roughness = male ? 0.82 : civilian ? 0.9 : 0.72;
   // The imported civilian's metalness factor was 0.5, making skin look metallic.
   material.metalness = civilian ? 0 : 0.14;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.wardrobeColor = { value: wardrobe };
     shader.fragmentShader = `uniform vec3 wardrobeColor;\n${shader.fragmentShader}`;
+    if (male) {
+      shader.vertexShader = `attribute float clothDye;\nvarying float vClothDye;\n${shader.vertexShader}`;
+      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvClothDye = clothDye;');
+      shader.fragmentShader = `varying float vClothDye;\n${shader.fragmentShader}`;
+    }
     shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
       #include <map_fragment>
-      float wardrobeMask = ${civilian
+      float wardrobeMask = ${male
+        ? 'vClothDye * (1.0 - smoothstep(0.08, 0.18, (max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b) - min(min(diffuseColor.r, diffuseColor.g), diffuseColor.b)) / max(max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b), 0.001))) * smoothstep(0.025, 0.09, diffuseColor.g)'
+        : civilian
         ? 'smoothstep(0.18, 0.42, diffuseColor.g) * smoothstep(0.16, 0.38, diffuseColor.r - diffuseColor.b) * smoothstep(0.12, 0.30, diffuseColor.g - diffuseColor.b)'
         : 'smoothstep(0.10, 0.24, diffuseColor.r - diffuseColor.b) * smoothstep(0.035, 0.12, diffuseColor.g - diffuseColor.b)'};
       float sourceLuminance = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-      vec3 dyedSurface = wardrobeColor * (0.45 + sourceLuminance * ${civilian ? '1.0' : '1.75'});
+      vec3 dyedSurface = wardrobeColor * (${male ? '0.65 + sourceLuminance * 2.25' : civilian ? '0.45 + sourceLuminance' : '0.45 + sourceLuminance * 1.75'});
       diffuseColor.rgb = mix(diffuseColor.rgb, dyedSurface, wardrobeMask * ${civilian ? '0.94' : '0.88'});
     `);
     if (!civilian) {
@@ -62,8 +69,38 @@ function prepareCharacterMaterial(original, { civilian, npc, color }) {
       `);
     }
   };
-  material.customProgramCacheKey = () => civilian ? 'civilian-fabric-v1' : 'player-armor-v1';
+  material.customProgramCacheKey = () => male ? 'civilian-male-fabric-v1' : civilian ? 'civilian-fabric-v1' : 'player-armor-v1';
   return material;
+}
+
+function prepareMaleClothMask(object) {
+  // A bind-space mask excludes the face and shoes even when a texture pixel is
+  // neutral gray. It deforms with the skin and is shared by all male instances.
+  const geometry = object.geometry;
+  if (geometry.hasAttribute('clothDye')) return;
+  geometry.computeBoundingBox();
+  const { min, max } = geometry.boundingBox;
+  const positions = geometry.attributes.position;
+  const mask = new Float32Array(positions.count);
+  for (let i = 0; i < mask.length; i++) {
+    const height = (positions.getY(i) - min.y) / (max.y - min.y);
+    mask[i] = THREE.MathUtils.smoothstep(height, 0.46, 0.51) * (1 - THREE.MathUtils.smoothstep(height, 0.81, 0.84));
+  }
+  geometry.setAttribute('clothDye', new THREE.BufferAttribute(mask, 1));
+}
+
+function parseLocomotion(clips) {
+  return clips.map((clip) => THREE.AnimationClip.parse({
+    ...clip,
+    // Unmapped end bones keep their bind pose, rather than receiving empty tracks.
+    tracks: clip.tracks.filter((track) => track.times.length && track.values.length === track.times.length * (track.type.toLowerCase() === 'quaternion' ? 4 : 3)),
+  }));
+}
+
+async function loadLocomotion(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`Character animation request failed: ${path}`);
+  return parseLocomotion(await response.json());
 }
 
 function makeSoleProbes(model) {
@@ -106,19 +143,29 @@ export async function loadCharacterAssets() {
       loader.loadAsync('/models/Soldier.glb'),
       Promise.all([
         loader.loadAsync('/models/Michelle.glb'),
-        fetch('/models/pedestrian-motion.json').then((response) => {
-          if (!response.ok) throw new Error('Pedestrian animation request failed');
-          return response.json();
-        }),
+        loadLocomotion('/models/pedestrian-motion.json'),
       ]),
-    ]).then(([main, pedestrian]) => {
-        if (main.status !== 'fulfilled') throw main.reason;
-        characterAsset = main.value;
+      loader.loadAsync('/models/Michelle-crowd.glb'),
+      Promise.all([
+        loader.loadAsync('/models/CivilianMale.glb'),
+        loadLocomotion('/models/civilian-male-motion.json'),
+      ]),
+    ]).then(([main, pedestrian, crowd, male]) => {
+        if (main.status === 'fulfilled') characterAsset = main.value;
         if (pedestrian.status === 'fulfilled') {
           pedestrianAsset = pedestrian.value[0];
-          pedestrianAsset.animations = pedestrian.value[1].map((clip) => THREE.AnimationClip.parse(clip));
+          pedestrianAsset.animations = pedestrian.value[1];
+          if (crowd.status === 'fulfilled') {
+            crowdAsset = crowd.value;
+            crowdAsset.animations = pedestrianAsset.animations;
+          }
         }
-        return { loaded: true, animations: characterAsset.animations.map((clip) => clip.name), variants: pedestrianAsset ? 2 : 1 };
+        if (male.status === 'fulfilled') {
+          civilianMaleAsset = male.value[0];
+          civilianMaleAsset.animations = male.value[1];
+        }
+        if (!civilianMaleAsset && !pedestrianAsset && !characterAsset) throw main.reason;
+        return { loaded: true, animations: (civilianMaleAsset ?? pedestrianAsset ?? characterAsset).animations.map((clip) => clip.name), variants: civilianMaleAsset && pedestrianAsset ? 12 : pedestrianAsset ? 6 : 1, crowdOptimized: Boolean(crowdAsset), civilianMale: Boolean(civilianMaleAsset) };
       })
       .catch((error) => {
         console.warn('Character asset could not load; using articulated fallback.', error);
@@ -155,32 +202,22 @@ function handgun() {
   return { group, muzzle };
 }
 
-/** Point a bone's child toward a direction in world space, preserving animation roll. */
-function pointBone(bone, child, direction, weight) {
-  if (!bone || !child || weight < 0.001) return;
-  bone.updateWorldMatrix(true, true);
-  bone.getWorldPosition(tmpPosition);
-  child.getWorldPosition(tmpDirection).sub(tmpPosition).normalize();
-  tmpDelta.setFromUnitVectors(tmpDirection, direction);
-  bone.getWorldQuaternion(tmpRotation).premultiply(tmpDelta);
-  bone.parent.getWorldQuaternion(tmpParentRotation).invert();
-  tmpRotation.premultiply(tmpParentRotation);
-  bone.quaternion.slerp(tmpRotation, weight);
-  bone.updateWorldMatrix(false, true);
-}
-
 /**
  * Grounded 1.8 m character. The root's +Z axis is forward.
  * Each clone has its own skeleton, materials, mixer, and animation state.
  */
-export function createCharacter({ npc = false, color } = {}) {
-  if (!characterAsset) return createFallbackCharacter({ npc, color });
+export function createCharacter({ npc = false, color, police = false } = {}) {
+  if (!characterAsset && !pedestrianAsset && !civilianMaleAsset) return createFallbackCharacter({ npc, color, police });
 
   const mesh = new THREE.Group();
-  const civilian = Boolean(npc && pedestrianAsset && pedestrianCount++ % 3 !== 2);
-  const asset = civilian ? pedestrianAsset : characterAsset;
-  mesh.name = npc ? 'Pedestrian' : 'Player';
-  mesh.userData.characterAsset = civilian ? 'Mixamo Michelle / Michelle.glb' : 'Mixamo Vanguard / Soldier.glb';
+  const variant = npc ? pedestrianCount++ : 0;
+  const male = Boolean(civilianMaleAsset && (!npc || police || !pedestrianAsset || variant % 2 === 0));
+  const civilian = male || Boolean(pedestrianAsset);
+  const asset = male ? civilianMaleAsset : civilian ? (npc && crowdAsset ? crowdAsset : pedestrianAsset) : characterAsset;
+  const wardrobeColors = [0x6d6757, 0x375c66, 0x824b49, 0x46594b, 0x74627a, 0x858074];
+  color ??= npc ? wardrobeColors[Math.floor(variant / 2) % wardrobeColors.length] : 0x495761;
+  mesh.name = police ? 'Police officer' : npc ? 'Pedestrian' : 'Astra';
+  mesh.userData.characterAsset = male ? 'EmoPreben Bald Man / CivilianMale.glb' : civilian ? (npc && crowdAsset ? 'Mixamo Michelle / Michelle-crowd.glb' : 'Mixamo Michelle / Michelle.glb') : 'Mixamo Vanguard / Soldier.glb';
   const visual = new THREE.Group();
   mesh.add(visual);
   const model = cloneSkeleton(asset.scene);
@@ -188,16 +225,22 @@ export function createCharacter({ npc = false, color } = {}) {
   model.rotation.y = civilian ? 0 : Math.PI;
   visual.add(model);
   const bones = {};
+  const restPose = {};
   const materials = [];
   model.traverse((object) => {
-    if (object.isBone) bones[object.name.replace(/.*mixamorig[:_]?/i, '')] = object;
+    if (object.isBone || /^mixamorig[:_]?/i.test(object.name)) {
+      const name = object.name.replace(/.*mixamorig[:_]?/i, '');
+      bones[name] = object;
+      restPose[name] = object.quaternion.clone();
+    }
     if (!object.isMesh) return;
+    if (male) prepareMaleClothMask(object);
     object.castShadow = true;
     object.receiveShadow = true;
     // Skinned limbs can extend outside the static bind-pose bounds.
     object.frustumCulled = false;
     const recolor = (original) => {
-      const material = prepareCharacterMaterial(original, { civilian, npc, color });
+      const material = prepareCharacterMaterial(original, { civilian, male, npc, color, police });
       materials.push(material);
       return material;
     };
@@ -215,156 +258,117 @@ export function createCharacter({ npc = false, color } = {}) {
   mesh.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(model);
   const sourceHeight = bounds.max.y - bounds.min.y;
-  visual.scale.setScalar(1.8 / sourceHeight);
+  const height = male ? (npc ? [1.78, 1.84, 1.72, 1.88][Math.floor(variant / 2) % 4] : 1.82) : npc ? [1.69, 1.76, 1.72, 1.64][Math.floor(variant / 2) % 4] : 1.76;
+  visual.scale.setScalar(height / sourceHeight);
   model.position.y -= bounds.min.y;
   mesh.updateMatrixWorld(true);
   const soleProbes = makeSoleProbes(model);
-  // Different starting phases prevent the population from marching in unison.
-  const phaseOffset = npc ? (pedestrianCount * 0.381966) % 1 : 0;
-  let gaitPhase = phaseOffset;
-  for (const name of ['walk', 'run']) actions[name]?.play().setEffectiveWeight(0).setEffectiveTimeScale(0);
-  if (npc && actions.idle) actions.idle.time = phaseOffset * actions.idle.getClip().duration;
+  if (police && bones.Head) {
+    const cap = new THREE.Group();
+    cap.name = 'Police uniform cap';
+    const navy = new THREE.MeshStandardMaterial({ color: 0x13283f, roughness: 0.88 });
+    const gold = new THREE.MeshStandardMaterial({ color: 0xe4bc62, metalness: 0.7, roughness: 0.4 });
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.165, 0.065, 12), navy);
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.013, 0.1), navy);
+    brim.position.set(0, -0.027, 0.105);
+    const badge = new THREE.Mesh(new THREE.BoxGeometry(0.027, 0.032, 0.008), gold);
+    badge.position.set(0, 0.005, 0.138);
+    cap.add(crown, brim, badge);
+    const headScale = bones.Head.getWorldScale(new THREE.Vector3()).y;
+    cap.scale.setScalar(1 / headScale);
+    cap.position.y = (male ? 0.235 : 0.29) / headScale;
+    bones.Head.add(cap);
+    materials.push(navy, gold);
+  }
   const { group: weapon, muzzle } = handgun();
   mesh.add(weapon);
-  let weaponVisible = !npc;
-  weapon.visible = weaponVisible;
-  let aimWeight = 0;
-  let recoil = 0;
-  let wasShooting = false;
-  let motionSpeed = 0;
-  const rightArmDirection = new THREE.Vector3();
-  const leftArmDirection = new THREE.Vector3();
-  const rightForearmDirection = new THREE.Vector3();
-  const leftForearmDirection = new THREE.Vector3();
-  const rootRotation = new THREE.Quaternion();
-  const handPosition = new THREE.Vector3();
-  const solePosition = new THREE.Vector3();
-
-  function update(dt, { speed = 0, aiming = false, shooting = false, dead = false } = {}) {
-    const step = Math.min(dt, 0.1);
-    motionSpeed = THREE.MathUtils.damp(motionSpeed, Math.abs(speed), 12, step);
-    const movingWeight = THREE.MathUtils.smoothstep(motionSpeed, 0.04, 0.85);
-    const runningWeight = THREE.MathUtils.smoothstep(motionSpeed, 2.7, 4.7);
-    const strideDuration = THREE.MathUtils.lerp(actions.walk?.getClip().duration ?? 1, actions.run?.getClip().duration ?? 0.7, runningWeight);
-    const referenceSpeed = THREE.MathUtils.lerp(1.7, 4.7, runningWeight);
-    gaitPhase = (gaitPhase + step * motionSpeed / (referenceSpeed * strideDuration)) % 1;
-    actions.idle?.setEffectiveWeight(1 - movingWeight);
-    actions.walk?.setEffectiveWeight(movingWeight * (1 - runningWeight));
-    actions.run?.setEffectiveWeight(movingWeight * runningWeight);
-    for (const name of ['walk', 'run']) if (actions[name]) actions[name].time = gaitPhase * actions[name].getClip().duration;
-    mixer.update(step);
-
-    aimWeight = THREE.MathUtils.damp(aimWeight, (aiming || shooting) && weaponVisible ? 1 : 0, 14, step);
-    recoil = shooting && !wasShooting ? 0.11 : THREE.MathUtils.damp(recoil, 0, 22, step);
-    wasShooting = shooting;
-    mesh.updateWorldMatrix(true, true);
-    if (!dead && Math.abs(mesh.rotation.z) < 0.2 && soleProbes.length) {
-      let soleHeight = Infinity;
-      for (const probe of soleProbes) {
-        probe.object.getVertexPosition(probe.index, solePosition);
-        probe.object.localToWorld(solePosition);
-        mesh.worldToLocal(solePosition);
-        soleHeight = Math.min(soleHeight, solePosition.y);
-      }
-      const lift = THREE.MathUtils.clamp(visual.position.y - soleHeight, 0, 0.1);
-      visual.position.y = THREE.MathUtils.damp(visual.position.y, lift, lift > visual.position.y ? 35 : 14, step);
-      mesh.updateWorldMatrix(false, true);
-    }
-    mesh.getWorldQuaternion(rootRotation);
-    rightArmDirection.set(0.32, -0.36 + recoil, 0.87).normalize().applyQuaternion(rootRotation);
-    rightForearmDirection.set(0.3, 0.23 + recoil, 0.92).normalize().applyQuaternion(rootRotation);
-    leftArmDirection.set(-0.56, -0.58, 0.59).normalize().applyQuaternion(rootRotation);
-    leftForearmDirection.set(-0.35, 0.44, 0.83).normalize().applyQuaternion(rootRotation);
-    pointBone(bones.RightArm, bones.RightForeArm, rightArmDirection, aimWeight);
-    pointBone(bones.RightForeArm, bones.RightHand, rightForearmDirection, aimWeight);
-    pointBone(bones.LeftArm, bones.LeftForeArm, leftArmDirection, aimWeight);
-    pointBone(bones.LeftForeArm, bones.LeftHand, leftForearmDirection, aimWeight);
-
-    if (bones.RightHand) {
-      // Follow the skinned hand in root-local space, avoiding the source's cm scale.
-      bones.RightHand.getWorldPosition(handPosition);
-      mesh.worldToLocal(handPosition);
-      weapon.position.copy(handPosition);
-      weapon.position.y += 0.018;
-      weapon.position.z += aimWeight * 0.025;
-      weapon.rotation.set((1 - aimWeight) * 1.3 - recoil, 0, (1 - aimWeight) * -0.12);
-    }
-    visual.rotation.z = THREE.MathUtils.damp(visual.rotation.z, dead ? -Math.PI / 2 : 0, 8, step);
-    if (dead) weapon.visible = false;
-    else weapon.visible = weaponVisible;
-  }
-
-  update(0);
+  const magazine = new THREE.Mesh(new THREE.BoxGeometry(0.027, 0.085, 0.042), new THREE.MeshStandardMaterial({ color: 0x282c30, metalness: 0.65, roughness: 0.48 }));
+  magazine.name = 'Reload magazine';
+  magazine.visible = false;
+  mesh.add(magazine);
+  const animator = createHumanoidAnimator({
+    mesh, visual, bones, actions, mixer, weapon, magazine, soleProbes, restPose, npc,
+    phaseOffset: npc ? ((variant + 1) * 0.381966) % 1 : 0,
+  });
+  animator.update(0);
   return {
-    mesh,
-    mixer,
-    weapon,
-    muzzle,
-    update,
-    setWeapon(visible) { weaponVisible = Boolean(visible); weapon.visible = weaponVisible; },
+    mesh, mixer, weapon, muzzle,
+    update: animator.update,
+    seatOffset: animator.seatOffset,
+    seatAnchor: animator.seatAnchor,
+    setWeapon: animator.setWeapon,
+    reactToHit: animator.reactToHit,
+    getPoseInfo: animator.getPoseInfo,
     setVisible(visible) { mesh.visible = Boolean(visible); },
     getMuzzlePosition(target = new THREE.Vector3()) { return muzzle.getWorldPosition(target); },
     dispose() { mixer.stopAllAction(); materials.forEach((material) => material.dispose()); },
   };
 }
 
-// Offline fallback keeps gameplay usable if an asset request is interrupted.
-function createFallbackCharacter({ npc, color }) {
+// Articulated network-failure fallback uses the same interaction/driver contract.
+function createFallbackCharacter({ npc, color, police }) {
   const mesh = new THREE.Group();
-  mesh.name = npc ? 'Pedestrian fallback' : 'Player fallback';
+  const visual = new THREE.Group();
+  mesh.add(visual);
+  mesh.name = npc ? 'Civilian fallback' : 'Astra fallback';
   mesh.userData.characterAsset = 'Articulated fallback';
-  const cloth = new THREE.MeshStandardMaterial({ color: color ?? 0x273342, roughness: 0.9 });
+  const cloth = new THREE.MeshStandardMaterial({ color: police ? 0x172b43 : color ?? 0x384c58, roughness: 0.9 });
   const denim = new THREE.MeshStandardMaterial({ color: 0x283245, roughness: 0.95 });
-  const skin = new THREE.MeshStandardMaterial({ color: 0xac7c5c, roughness: 0.85 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0x81583d, roughness: 0.85 });
   const black = new THREE.MeshStandardMaterial({ color: 0x17191d, roughness: 0.8 });
   function capsule(radius, length, material, parent, position) {
     const item = new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 5, 9), material);
-    item.position.set(...position);
-    item.castShadow = true;
-    item.receiveShadow = true;
-    parent.add(item);
-    return item;
+    item.position.set(...position); item.castShadow = true; item.receiveShadow = true; parent.add(item); return item;
   }
-  capsule(0.2, 0.34, cloth, mesh, [0, 1.21, 0]);
-  capsule(0.12, 0.12, skin, mesh, [0, 1.64, 0]);
-  capsule(0.125, 0.04, black, mesh, [0, 1.73, -0.015]);
+  capsule(0.18, 0.33, cloth, visual, [0, 1.22, 0]);
+  capsule(0.115, 0.11, skin, visual, [0, 1.59, 0]);
+  capsule(0.125, 0.055, black, visual, [0, 1.68, -0.025]);
   const limbs = [];
   for (const side of [-1, 1]) {
-    const leg = new THREE.Group();
-    leg.position.set(side * 0.115, 0.9, 0);
-    mesh.add(leg);
-    capsule(0.09, 0.64, denim, leg, [0, -0.36, 0]);
-    capsule(0.09, 0.11, black, leg, [0, -0.79, 0.055]).rotation.x = Math.PI / 2;
-    const arm = new THREE.Group();
-    arm.position.set(side * 0.255, 1.4, 0);
-    mesh.add(arm);
-    capsule(0.074, 0.38, cloth, arm, [0, -0.23, 0]);
-    capsule(0.062, 0.075, skin, arm, [0, -0.49, 0]);
-    limbs.push({ leg, arm, side });
+    const thigh = new THREE.Group(); thigh.position.set(side * 0.105, 0.94, 0); visual.add(thigh);
+    capsule(0.085, 0.25, denim, thigh, [0, -0.18, 0]);
+    const shin = new THREE.Group(); shin.position.y = -0.36; thigh.add(shin);
+    capsule(0.074, 0.29, denim, shin, [0, -0.21, 0]);
+    capsule(0.08, 0.11, black, shin, [0, -0.47, 0.045]).rotation.x = Math.PI / 2;
+    const arm = new THREE.Group(); arm.position.set(side * 0.22, 1.4, 0); visual.add(arm);
+    capsule(0.065, 0.17, cloth, arm, [0, -0.14, 0]);
+    const forearm = new THREE.Group(); forearm.position.y = -0.27; arm.add(forearm);
+    capsule(0.057, 0.14, cloth, forearm, [0, -0.12, 0]);
+    const hand = new THREE.Group(); hand.position.y = -0.24; forearm.add(hand);
+    capsule(0.052, 0.065, skin, hand, [0, 0, 0]);
+    limbs.push({ thigh, shin, arm, forearm, hand, side });
   }
   const { group: weapon, muzzle } = handgun();
-  limbs[0].arm.add(weapon);
-  weapon.position.set(0, -0.5, 0);
-  weapon.rotation.x = Math.PI / 2;
-  let time = 0;
-  let weaponVisible = !npc;
-  weapon.visible = weaponVisible;
+  limbs[0].hand.add(weapon); weapon.rotation.x = Math.PI / 2;
+  let time = 0, weaponVisible = false, hitWeight = 0, wasJumping = false, landing = 0;
+  const seatOffset = new THREE.Vector3(0, -0.94, 0);
   return {
-    mesh,
-    weapon,
-    muzzle,
-    update(dt, { speed = 0, aiming = false, shooting = false, dead = false } = {}) {
-      time += dt * (Math.abs(speed) > 3.7 ? 11 : 7);
-      const stride = Math.min(Math.abs(speed) / 4, 0.8);
+    mesh, weapon, muzzle, seatOffset, seatAnchor: 'pelvis',
+    update(dt, { speed = 0, aiming = false, shooting = false, dead = false, seated = false, steering = 0, jumping = false, verticalVelocity = 0, reloading = false, reloadProgress = 0, aimPitch = 0, interactionProgress = 0, interactionPhase = '', hit = false } = {}) {
+      const step = Math.min(dt, 0.1); time += step * (Math.abs(speed) > 3.7 ? 11 : 7);
+      const interacting = interactionPhase === 'enter' || interactionPhase === 'exit';
+      const seatWeight = interacting ? (interactionPhase === 'enter' ? THREE.MathUtils.smoothstep(interactionProgress, 0.22, 1) : 1 - THREE.MathUtils.smoothstep(interactionProgress, 0, 0.78)) : seated ? 1 : 0;
+      const airborne = jumping || Math.abs(verticalVelocity) > 0.2;
+      if (wasJumping && !airborne) landing = 1; wasJumping = airborne;
+      landing = THREE.MathUtils.damp(landing, 0, 8, step);
+      if (hit) hitWeight = 1; hitWeight = THREE.MathUtils.damp(hitWeight, 0, 6, step);
+      const stride = Math.min(Math.abs(speed) / 4, 0.8) * (1 - seatWeight);
       for (const limb of limbs) {
-        limb.leg.rotation.x = Math.sin(time) * stride * limb.side;
-        limb.arm.rotation.x = (aiming || shooting) && limb.side === -1 ? -Math.PI / 2 : -Math.sin(time) * stride * limb.side;
+        limb.thigh.rotation.x = Math.sin(time) * stride * limb.side - seatWeight * 1.4 - (airborne ? 0.6 : landing * 0.18);
+        limb.shin.rotation.x = seatWeight * 0.9 + (airborne ? 1.0 : landing * 0.4);
+        limb.arm.rotation.x = seatWeight ? -1.2 : reloading ? -0.9 : (aiming || shooting) ? -Math.PI / 2 - aimPitch : -Math.sin(time) * stride * limb.side;
+        limb.arm.rotation.z = seatWeight ? steering * 0.15 : 0;
+        limb.forearm.rotation.x = reloading ? -0.5 - Math.sin(reloadProgress * Math.PI) * 0.4 : seatWeight ? -0.3 : -0.1;
       }
-      mesh.rotation.z = THREE.MathUtils.damp(mesh.rotation.z, dead ? -Math.PI / 2 : 0, 8, dt);
-      weapon.visible = weaponVisible && !dead;
+      visual.position.copy(seatOffset).multiplyScalar(seatWeight); visual.position.y -= landing * 0.08;
+      visual.rotation.set(hitWeight * 0.18, interacting ? -Math.sin(interactionProgress * Math.PI) * 0.35 : 0, dead ? -Math.PI / 2 : 0);
+      weapon.visible = weaponVisible && !dead && !seated && !interacting;
+      mesh.userData.animationState = dead ? 'down' : interacting ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : speed > 0.1 ? 'walking' : 'idle';
     },
     setWeapon(visible) { weaponVisible = Boolean(visible); weapon.visible = weaponVisible; },
     setVisible(visible) { mesh.visible = Boolean(visible); },
+    reactToHit(strength = 1) { hitWeight = strength; },
+    getPoseInfo() { return { state: mesh.userData.animationState, pelvis: [0, 0.94 + visual.position.y, 0] }; },
     getMuzzlePosition(target = new THREE.Vector3()) { return muzzle.getWorldPosition(target); },
   };
 }
