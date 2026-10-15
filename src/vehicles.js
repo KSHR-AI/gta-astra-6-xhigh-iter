@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // A metre-scale original coupe. The chassis points along +Z; every wheel is
 // genuinely round, and the body has open wheel arches rather than black decals.
@@ -94,7 +95,7 @@ function drawPlate() {
   ctx.fillStyle = '#e7e4ce'; ctx.fillRect(0, 0, 512, 224);
   ctx.strokeStyle = '#7a807c'; ctx.lineWidth = 12; ctx.strokeRect(7, 7, 498, 210);
   ctx.fillStyle = '#a84737'; ctx.font = 'italic bold 39px Georgia'; ctx.textAlign = 'center'; ctx.fillText('Pacific Coast', 256, 53);
-  ctx.fillStyle = '#253840'; ctx.font = 'bold 83px monospace'; ctx.fillText('8PHC249', 256, 153);
+  ctx.fillStyle = '#253840'; ctx.font = 'bold 83px monospace'; ctx.fillText('ASTRA 01', 256, 153);
   ctx.fillStyle = '#6b706c'; ctx.font = '17px sans-serif'; ctx.fillText('THE SUNSHINE STATE', 256, 195);
   plateTexture = new THREE.CanvasTexture(canvas); plateTexture.colorSpace = THREE.SRGBColorSpace;
   return plateTexture;
@@ -229,9 +230,9 @@ function makeWheel() {
  * update: (dt:number,speed:number,steer:number)=>void, setLights:(enabled:boolean)=>void,
  * setDoor:(open:boolean)=>void}}
  */
-export function createCar({ color = 0xe4bb67, type = 'sport', police = false } = {}) {
+function createOriginalCar({ color = 0xe4bb67, type = 'sport', police = false } = {}) {
   const mesh = new THREE.Group(); mesh.name = police ? 'Pacific Coast patrol coupe' : 'Comet GT';
-  const paint = new THREE.MeshStandardMaterial({ color: police ? 0xe8e8df : color, metalness: 0.53, roughness: 0.25 });
+  const paint = new THREE.MeshPhysicalMaterial({ color: police ? 0xe8e8df : color, metalness: 0.45, roughness: 0.24, clearcoat: 0.85, clearcoatRoughness: 0.13 });
   const headlight = new THREE.MeshStandardMaterial({ color: 0xeaf8ee, metalness: 0.2, roughness: 0.12, emissive: 0xf4ffc9, emissiveIntensity: 0.8 });
   const tailLight = new THREE.MeshStandardMaterial({ color: 0x8b1010, metalness: 0.25, roughness: 0.16, emissive: 0xff2615, emissiveIntensity: 0.8 });
   mesh.add(bodyShell(paint));
@@ -362,4 +363,210 @@ export function createCar({ color = 0xe4bb67, type = 'sport', police = false } =
     },
     setDoor(open) { doorTarget = open ? 1.05 : 0; },
   };
+}
+
+// Ferrari 458 Italia by vicent091036, via the Three.js examples. Locally
+// optimized into two geometric detail levels, with real movable door panels.
+// No decoder, remote requests, or texture downloads are needed at run time.
+let vehicleAssetsPromise;
+let importedVehicleTemplates;
+const IMPORTED_SCALE = 1.006;
+
+function componentIndices(geometry) {
+  const position = geometry.attributes.position;
+  const index = geometry.index;
+  const parents = new Int32Array(position.count);
+  for (let i = 0; i < parents.length; i++) parents[i] = i;
+  const find = value => {
+    while (parents[value] !== value) { parents[value] = parents[parents[value]]; value = parents[value]; }
+    return value;
+  };
+  for (let i = 0; i < index.count; i += 3) {
+    const first = find(index.getX(i));
+    parents[find(index.getX(i + 1))] = first;
+    parents[find(index.getX(i + 2))] = first;
+  }
+  const components = new Map();
+  const point = new THREE.Vector3();
+  for (let i = 0; i < index.count; i += 3) {
+    const id = find(index.getX(i));
+    if (!components.has(id)) components.set(id, { indices: [], bounds: new THREE.Box3() });
+    const component = components.get(id);
+    for (let k = 0; k < 3; k++) {
+      const vertex = index.getX(i + k);
+      component.indices.push(vertex);
+      component.bounds.expandByPoint(point.fromBufferAttribute(position, vertex));
+    }
+  }
+  return components.values();
+}
+
+function modelMaterialName(name) {
+  if (name === 'body') return 'body';
+  if (name.startsWith('rim_')) return 'rim';
+  if (name.startsWith('tire')) return 'rubber';
+  if (name === 'glass') return 'glass';
+  if (name === 'lights') return 'headlight';
+  if (name === 'lights_red' || name === 'brakes') return 'taillight';
+  if (name === 'leds') return 'indicator';
+  if (name === 'chrome') return 'chrome';
+  if (name === 'yellow_trim' || name.startsWith('centre')) return 'badge';
+  if (name === 'leather' || name === 'trim') return 'leather';
+  if (name === 'metal' || /^(wheel|brake|nuts)/.test(name)) return 'metal';
+  return 'interior';
+}
+
+function prepareImportedTemplate(scene) {
+  scene.rotation.y = Math.PI;
+  scene.scale.setScalar(IMPORTED_SCALE);
+  scene.updateMatrixWorld(true);
+  const result = new THREE.Group();
+  const bodyGroup = new THREE.Group(); bodyGroup.name = 'body_group'; result.add(bodyGroup);
+  const door = new THREE.Group(); door.name = 'driver_door';
+  door.position.set(-0.82 * IMPORTED_SCALE, 0.55, 0.7 * IMPORTED_SCALE); result.add(door);
+  const wheelPivots = new Map();
+  const placeholders = new Map();
+  const material = name => {
+    if (!placeholders.has(name)) { const m = new THREE.MeshStandardMaterial(); m.name = name; placeholders.set(name, m); }
+    return placeholders.get(name);
+  };
+  scene.traverse(object => {
+    if (!object.isMesh) return;
+    const geometry = object.geometry.clone().applyMatrix4(object.matrixWorld);
+    geometry.computeVertexNormals();
+    const category = modelMaterialName(object.name);
+    let wheelAncestor = object.parent;
+    while (wheelAncestor && !/^wheel_[fr][lr]$/.test(wheelAncestor.name)) wheelAncestor = wheelAncestor.parent;
+    if (wheelAncestor) {
+      if (!wheelPivots.has(wheelAncestor.name)) {
+        const pivot = new THREE.Group();
+        pivot.name = wheelAncestor.name;
+        pivot.position.copy(wheelAncestor.getWorldPosition(new THREE.Vector3()));
+        const spin = new THREE.Group(); spin.name = `${wheelAncestor.name}_spin`; pivot.add(spin);
+        result.add(pivot); wheelPivots.set(wheelAncestor.name, pivot);
+      }
+      const pivot = wheelPivots.get(wheelAncestor.name);
+      geometry.translate(-pivot.position.x, -pivot.position.y, -pivot.position.z);
+      part(pivot.children[0], geometry, material(category));
+      return;
+    }
+    // The original model contains separate topological islands for its door
+    // skin, mirror, handle and interior trim. Keep their real edge contours.
+    const movingIndices = [], fixedIndices = [];
+    for (const component of componentIndices(geometry)) {
+      const b = component.bounds;
+      const belongsToDoor = b.max.x < -0.66 && b.min.z > -0.63 * IMPORTED_SCALE
+        && b.max.z < 0.76 * IMPORTED_SCALE && b.min.y > 0.2 && b.max.y < 1.05;
+      (belongsToDoor ? movingIndices : fixedIndices).push(...component.indices);
+    }
+    if (fixedIndices.length) {
+      const fixed = geometry.clone(); fixed.setIndex(fixedIndices);
+      part(bodyGroup, fixed, material(category));
+    }
+    if (movingIndices.length) {
+      const moving = geometry.clone(); moving.setIndex(movingIndices);
+      moving.translate(-door.position.x, -door.position.y, -door.position.z);
+      part(door, moving, material(category));
+    }
+    geometry.dispose();
+  });
+  batchParts(bodyGroup);
+  batchParts(door);
+  for (const pivot of wheelPivots.values()) batchParts(pivot.children[0]);
+  result.userData.optimizedModel = true;
+  return result;
+}
+
+/** Preload once before creating sports cars; returns false if local assets fail. */
+export function loadVehicleAssets() {
+  if (!vehicleAssetsPromise) {
+    const loader = new GLTFLoader();
+    vehicleAssetsPromise = Promise.all([
+      loader.loadAsync('/models/vehicles/ferrari.glb'),
+      loader.loadAsync('/models/vehicles/ferrari-lod.glb'),
+    ]).then(models => {
+      importedVehicleTemplates = models.map(model => prepareImportedTemplate(model.scene));
+      return true;
+    }).catch(error => {
+      console.warn('Detailed vehicle assets unavailable; using the original coupe.', error);
+      return false;
+    });
+  }
+  return vehicleAssetsPromise;
+}
+
+function importedPalette(color) {
+  const palette = {
+    body: new THREE.MeshPhysicalMaterial({ color, metalness: 0.3, roughness: 0.27, clearcoat: 0.8, clearcoatRoughness: 0.16, envMapIntensity: 0.95 }),
+    rim: new THREE.MeshStandardMaterial({ color: 0xb9bfbd, metalness: 0.95, roughness: 0.2, envMapIntensity: 1.15 }),
+    chrome: new THREE.MeshStandardMaterial({ color: 0xbec8ca, metalness: 1, roughness: 0.17 }),
+    metal: new THREE.MeshStandardMaterial({ color: 0x505757, metalness: 0.83, roughness: 0.34 }),
+    interior: new THREE.MeshStandardMaterial({ color: 0x171b1a, metalness: 0.12, roughness: 0.77 }),
+    leather: new THREE.MeshStandardMaterial({ color: 0x483a2f, metalness: 0.02, roughness: 0.68 }),
+    rubber: new THREE.MeshStandardMaterial({ color: 0x111516, metalness: 0, roughness: 0.92 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0x819995, metalness: 0.32, roughness: 0.08, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 1.5 }),
+    headlight: new THREE.MeshStandardMaterial({ color: 0xe9f4ed, roughness: 0.12, metalness: 0.25, emissive: 0xe5f4d9, emissiveIntensity: 0.35 }),
+    taillight: new THREE.MeshStandardMaterial({ color: 0xa60909, roughness: 0.16, metalness: 0.2, emissive: 0xff130a, emissiveIntensity: 0.4 }),
+    indicator: new THREE.MeshStandardMaterial({ color: 0xeb9224, roughness: 0.25, emissive: 0xfda52a, emissiveIntensity: 0.25 }),
+    badge: new THREE.MeshStandardMaterial({ color: 0xc69c2e, roughness: 0.3, metalness: 0.7 }),
+  };
+  palette.glass.forceSinglePass = true;
+  for (const [name, material] of Object.entries(palette)) { material.name = name; material.side = THREE.DoubleSide; }
+  return palette;
+}
+
+function createImportedCar({ color }) {
+  const mesh = new THREE.Group(); mesh.name = 'Astra 458 — Italian grand tourer';
+  const lod = new THREE.LOD(); mesh.add(lod);
+  const palette = importedPalette(color);
+  const levels = importedVehicleTemplates.map(template => {
+    const level = template.clone(true);
+    level.traverse(object => {
+      if (!object.isMesh) return;
+      object.material = palette[object.material.name] || palette.interior;
+      object.castShadow = object.material !== palette.glass;
+      object.receiveShadow = true;
+    });
+    const wheels = [], frontWheels = [];
+    for (const name of ['wheel_fl', 'wheel_fr', 'wheel_rl', 'wheel_rr']) {
+      const pivot = level.getObjectByName(name);
+      wheels.push(pivot.children[0]);
+      if (name.startsWith('wheel_f')) frontWheels.push(pivot);
+    }
+    return { mesh: level, wheels, frontWheels, door: level.getObjectByName('driver_door') };
+  });
+  lod.addLevel(levels[0].mesh, 0);
+  lod.addLevel(levels[1].mesh, 28, 0.12);
+  const plateMap = drawPlate();
+  const plateMaterial = new THREE.MeshStandardMaterial({ ...(plateMap ? { map: plateMap } : {}), color: 0xe1e2d5, roughness: 0.52 });
+  const plate = part(mesh, new THREE.PlaneGeometry(0.36, 0.155), plateMaterial, 0, 0.565, -2.265); plate.rotation.y = Math.PI;
+  let doorTarget = 0, doorAngle = 0, wheelAngle = 0;
+  mesh.userData.vehicle = true;
+  mesh.userData.model = 'Ferrari 458 Italia by vicent091036';
+  mesh.userData.dimensions = { width: 2.27, length: 4.56, height: 1.245 };
+  mesh.userData.detailLevels = { near: 69096, far: 16572, transitionMetres: 28 };
+  return {
+    mesh, wheels: levels[0].wheels, frontWheels: levels[0].frontWheels,
+    update(dt = 0, speed = 0, steer = 0) {
+      wheelAngle = (wheelAngle + speed * dt / 0.36) % (Math.PI * 2);
+      doorAngle = THREE.MathUtils.damp(doorAngle, doorTarget, 9, dt);
+      for (const level of levels) {
+        level.door.rotation.y = doorAngle;
+        for (const wheel of level.wheels) wheel.rotation.x = wheelAngle;
+        for (const pivot of level.frontWheels) pivot.rotation.y = THREE.MathUtils.clamp(steer, -0.65, 0.65);
+      }
+    },
+    setLights(enabled) {
+      palette.headlight.emissiveIntensity = enabled ? 3 : 0.3;
+      palette.taillight.emissiveIntensity = enabled ? 2 : 0.4;
+      palette.indicator.emissiveIntensity = enabled ? 0.8 : 0.15;
+    },
+    setDoor(open) { doorTarget = open ? 1.12 : 0; },
+  };
+}
+
+/** Full vehicle contract; original sedans keep traffic visually varied. */
+export function createCar({ color = 0xe4bb67, type = 'sport', police = false } = {}) {
+  if (type === 'sport' && !police && importedVehicleTemplates) return createImportedCar({ color });
+  return createOriginalCar({ color, type, police });
 }

@@ -1,5 +1,5 @@
 const icons = {
-  logo: '<svg viewBox="0 0 34 34" fill="none" aria-hidden="true"><path d="M5 26 13 7h6l-8 19H5Z" fill="currentColor"/><path d="m16 26 8-19h5l-8 19h-5Z" fill="currentColor"/><path d="M8 20h18" stroke="currentColor" stroke-width="3"/></svg>',
+  logo: '<svg viewBox="0 0 34 34" fill="none" aria-hidden="true"><path d="M17 2 20 13 31 17 20 20 17 32 14 20 3 17 14 13 17 2Z" fill="currentColor"/><path d="m25 6 2 2M7 26l2 2M6 7l2 2m18 17 2 2" stroke="currentColor" stroke-width="1"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   sun: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M5 19l1.4-1.4M17.6 6.4 19 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
   settings: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 4v16M15 4v16M3 8h12M9 16h12" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="8" r="2.5" fill="currentColor"/><circle cx="15" cy="16" r="2.5" fill="currentColor"/></svg>',
@@ -28,20 +28,20 @@ export function createUI(callbacks = {}) {
   root.innerHTML = `
     <div class="screen-shade" aria-hidden="true"></div>
     <header class="game-header">
-      <div class="brand-lockup"><span class="brand-symbol">${icons.logo}</span><span class="brand-name">PACIFIC<span>HEAT</span></span><span class="brand-separator"></span><span class="mode-chip"><i></i> FREE ROAM</span></div>
-      <div class="header-status"><span class="world-clock">${icons.sun}<span id="world-time">18:42</span><span class="clock-divider">/</span><span class="weather-label">CLEAR SKIES</span></span><span class="balance"><span class="dollar-sign">$</span><span id="money-value">2,450</span></span><button class="icon-button menu-button" id="pause-button" type="button" aria-label="Open settings and pause">${icons.settings}</button></div>
+      <div class="brand-lockup"><span class="brand-symbol">${icons.logo}</span><span class="brand-name">GRAND THEFT<span>ASTRA</span></span><span class="brand-separator"></span><span class="mode-chip"><i></i> FREE ROAM</span></div>
+      <div class="header-status"><span class="world-clock">${icons.sun}<span id="world-time">18:42</span><span class="clock-divider">/</span><span class="weather-label">LOS PACIFICOS</span></span><span class="balance"><span class="dollar-sign">$</span><span id="money-value">2,450</span></span><button class="icon-button menu-button" id="pause-button" type="button" aria-label="Open settings and pause">${icons.settings}</button></div>
     </header>
     <main class="welcome" id="welcome-screen">
-      <div class="welcome-eyebrow"><span></span> LOS PACIFICOS, SAN ANDREAS</div>
-      <h1>PACIFIC<span>HEAT<span class="title-period">.</span></span></h1>
-      <div class="welcome-heading">The city is yours.</div>
-      <p class="welcome-copy">Sun-soaked streets. Fast cars. No rules.<br>Find your own way through the west coast.</p>
-      <button class="enter-button" id="start-button" type="button" disabled><span id="start-label">Preparing your city</span><span class="button-arrow">${icons.arrow}</span></button>
-      <div class="start-subtitle"><span class="status-dot"></span><span id="ready-label">LOADING THE OPEN WORLD</span><span class="subtitle-line"></span><span>SINGLE PLAYER</span></div>
-      <div class="welcome-controls"><div><kbd>W</kbd><span>Move</span></div><div><kbd>${icons.car}</kbd><span>Take a ride</span></div><div><kbd>${icons.target}</kbd><span>Make your mark</span></div></div>
+      <div class="welcome-eyebrow"><span></span> A LOS PACIFICOS STORY</div>
+      <h1 class="title-lockup" aria-label="Grand Theft Astra"><span class="title-prelude">GRAND THEFT</span><span class="title-astra">ASTRA</span></h1>
+      <div class="welcome-heading">Fortune favors the reckless.</div>
+      <p class="welcome-copy">A city of ambition. A coast without limits.<br>Make a name for yourself in Los Pacificos.</p>
+      <div class="welcome-menu"><button class="enter-button" id="start-button" type="button" disabled><span class="menu-index">01</span><span id="start-label">Preparing the city</span><span class="button-arrow">${icons.arrow}</span></button><button class="welcome-settings" id="welcome-settings" type="button"><span class="menu-index">02</span><span>Settings &amp; controls</span><span class="button-arrow">${icons.settings}</span></button></div>
+      <div class="start-subtitle"><span class="status-dot"></span><span id="ready-label">PREPARING YOUR SESSION</span><span class="subtitle-line"></span><span>FREE ROAM</span></div>
+      <div class="welcome-controls"><div><kbd>WASD</kbd><span>Explore</span></div><div><kbd>E</kbd><span>Take a ride</span></div><div><kbd>1</kbd><span>Equip</span></div></div>
     </main>
-    <aside class="welcome-world" aria-hidden="true"><span class="world-line"></span><span>34° 03′ N &nbsp; 118° 15′ W</span><b>WELCOME TO<br>THE WEST COAST.</b><span class="world-tag"><i></i> A CITY WITH POSSIBILITIES</span></aside>
-    <footer class="welcome-footer"><span>AN ORIGINAL OPEN WORLD EXPERIENCE</span><span><span class="footer-version">VOL. 01</span> &nbsp; THE STREETS ARE CALLING ${icons.arrow}</span></footer>
+    <aside class="welcome-world" aria-hidden="true"><span class="world-line"></span><span>SOUTHERN SAN ANDREAS</span><b>LOS PACIFICOS</b><span class="world-tag">34° 03′ N &nbsp; / &nbsp; 118° 15′ W</span></aside>
+    <footer class="welcome-footer"><span>GRAND THEFT ASTRA <i></i> AN OPEN WORLD SANDBOX</span><span><span class="footer-version">SINGLE PLAYER</span><i></i> THE CITY IS YOURS</span></footer>
     <div class="play-hud" id="play-hud">
       <aside class="objective-card"><div class="objective-icon">${icons.arrow}</div><div class="objective-content"><div class="objective-eyebrow">FREE ROAM <span id="objective-distance">EXPLORE</span></div><h2 id="objective-title">A fresh start</h2><p id="objective-description">Find a ride. Make the city yours.</p></div></aside>
       <aside class="wanted-panel" aria-label="Wanted level"><div class="wanted-stars" id="wanted-stars">${Array.from({ length: 5 }, (_, i) => `<span data-star="${i}">${icons.star}</span>`).join('')}</div><span id="wanted-caption">KEEP A LOW PROFILE</span></aside>
@@ -53,12 +53,12 @@ export function createUI(callbacks = {}) {
       <div class="toast" id="game-toast" role="status" aria-live="polite"><span class="toast-icon">${icons.pin}</span><div><strong id="toast-title"></strong><p id="toast-detail"></p></div></div>
       <div class="mobile-controls"><div class="mobile-dpad"><button class="touch-key up" data-code="KeyW" aria-label="Move forward">${icons.chevron}</button><button class="touch-key left" data-code="KeyA" aria-label="Move left">${icons.chevron}</button><button class="touch-key down" data-code="KeyS" aria-label="Move backward">${icons.chevron}</button><button class="touch-key right" data-code="KeyD" aria-label="Move right">${icons.chevron}</button></div><div class="mobile-actions"><button class="touch-key" data-code="ShiftLeft" aria-label="Sprint">RUN</button><button class="touch-key" data-code="Space" aria-label="Jump or handbrake">JUMP</button><button class="touch-key" data-code="KeyE" aria-label="Enter or exit vehicle">${icons.car}</button><button class="touch-key touch-fire" data-code="Mouse0" aria-label="Fire weapon">${icons.target}</button></div></div>
     </div>
-    <div class="modal-backdrop" id="pause-overlay" hidden><section class="pause-menu" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="modal-topline"><span class="small-eyebrow">TAKE A BREATHER</span><button class="icon-button" id="close-pause" type="button" aria-label="Close pause menu">${icons.close}</button></div><h2 id="pause-title">City on hold<span>.</span></h2><p class="pause-subtitle">The streets will be here when you're ready.</p><button class="enter-button resume-button" id="resume-button" type="button"><span>Back to the city</span>${icons.arrow}</button><div class="settings-list"><div class="setting-row"><span>${icons.sound}Sound</span><button class="setting-toggle is-on" id="sound-button" type="button" aria-pressed="true"><span class="setting-value">On</span><i></i></button></div><div class="setting-row"><span>${icons.settings}Graphics</span><div class="segmented" aria-label="Graphics quality"><button type="button" data-quality="high" class="is-selected">High</button><button type="button" data-quality="performance">Performance</button></div></div><div class="setting-row"><span>${icons.sun}Time of day</span><div class="segmented" aria-label="Time of day"><button type="button" data-time="golden" class="is-selected">Golden hour</button><button type="button" data-time="night">Night</button></div></div></div><details class="controls-details"><summary>Know the streets<span>CONTROLS ${icons.chevron}</span></summary><div class="controls-grid"><span>Move / drive</span><kbd>W A S D</kbd><span>Look around</span><kbd>MOUSE / DRAG</kbd><span>Sprint</span><kbd>SHIFT</kbd><span>Jump / handbrake</span><kbd>SPACE</kbd><span>Enter / exit car</span><kbd>E</kbd><span>Equip weapon</span><kbd>1</kbd><span>Fire / aim</span><kbd>LMB / RMB</kbd><span>Horn</span><kbd>H</kbd><span>Reload</span><kbd>R</kbd><span>City map / pause</span><kbd>M / ESC</kbd></div></details><button class="restart-button" id="restart-button" type="button">Start a fresh session<span>↗</span></button><div class="pause-footer">PACIFIC HEAT <span>AN ORIGINAL BROWSER SANDBOX</span></div></section></div>
+    <div class="modal-backdrop" id="pause-overlay" hidden><section class="pause-menu" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="modal-topline"><span class="small-eyebrow" id="pause-eyebrow">YOUR EXPERIENCE</span><button class="icon-button" id="close-pause" type="button" aria-label="Close pause menu">${icons.close}</button></div><h2 id="pause-title">Settings<span>.</span></h2><p class="pause-subtitle" id="pause-subtitle">Set the tone for your time in Los Pacificos.</p><button class="enter-button resume-button" id="resume-button" type="button"><span id="resume-label">Back to main menu</span>${icons.arrow}</button><div class="settings-list"><div class="setting-row"><span>${icons.sound}Sound</span><button class="setting-toggle is-on" id="sound-button" type="button" aria-pressed="true"><span class="setting-value">On</span><i></i></button></div><div class="setting-row"><span>${icons.settings}Graphics</span><div class="segmented" aria-label="Graphics quality"><button type="button" data-quality="high" class="is-selected">Cinematic</button><button type="button" data-quality="performance">Performance</button></div></div><div class="setting-row"><span>${icons.sun}Time of day</span><div class="segmented" aria-label="Time of day"><button type="button" data-time="golden" class="is-selected">Golden hour</button><button type="button" data-time="night">Night</button></div></div></div><details class="controls-details"><summary>Controls<span>VIEW ALL ${icons.chevron}</span></summary><div class="controls-grid"><span>Move / drive</span><kbd>W A S D</kbd><span>Look around</span><kbd>MOUSE / DRAG</kbd><span>Sprint</span><kbd>SHIFT</kbd><span>Jump / handbrake</span><kbd>SPACE</kbd><span>Enter / exit car</span><kbd>E</kbd><span>Equip weapon</span><kbd>1</kbd><span>Fire / aim</span><kbd>LMB / RMB</kbd><span>Horn</span><kbd>H</kbd><span>Reload</span><kbd>R</kbd><span>City map / pause</span><kbd>M / ESC</kbd></div></details><button class="restart-button" id="restart-button" type="button">Start a fresh session<span>↗</span></button><div class="pause-footer">GRAND THEFT ASTRA <span>LOS PACIFICOS AWAITS</span></div></section></div>
     <div class="modal-backdrop map-backdrop" id="map-overlay" hidden><section class="city-map-dialog" role="dialog" aria-modal="true" aria-labelledby="city-map-title"><div class="city-map-heading"><div><span class="small-eyebrow">KNOW YOUR NEIGHBORHOOD</span><h2 id="city-map-title">Los Pacificos<span>.</span></h2></div><button class="icon-button" id="close-map" type="button" aria-label="Close city map">${icons.close}</button></div><div class="city-map-surface"><canvas id="city-map" width="1000" height="800"></canvas><span class="map-compass">N <i></i></span></div><div class="map-legend"><span><i class="legend-player"></i> You</span><span><i class="legend-car"></i> Vehicles</span><span><i class="legend-objective"></i> Objective</span><span class="map-legend-caption">YOUR NEXT MOVE IS UP TO YOU.</span></div></section></div>
   `;
   document.body.append(root);
   const find = (id) => root.querySelector(`#${id}`);
-  const elements = Object.fromEntries(['welcome-screen', 'start-button', 'start-label', 'ready-label', 'world-time', 'money-value', 'objective-title', 'objective-description', 'objective-distance', 'wanted-caption', 'location-name', 'health-fill', 'health-value', 'stamina-fill', 'weapon-name', 'weapon-panel', 'weapon-silhouette', 'weapon-hints', 'ammo-divider', 'ammo-value', 'reserve-value', 'speed-panel', 'speed-value', 'speed-fill', 'gear-value', 'interaction-prompt', 'interaction-title', 'interaction-name', 'crosshair', 'pause-overlay', 'map-overlay', 'sound-button', 'game-toast', 'toast-title', 'toast-detail'].map((id) => [id, find(id)]));
+  const elements = Object.fromEntries(['welcome-screen', 'start-button', 'start-label', 'ready-label', 'world-time', 'money-value', 'objective-title', 'objective-description', 'objective-distance', 'wanted-caption', 'location-name', 'health-fill', 'health-value', 'stamina-fill', 'weapon-name', 'weapon-panel', 'weapon-silhouette', 'weapon-hints', 'ammo-divider', 'ammo-value', 'reserve-value', 'speed-panel', 'speed-value', 'speed-fill', 'gear-value', 'interaction-prompt', 'interaction-title', 'interaction-name', 'crosshair', 'pause-overlay', 'pause-title', 'pause-eyebrow', 'pause-subtitle', 'resume-label', 'map-overlay', 'sound-button', 'game-toast', 'toast-title', 'toast-detail'].map((id) => [id, find(id)]));
   let started = false;
   let paused = false;
   let mapOpen = false;
@@ -79,6 +79,11 @@ export function createUI(callbacks = {}) {
   const setPaused = (value) => {
     paused = Boolean(value);
     elements['pause-overlay'].hidden = !paused;
+    text('pause-title', started ? 'Game paused.' : 'Settings.');
+    text('pause-eyebrow', started ? 'THE CITY CAN WAIT' : 'YOUR EXPERIENCE');
+    text('pause-subtitle', started ? 'Take a moment. Your story continues when you return.' : 'Set the tone for your time in Los Pacificos.');
+    text('resume-label', started ? 'Resume session' : 'Back to main menu');
+    find('restart-button').hidden = !started;
     root.classList.toggle('is-paused', paused);
     if (paused) { returnFocus = document.activeElement; find('resume-button').focus({ preventScroll: true }); }
     else if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
@@ -94,6 +99,7 @@ export function createUI(callbacks = {}) {
   const toggleMap = (value) => { showMap(value ?? !mapOpen); call('onMap', mapOpen); };
   find('start-button').addEventListener('click', start);
   find('pause-button').addEventListener('click', pause);
+  find('welcome-settings').addEventListener('click', pause);
   find('close-pause').addEventListener('click', resume);
   find('resume-button').addEventListener('click', resume);
   find('map-button').addEventListener('click', () => toggleMap());
@@ -180,8 +186,8 @@ export function createUI(callbacks = {}) {
   };
   const setReady = (ready) => {
     elements['start-button'].disabled = !ready;
-    text('start-label', ready ? 'Enter the city' : 'Preparing your city');
-    text('ready-label', ready ? 'READY WHEN YOU ARE' : 'LOADING THE OPEN WORLD');
+    text('start-label', ready ? 'Enter Los Pacificos' : 'Preparing the city');
+    text('ready-label', ready ? 'READY TO PLAY' : 'PREPARING YOUR SESSION');
     root.classList.toggle('is-ready', Boolean(ready));
   };
   return { update, toast, setPaused, setReady, showMap, root, get started() { return started; }, get paused() { return paused; }, get mapOpen() { return mapOpen; } };

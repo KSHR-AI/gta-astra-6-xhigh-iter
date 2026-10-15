@@ -1,79 +1,67 @@
 import * as THREE from 'three';
-import { Sky } from 'three/addons/objects/Sky.js';
 import { createWorld } from './world.js';
-import { createCar } from './vehicles.js';
+import { createCar, loadVehicleAssets } from './vehicles.js';
 import { loadCharacterAssets, createCharacter } from './characters.js';
 import { createUI } from './ui.js';
 import { createAudio } from './audio.js';
 import { createAtmosphere } from './atmosphere.js';
+import { createRendering } from './rendering.js';
 import './style.css';
 
 const canvas = document.querySelector('#game');
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0xd7bb9c, 0.0031);
+scene.fog = new THREE.FogExp2(0xcac9c7, 0.0025);
 const renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'high-performance'});
 const gl=renderer.getContext(),debugInfo=gl.getExtension('WEBGL_debug_renderer_info');
 const softwareRenderer=debugInfo&&/swiftshader|llvmpipe|software/i.test(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL));
-renderer.setPixelRatio(softwareRenderer?.6:Math.min(devicePixelRatio,1.5));
+renderer.setPixelRatio(softwareRenderer?.8:Math.min(devicePixelRatio,1.75));
 renderer.setSize(innerWidth,innerHeight);
 renderer.shadowMap.enabled=true;
 renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-renderer.shadowMap.autoUpdate=false;
+renderer.shadowMap.autoUpdate=!softwareRenderer;
 renderer.shadowMap.needsUpdate=true;
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure=1.08;
+renderer.toneMappingExposure=1.0;
+renderer.info.autoReset=false;
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.1,1400);
 camera.position.set(8,5.2,36);
 const cameraLook=new THREE.Vector3(0,2,-35);
 camera.lookAt(cameraLook);
-const hemisphere=new THREE.HemisphereLight(0xbad7ed,0x998a72,2.7);
+const hemisphere=new THREE.HemisphereLight(0xb8d7ff,0x797164,.85);
 scene.add(hemisphere);
-const sun=new THREE.DirectionalLight(0xffd0a0,3.8);
-sun.position.set(-65,72,-100); sun.castShadow=true;
-sun.shadow.mapSize.set(1024,1024);
+const sun=new THREE.DirectionalLight(0xffe1bc,3.8);
+sun.position.set(-70,58,-80); sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
 Object.assign(sun.shadow.camera,{left:-75,right:75,top:75,bottom:-75,near:1,far:250});
-sun.shadow.normalBias=0.04; sun.shadow.bias=-0.00015;
+sun.shadow.normalBias=0.025; sun.shadow.bias=-0.00015;
 scene.add(sun,sun.target);
-const sky=new Sky(); sky.scale.setScalar(10000); scene.add(sky);
-const uniforms=sky.material.uniforms;
-uniforms.turbidity.value=5; uniforms.rayleigh.value=2.5;
-uniforms.mieCoefficient.value=0.005; uniforms.mieDirectionalG.value=0.8;
-const sunPosition=new THREE.Vector3().setFromSphericalCoords(1,THREE.MathUtils.degToRad(81),THREE.MathUtils.degToRad(239));
-uniforms.sunPosition.value.copy(sunPosition);
-const pmrem=new THREE.PMREMGenerator(renderer);
-const envScene=new THREE.Scene();
-const envSky=sky.clone(); envScene.add(envSky);
-scene.environment=pmrem.fromScene(envScene,0.04).texture;
-scene.environmentIntensity=0.55;
-pmrem.dispose();
-sky.visible=false;
 const atmosphere=createAtmosphere(scene);
+const sunOffset=new THREE.Vector3(-70,58,-80);
 
 const world=createWorld(scene);
-if(softwareRenderer){
- const materials=new Map();
- world.root.traverse(object=>{if(!object.isMesh||!object.material.isMeshStandardMaterial)return;
-  const source=object.material;
-  if(!materials.has(source)){const material=new THREE.MeshLambertMaterial({color:source.color,map:source.map,emissive:source.emissive,emissiveMap:source.emissiveMap,emissiveIntensity:source.emissiveIntensity,side:source.side,vertexColors:source.vertexColors,transparent:source.transparent,opacity:source.opacity});material.onBeforeCompile=source.onBeforeCompile;materials.set(source,material);}
-  object.material=materials.get(source);
- });
-}
+const rendering=createRendering(renderer,scene,camera,softwareRenderer);
+// Only the nearest four real lamp fixtures illuminate the street. Reuse these
+// lights as the camera travels instead of evaluating dozens of lights per pixel.
+const streetLights=Array.from({length:4},()=>{const light=new THREE.PointLight(0xffc886,380,38,2);light.visible=false;scene.add(light);return light;});
+const headlights=Array.from({length:2},()=>{const light=new THREE.SpotLight(0xe0edff,170,65,.37,.55,1.4);light.visible=false;scene.add(light,light.target);return light;});
+
 const buildingBoxes=world.colliders.map(b=>new THREE.Box3(new THREE.Vector3(b.minX,b.minY??0,b.minZ),new THREE.Vector3(b.maxX,b.maxY??70,b.maxZ)));
 const sound=createAudio();
 const keys=new Set();
 const state={ready:false,started:false,paused:false,mapOpen:false,health:100,stamina:100,money:1250,wanted:0,ammo:12,reserve:96,inCar:false,speed:0,location:'VESPUCCI BOULEVARD',time:'18:42',objectiveTitle:'A fresh start',objective:'Find a ride. Make the city yours.',objectiveDistance:0,weapon:'UNARMED',nearCar:false,fps:60};
 let ui,player,currentCar=null,mission=0,night=false,weapon=false,aiming=false,reloading=false;
+let vehicleDayEnvironment=null,vehicleNightEnvironment=null;
 let yaw=0,pitch=0.2,jumpVelocity=0,lastShot=-100,lastCrime=-100,wantedSince=-100,elapsed=0,lookTimer=0,doorTimer=0,respawnTimer=0,reloadRemaining=0;
 let lastFrame=performance.now(),frameCount=0,fpsTimer=0,uiTimer=0,miniTimer=0,mouseDown=false;
 const aimRay=new THREE.Raycaster();
 const vehicles=[],pedestrians=[],effects=[];
 const contactCanvas=document.createElement('canvas');contactCanvas.width=contactCanvas.height=64;
 const contactContext=contactCanvas.getContext('2d');const contactGradient=contactContext.createRadialGradient(32,32,2,32,32,32);
-contactGradient.addColorStop(0,'rgba(0,0,0,.5)');contactGradient.addColorStop(.55,'rgba(0,0,0,.28)');contactGradient.addColorStop(1,'rgba(0,0,0,0)');contactContext.fillStyle=contactGradient;contactContext.fillRect(0,0,64,64);
+contactGradient.addColorStop(0,'rgba(0,0,0,.28)');contactGradient.addColorStop(.55,'rgba(0,0,0,.12)');contactGradient.addColorStop(1,'rgba(0,0,0,0)');contactContext.fillStyle=contactGradient;contactContext.fillRect(0,0,64,64);
 const contactTexture=new THREE.CanvasTexture(contactCanvas);
 const shadowAnchor=new THREE.Vector3(0,0,20);
-function addContactShadow(group,w,h){group.traverse(o=>{if(o.isMesh)o.castShadow=false;});const shadow=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:contactTexture,transparent:true,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.position.y=.07;group.add(shadow);}
+function addContactShadow(group,w,h){group.traverse(o=>{if(o.isMesh){o.castShadow=!softwareRenderer&&!o.material?.transparent;o.receiveShadow=true;}});const shadow=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({map:contactTexture,transparent:true,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.position.y=.07;group.add(shadow);}
 const goal=new THREE.Vector3(4,0,-125);
 const playerVelocity=new THREE.Vector3();
 const tmp=new THREE.Vector3();
@@ -85,19 +73,25 @@ const angleDiff=(a,b)=>Math.atan2(Math.sin(b-a),Math.cos(b-a));
 ui=createUI({
  onStart:startGame,onPause:()=>pause(true),onResume:()=>pause(false),onRestart:restart,
  onSound:enabled=>{sound.setEnabled(enabled);sound.start();},
- onQuality:q=>{renderer.setPixelRatio(q==='high'?(softwareRenderer?.6:Math.min(devicePixelRatio,1.5)):.6);renderer.shadowMap.enabled=q==='high';renderer.shadowMap.needsUpdate=true;},
+ onQuality:q=>{renderer.setPixelRatio(q==='high'?(softwareRenderer?.8:Math.min(devicePixelRatio,1.75)):.6);renderer.shadowMap.enabled=q==='high';renderer.shadowMap.needsUpdate=true;rendering.setQuality(q);},
  onTime:value=>setTime(value==='night'),onMap:open=>setMap(open),
  onMobile:(code,down)=>{if(down){if(!keys.has(code)) action(code);keys.add(code);}else keys.delete(code);},
 });
 ui.setReady(false);
 
 function setTime(dark){
- night=dark; atmosphere.setNight(night); state.time=night?'22:16':'18:42';
- uniforms.sunPosition.value.setFromSphericalCoords(1,THREE.MathUtils.degToRad(night?97:81),THREE.MathUtils.degToRad(239));
- sun.color.set(night?0x96baff:0xffd0a0); sun.intensity=night?0.6:3.8;
- hemisphere.intensity=night?0.65:2.7; hemisphere.color.set(night?0x6c86b4:0xbad7ed);
- scene.fog.color.set(night?0x182936:0xd7bb9c);renderer.toneMappingExposure=night?0.75:1.08;
- vehicles.forEach(c=>c.model.setLights(night));renderer.shadowMap.needsUpdate=true;
+ night=dark; atmosphere.setNight(night); rendering.setNight(night);world.setNight(night);streetLights.forEach(light=>light.visible=night);headlights.forEach(light=>light.visible=night); state.time=night?'22:16':'18:42';
+ sun.color.set(night?0x96baff:0xffe1bc); sun.intensity=night?0.8:3.8;
+ hemisphere.intensity=night?.8:.85; hemisphere.color.set(night?0x6c86b4:0xb8d7ff);
+ scene.fog.color.set(night?0x101b2a:0xcac9c7);renderer.toneMappingExposure=night?1:1.0;
+ vehicles.forEach(c=>{
+  c.model.setLights(night);
+  c.model.mesh.traverse(o=>{const materials=Array.isArray(o.material)?o.material:[o.material];for(const m of materials)if(m?.isMeshStandardMaterial&&m.userData.dayEnvIntensity!==undefined){
+    m.envMap=night?vehicleNightEnvironment:vehicleDayEnvironment;
+    m.envMapRotation.copy(night?atmosphere.rotation:new THREE.Euler());
+    m.envMapIntensity=m.userData.dayEnvIntensity*(night?.55:1);
+   }});
+ });renderer.shadowMap.needsUpdate=true;
 }
 function startGame(){if(!state.ready)return;state.started=true;state.paused=false;ui.setPaused(false);sound.start();ui.toast('WELCOME TO VESPUCCI','Your story starts here. Find a ride with E.');}
 function pause(value){state.paused=value;keys.clear();mouseDown=false;aiming=false;ui.setPaused(value);if(value&&document.pointerLockElement)document.exitPointerLock();}
@@ -120,7 +114,8 @@ function addCar(x,z,heading,color,type='sport',traffic=false,police=false){
  const model=createCar({color,type,police});addContactShadow(model.mesh,3.4,5.6);model.mesh.position.set(x,0,z);model.mesh.rotation.y=heading;scene.add(model.mesh);
  const car={model,heading,speed:0,steer:0,traffic,police,occupied:false,health:100,home:new THREE.Vector3(x,0,z),homeHeading:heading,homeTraffic:traffic,homeRouteIndex:0,routeIndex:0,stolen:false,closeDoorAt:0};vehicles.push(car);return car;
 }
-addCar(4.8,18,Math.PI,0xc7a674);
+await loadVehicleAssets();
+addCar(4.8,18,Math.PI,0x315c61);
 addCar(-8,-26,0,0xa9b5a9,'sedan');
 addCar(8,-56,Math.PI,0x983b2f,'sport');
 addCar(-8,61,0,0xd6d5c9,'sedan');
@@ -292,13 +287,14 @@ function clipCameraBoom(head,target){
 }
 function updateCamera(dt){
  if(!state.started){
-  camera.position.set(8+Math.sin(elapsed*.055)*.7,5.2,36);camera.lookAt(0,2,-35);return;
+  camera.position.set(9.8+Math.sin(elapsed*.045)*.32,2.15,28.7+Math.cos(elapsed*.045)*.2);camera.fov=52;camera.updateProjectionMatrix();camera.lookAt(-3.2,2.8,-12);return;
  }
  const base=player.mesh.position;
  if(currentCar&&elapsed-lookTimer>2.5)yaw+=angleDiff(yaw,currentCar.heading+Math.PI)*Math.min(1,dt*2.8);
- const dist=currentCar?8.8:aiming?3.1:5.8;
- const height=currentCar?3.6:aiming?1.9:2.8;
- const offset=new THREE.Vector3(Math.sin(yaw)*dist,height+pitch*4,Math.cos(yaw)*dist);
+ const dist=currentCar?7.6:aiming?2.7:4.5;
+ const height=currentCar?2.3:aiming?1.65:2.05;
+ const offset=new THREE.Vector3(Math.sin(yaw)*dist,height+pitch*3,Math.cos(yaw)*dist);
+ if(!currentCar&&!aiming)offset.add(new THREE.Vector3(Math.cos(yaw)*.55,0,-Math.sin(yaw)*.55));
  if(aiming)offset.add(new THREE.Vector3(Math.cos(yaw)*.65,0,-Math.sin(yaw)*.65));
  const head=base.clone().add(new THREE.Vector3(0,1.2,0));
  const desired=clipCameraBoom(head,base.clone().add(offset));
@@ -308,6 +304,19 @@ function updateCamera(dt){
  const look=base.clone().add(new THREE.Vector3(-Math.sin(yaw)*3,aiming?1.5:1.2,-Math.cos(yaw)*3));
  cameraLook.lerp(look,1-Math.exp(-10*dt));camera.lookAt(cameraLook);
  camera.fov=damp(camera.fov,currentCar?58+Math.min(10,Math.abs(currentCar.speed)*.2):aiming?43:55,4,dt);camera.updateProjectionMatrix();
+}
+function updateNightLights(){
+ if(!night)return;
+ const lamps=[...world.lampPositions].sort((a,b)=>a.distanceToSquared(camera.position)-b.distanceToSquared(camera.position));
+ streetLights.forEach((light,i)=>light.position.copy(lamps[i]));
+ const car=currentCar||vehicles.reduce((nearest,c)=>c.model.mesh.position.distanceToSquared(camera.position)<nearest.model.mesh.position.distanceToSquared(camera.position)?c:nearest,vehicles[0]);
+ headlights.forEach((light,i)=>{
+  light.visible=car.model.mesh.position.distanceTo(camera.position)<45;
+  const forward=new THREE.Vector3(Math.sin(car.heading),0,Math.cos(car.heading));
+  const right=new THREE.Vector3(Math.cos(car.heading),0,-Math.sin(car.heading));
+  light.position.copy(car.model.mesh.position).addScaledVector(forward,1.95).addScaledVector(right,i===0?-.66:.66);light.position.y=.68;
+  light.target.position.copy(light.position).addScaledVector(forward,25);light.target.position.y=.05;
+ });
 }
 function updateGame(dt){
  const simDt=state.paused||state.mapOpen?0:dt;
@@ -320,14 +329,14 @@ function updateGame(dt){
   updatePlayer(dt);updateTraffic(dt);updatePedestrians(dt);
   if((mouseDown||keys.has('Mouse0')||keys.has('Shoot'))&&weapon)shoot();
   if(state.wanted>0&&elapsed-lastCrime>24&&police.model.mesh.position.distanceTo(player.mesh.position)>24){state.wanted--;lastCrime=elapsed-12;if(state.wanted===0){ui.toast('HEAT LOST','Back under the radar.');state.money+=150;}}
-  if(mission===1&&currentCar&&player.mesh.position.distanceTo(goal)<9){mission=2;state.money+=750;state.objectiveTitle='The city is yours';state.objective='Cruise the coast. Explore. Stay out of trouble.';ui.toast('COASTAL RUN COMPLETE','+$750 · Welcome to Pacific Heat.');sound.notify();}
+  if(mission===1&&currentCar&&player.mesh.position.distanceTo(goal)<9){mission=2;state.money+=750;state.objectiveTitle='The city is yours';state.objective='Cruise the coast. Explore. Stay out of trouble.';ui.toast('COASTAL RUN COMPLETE','+$750 · Welcome to Grand Theft Astra.');sound.notify();}
   if(state.health<=0&&respawnTimer===0){respawnTimer=3;ui.toast('BUSTED','Catching your breath…');}
   if(respawnTimer>0){respawnTimer-=dt;if(respawnTimer<=0){respawnTimer=0;restart();ui.toast('BACK ON YOUR FEET','A new day. A new opportunity.');}}
   if(state.health<100&&state.wanted===0)state.health=Math.min(100,state.health+dt*.6);
  }else if(!state.started){vehicles.forEach(c=>c.model.update(simDt,0,0));pedestrians.forEach(p=>{p.actor.mesh.visible=p.actor.mesh.position.distanceTo(camera.position)<85;p.actor.update(simDt,{speed:0});});player?.update(simDt,{speed:0});}
  for(let i=effects.length-1;i>=0;i--){const e=effects[i];e.life-=simDt;if(e.life<=0){scene.remove(e.mesh);e.mesh.geometry.dispose();e.mesh.material.dispose();effects.splice(i,1);}else{if(e.vel){e.vel.y-=9*simDt;e.mesh.position.addScaledVector(e.vel,simDt);}e.mesh.material.opacity=e.life/e.max;}}
- updateCamera(simDt);
- if(player){const pos=player.mesh.position;if(pos.distanceTo(shadowAnchor)>28){shadowAnchor.copy(pos);sun.target.position.set(pos.x,0,pos.z);sun.position.set(pos.x-65,72,pos.z-100);renderer.shadowMap.needsUpdate=true;}state.location=pos.x>45?'DOWNTOWN · PALM AVENUE':pos.x<-25?'VESPUCCI BEACH':pos.z<-80?'NORTH COAST · OCEAN DRIVE':'VESPUCCI BOULEVARD';state.objectiveDistance=mission===2?0:Math.round(pos.distanceTo(mission===0?vehicles[0].model.mesh.position:goal));}
+ updateCamera(simDt);updateNightLights();
+ if(player){const pos=player.mesh.position;if(pos.distanceTo(shadowAnchor)>28){shadowAnchor.copy(pos);sun.target.position.set(pos.x,0,pos.z);sun.position.copy(pos).add(sunOffset);renderer.shadowMap.needsUpdate=true;}state.location=pos.x>45?'DOWNTOWN · PALM AVENUE':pos.x<-25?'VESPUCCI BEACH':pos.z<-80?'NORTH COAST · OCEAN DRIVE':'VESPUCCI BOULEVARD';state.objectiveDistance=mission===2?0:Math.round(pos.distanceTo(mission===0?vehicles[0].model.mesh.position:goal));}
  const active=state.started&&!state.paused&&!state.mapOpen;
  sound.update({speed:state.speed/3.6,inCar:active&&state.inCar,wanted:active?state.wanted:0});
  uiTimer+=dt;miniTimer+=dt;
@@ -375,14 +384,43 @@ window.addEventListener('pointermove',e=>{
  if(e.buttons||document.pointerLockElement===canvas){yaw-=e.movementX*.004;pitch=clamp(pitch+e.movementY*.003,-.28,1);lookTimer=elapsed;}
 });
 canvas.addEventListener('dblclick',()=>{if(state.started&&!state.paused)canvas.requestPointerLock?.();});
-window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);rendering.resize();});
 
 // A read-only diagnostic view keeps real browser verification reproducible.
-Object.defineProperty(window,'__PACIFIC_HEAT__',{value:{getState:()=>({...state,position:player?.mesh.position.toArray(),carPosition:currentCar?.model.mesh.position.toArray(),mission,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,pedestrians:pedestrians.length})}});
+Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,position:player?.mesh.position.toArray(),carPosition:currentCar?.model.mesh.position.toArray(),mission,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray()})}});
 
 async function boot(){
  try{
-  await loadCharacterAssets();player=createCharacter();player.mesh.position.set(1.4,0,23);player.mesh.rotation.y=Math.PI;player.setWeapon(false);addContactShadow(player.mesh,1.4,1.4);scene.add(player.mesh);
+  const [skyData]=await Promise.all([atmosphere.ready,world.ready,loadCharacterAssets()]);
+  if(skyData?.texture){
+   const pmrem=new THREE.PMREMGenerator(renderer);
+   const dayEnvironment=pmrem.fromEquirectangular(skyData.texture).texture;
+   const nightEnvironment=skyData.nightTexture?pmrem.fromEquirectangular(skyData.nightTexture).texture:dayEnvironment;
+   vehicleNightEnvironment=nightEnvironment;
+   atmosphere.setEnvironment(dayEnvironment,nightEnvironment);
+   scene.environmentRotation.copy(skyData.rotation);
+   sunOffset.copy(skyData.sunDirection).multiplyScalar(140);
+   sun.target.position.copy(shadowAnchor);sun.position.copy(shadowAnchor).add(sunOffset);
+   pmrem.dispose();
+  }
+  // Capture the surrounding architecture once for local car-paint and glass
+  // reflections. Reuse it across vehicles; no recurring cubemap render cost.
+  const requestedNight=night;setTime(false);
+  const reflectionTarget=new THREE.WebGLCubeRenderTarget(128,{type:THREE.HalfFloatType});
+  const reflectionCamera=new THREE.CubeCamera(.2,350,reflectionTarget);
+  reflectionCamera.position.set(4.8,1.2,18);
+  vehicles.forEach(car=>car.model.mesh.visible=false);
+  reflectionCamera.update(renderer,scene);
+  vehicles.forEach(car=>car.model.mesh.visible=true);
+  const carPMREM=new THREE.PMREMGenerator(renderer);
+  const vehicleEnvironment=carPMREM.fromCubemap(reflectionTarget.texture).texture;
+  vehicleDayEnvironment=vehicleEnvironment;
+  vehicles.forEach(car=>car.model.mesh.traverse(object=>{
+   const materials=Array.isArray(object.material)?object.material:[object.material];
+   for(const material of materials)if(material?.isMeshStandardMaterial){material.envMap=vehicleEnvironment;material.userData.dayEnvIntensity=material.envMapIntensity;material.needsUpdate=true;}
+  }));
+  carPMREM.dispose();reflectionTarget.dispose();setTime(requestedNight);renderer.shadowMap.needsUpdate=true;
+  player=createCharacter();player.mesh.position.set(1.4,0,23);player.mesh.rotation.y=Math.PI;player.setWeapon(false);addContactShadow(player.mesh,1.4,1.4);scene.add(player.mesh);
   const npcSpawns=[[-13,8],[-13,-30],[13,-38],[13,45],[-13,-75],[13,-128],[67,-54],[93,10]];
   npcSpawns.forEach(([x,z],i)=>{const actor=createCharacter({npc:true,color:[0x657d78,0x8d6e62,0xb5a68a,0x697a90][i%4]});const direction=i%2?1:-1;addContactShadow(actor.mesh,1.2,1.2);actor.mesh.position.set(x,0,z);actor.mesh.rotation.y=direction<0?Math.PI:0;scene.add(actor.mesh);pedestrians.push({actor,direction,homeDirection:direction,home:new THREE.Vector3(x,0,z),down:false,recoverAt:0,fleeUntil:0});});
   state.ready=true;ui.setReady(true);
@@ -392,6 +430,6 @@ async function boot(){
 function frame(now){
  const wallDt=Math.max(0,(now-lastFrame)/1000),dt=Math.min(wallDt,.15);lastFrame=now;frameCount++;fpsTimer+=wallDt;
  if(fpsTimer>1){state.fps=Math.round(frameCount/fpsTimer);frameCount=0;fpsTimer=0;}
- const steps=Math.max(1,Math.ceil(dt/.033));for(let i=0;i<steps;i++)updateGame(dt/steps);renderer.render(scene,camera);requestAnimationFrame(frame);
+ const steps=Math.max(1,Math.ceil(dt/.033));for(let i=0;i<steps;i++)updateGame(dt/steps);rendering.render();requestAnimationFrame(frame);
 }
 boot();

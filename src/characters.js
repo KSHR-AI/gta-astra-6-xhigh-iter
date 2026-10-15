@@ -6,12 +6,97 @@ let characterAsset;
 let pedestrianAsset;
 let pedestrianCount = 0;
 let loadingPromise;
-const localForward = new THREE.Vector3(0, 0, 1);
 const tmpPosition = new THREE.Vector3();
 const tmpDirection = new THREE.Vector3();
 const tmpParentRotation = new THREE.Quaternion();
 const tmpRotation = new THREE.Quaternion();
 const tmpDelta = new THREE.Quaternion();
+const white = new THREE.Color(0xffffff);
+
+function prepareCharacterMaterial(original, { civilian, npc, color }) {
+  const material = original.clone();
+  // Retain the source's baked textile, seams and normal maps at oblique angles.
+  for (const texture of [material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.specularColorMap]) {
+    if (!texture) continue;
+    texture.anisotropy = 8;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = true;
+    texture.needsUpdate = true;
+  }
+  material.color.copy(white);
+  material.envMapIntensity = civilian ? 0.65 : 0.85;
+  material.normalScale?.setScalar(civilian ? 0.85 : 1.12);
+  if (material.name.includes('Visor')) {
+    material.color.set(0x839aa5);
+    material.metalness = 0.62;
+    material.roughness = 0.21;
+    return material;
+  }
+
+  // Dye only the source's yellow fabric / tan armor. Faces, hands, hair,
+  // stitching, worn edges and red insignia retain their original texture.
+  const wardrobe = new THREE.Color(color ?? (npc ? 0x647078 : 0x526471));
+  material.roughness = civilian ? 0.9 : 0.72;
+  // The imported civilian's metalness factor was 0.5, making skin look metallic.
+  material.metalness = civilian ? 0 : 0.14;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.wardrobeColor = { value: wardrobe };
+    shader.fragmentShader = `uniform vec3 wardrobeColor;\n${shader.fragmentShader}`;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+      #include <map_fragment>
+      float wardrobeMask = ${civilian
+        ? 'smoothstep(0.18, 0.42, diffuseColor.g) * smoothstep(0.16, 0.38, diffuseColor.r - diffuseColor.b) * smoothstep(0.12, 0.30, diffuseColor.g - diffuseColor.b)'
+        : 'smoothstep(0.10, 0.24, diffuseColor.r - diffuseColor.b) * smoothstep(0.035, 0.12, diffuseColor.g - diffuseColor.b)'};
+      float sourceLuminance = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+      vec3 dyedSurface = wardrobeColor * (0.45 + sourceLuminance * ${civilian ? '1.0' : '1.75'});
+      diffuseColor.rgb = mix(diffuseColor.rgb, dyedSurface, wardrobeMask * ${civilian ? '0.94' : '0.88'});
+    `);
+    if (!civilian) {
+      shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
+        #include <roughnessmap_fragment>
+        roughnessFactor = mix(0.94, 0.53, wardrobeMask);
+      `).replace('#include <metalnessmap_fragment>', `
+        #include <metalnessmap_fragment>
+        metalnessFactor = mix(0.015, 0.27, wardrobeMask);
+      `);
+    }
+  };
+  material.customProgramCacheKey = () => civilian ? 'civilian-fabric-v1' : 'player-armor-v1';
+  return material;
+}
+
+function makeSoleProbes(model) {
+  const probes = [];
+  const vertex = new THREE.Vector3();
+  model.traverse((object) => {
+    if (!object.isSkinnedMesh) return;
+    const candidates = [];
+    for (let index = 0; index < object.geometry.attributes.position.count; index++) {
+      object.getVertexPosition(index, vertex);
+      object.localToWorld(vertex);
+      if (vertex.y < 0.085) candidates.push({ index, position: vertex.clone() });
+    }
+    candidates.sort((a, b) => a.position.y - b.position.y);
+    if (!candidates.length) return;
+    const selected = [candidates[0]];
+    // Cover both soles with a small set of actual skinned vertices, including
+    // toe and heel corners. This avoids recalculating full mesh bounds per frame.
+    while (selected.length < Math.min(12, candidates.length)) {
+      let farthest;
+      let greatestDistance = -1;
+      for (const candidate of candidates) {
+        let distance = Infinity;
+        for (const picked of selected) distance = Math.min(distance, candidate.position.distanceToSquared(picked.position));
+        if (distance > greatestDistance) { greatestDistance = distance; farthest = candidate; }
+      }
+      if (!farthest || greatestDistance < 0.000001) break;
+      selected.push(farthest);
+    }
+    for (const candidate of selected) probes.push({ object, index: candidate.index });
+  });
+  return probes;
+}
 
 /** Load once before creating the player and population. All assets are served locally. */
 export async function loadCharacterAssets() {
@@ -112,16 +197,7 @@ export function createCharacter({ npc = false, color } = {}) {
     // Skinned limbs can extend outside the static bind-pose bounds.
     object.frustumCulled = false;
     const recolor = (original) => {
-      const material = original.clone();
-      material.roughness = 0.82;
-      if (material.name.includes('Visor')) {
-        material.metalness = 0.23;
-        material.roughness = 0.32;
-      } else {
-        // Keep the detailed original cloth/skin map; tint each outfit subtly.
-        material.color.set(color ?? (npc ? 0xb8b5af : 0xa8b4bb));
-        if (civilian) material.color.lerp(new THREE.Color(0xffffff), 0.8);
-      }
+      const material = prepareCharacterMaterial(original, { civilian, npc, color });
       materials.push(material);
       return material;
     };
@@ -134,7 +210,6 @@ export function createCharacter({ npc = false, color } = {}) {
     if (clip.name === 'TPose') continue;
     actions[clip.name.toLowerCase()] = mixer.clipAction(clip);
   }
-  let currentName = 'idle';
   actions.idle?.play();
   mixer.update(0);
   mesh.updateMatrixWorld(true);
@@ -143,43 +218,67 @@ export function createCharacter({ npc = false, color } = {}) {
   visual.scale.setScalar(1.8 / sourceHeight);
   model.position.y -= bounds.min.y;
   mesh.updateMatrixWorld(true);
+  const soleProbes = makeSoleProbes(model);
+  // Different starting phases prevent the population from marching in unison.
+  const phaseOffset = npc ? (pedestrianCount * 0.381966) % 1 : 0;
+  let gaitPhase = phaseOffset;
+  for (const name of ['walk', 'run']) actions[name]?.play().setEffectiveWeight(0).setEffectiveTimeScale(0);
+  if (npc && actions.idle) actions.idle.time = phaseOffset * actions.idle.getClip().duration;
   const { group: weapon, muzzle } = handgun();
   mesh.add(weapon);
   let weaponVisible = !npc;
   weapon.visible = weaponVisible;
   let aimWeight = 0;
   let recoil = 0;
-  const forward = new THREE.Vector3();
+  let wasShooting = false;
+  let motionSpeed = 0;
   const rightArmDirection = new THREE.Vector3();
   const leftArmDirection = new THREE.Vector3();
+  const rightForearmDirection = new THREE.Vector3();
+  const leftForearmDirection = new THREE.Vector3();
   const rootRotation = new THREE.Quaternion();
   const handPosition = new THREE.Vector3();
+  const solePosition = new THREE.Vector3();
 
   function update(dt, { speed = 0, aiming = false, shooting = false, dead = false } = {}) {
     const step = Math.min(dt, 0.1);
-    const velocity = Math.abs(speed);
-    const nextName = velocity < 0.15 ? 'idle' : velocity > 3.7 ? 'run' : 'walk';
-    if (nextName !== currentName && actions[nextName]) {
-      const next = actions[nextName];
-      next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).play();
-      actions[currentName]?.crossFadeTo(next, 0.22, false);
-      currentName = nextName;
-    }
-    if (currentName === 'walk') actions.walk?.setEffectiveTimeScale(THREE.MathUtils.clamp(velocity / 1.7, 0.65, 1.7));
-    if (currentName === 'run') actions.run?.setEffectiveTimeScale(THREE.MathUtils.clamp(velocity / 4.7, 0.8, 1.5));
+    motionSpeed = THREE.MathUtils.damp(motionSpeed, Math.abs(speed), 12, step);
+    const movingWeight = THREE.MathUtils.smoothstep(motionSpeed, 0.04, 0.85);
+    const runningWeight = THREE.MathUtils.smoothstep(motionSpeed, 2.7, 4.7);
+    const strideDuration = THREE.MathUtils.lerp(actions.walk?.getClip().duration ?? 1, actions.run?.getClip().duration ?? 0.7, runningWeight);
+    const referenceSpeed = THREE.MathUtils.lerp(1.7, 4.7, runningWeight);
+    gaitPhase = (gaitPhase + step * motionSpeed / (referenceSpeed * strideDuration)) % 1;
+    actions.idle?.setEffectiveWeight(1 - movingWeight);
+    actions.walk?.setEffectiveWeight(movingWeight * (1 - runningWeight));
+    actions.run?.setEffectiveWeight(movingWeight * runningWeight);
+    for (const name of ['walk', 'run']) if (actions[name]) actions[name].time = gaitPhase * actions[name].getClip().duration;
     mixer.update(step);
 
     aimWeight = THREE.MathUtils.damp(aimWeight, (aiming || shooting) && weaponVisible ? 1 : 0, 14, step);
-    recoil = shooting ? 0.075 : THREE.MathUtils.damp(recoil, 0, 20, step);
+    recoil = shooting && !wasShooting ? 0.11 : THREE.MathUtils.damp(recoil, 0, 22, step);
+    wasShooting = shooting;
     mesh.updateWorldMatrix(true, true);
+    if (!dead && Math.abs(mesh.rotation.z) < 0.2 && soleProbes.length) {
+      let soleHeight = Infinity;
+      for (const probe of soleProbes) {
+        probe.object.getVertexPosition(probe.index, solePosition);
+        probe.object.localToWorld(solePosition);
+        mesh.worldToLocal(solePosition);
+        soleHeight = Math.min(soleHeight, solePosition.y);
+      }
+      const lift = THREE.MathUtils.clamp(visual.position.y - soleHeight, 0, 0.1);
+      visual.position.y = THREE.MathUtils.damp(visual.position.y, lift, lift > visual.position.y ? 35 : 14, step);
+      mesh.updateWorldMatrix(false, true);
+    }
     mesh.getWorldQuaternion(rootRotation);
-    forward.copy(localForward).applyQuaternion(rootRotation);
-    rightArmDirection.set(-0.1, -0.07 + recoil, 1).normalize().applyQuaternion(rootRotation);
-    leftArmDirection.set(0.28, -0.22, 1).normalize().applyQuaternion(rootRotation);
+    rightArmDirection.set(0.32, -0.36 + recoil, 0.87).normalize().applyQuaternion(rootRotation);
+    rightForearmDirection.set(0.3, 0.23 + recoil, 0.92).normalize().applyQuaternion(rootRotation);
+    leftArmDirection.set(-0.56, -0.58, 0.59).normalize().applyQuaternion(rootRotation);
+    leftForearmDirection.set(-0.35, 0.44, 0.83).normalize().applyQuaternion(rootRotation);
     pointBone(bones.RightArm, bones.RightForeArm, rightArmDirection, aimWeight);
-    pointBone(bones.RightForeArm, bones.RightHand, forward, aimWeight);
-    pointBone(bones.LeftArm, bones.LeftForeArm, leftArmDirection, aimWeight * 0.9);
-    pointBone(bones.LeftForeArm, bones.LeftHand, rightArmDirection, aimWeight * 0.9);
+    pointBone(bones.RightForeArm, bones.RightHand, rightForearmDirection, aimWeight);
+    pointBone(bones.LeftArm, bones.LeftForeArm, leftArmDirection, aimWeight);
+    pointBone(bones.LeftForeArm, bones.LeftHand, leftForearmDirection, aimWeight);
 
     if (bones.RightHand) {
       // Follow the skinned hand in root-local space, avoiding the source's cm scale.

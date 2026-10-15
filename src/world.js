@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyCityMaterials } from './world-materials.js';
 
 // Everything in the district is real geometry. Repeated architectural details
 // share instanced meshes, so the dense streetscape stays inexpensive to render.
@@ -7,11 +8,14 @@ export function createWorld(scene) {
   root.name = 'Pacific district';
   scene.add(root);
   const colliders = [];
+  const lampPositions = [];
+  const illuminatedSigns = [];
   const batches = new Map();
   const object = new THREE.Object3D();
   const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
   const panelGeometry = new THREE.PlaneGeometry(1, 1);
   const cylinderGeometry = new THREE.CylinderGeometry(1, 1, 1, 10);
+  const bayGeometry = new THREE.CylinderGeometry(1, 1, 1, 24);
   const manholeGeometry = new THREE.CylinderGeometry(1, 1, 1, 32);
   const manholeRimGeometry = new THREE.TorusGeometry(0.495, 0.009, 4, 32);
   const trunkGeometry = new THREE.CylinderGeometry(0.86, 1, 1, 9);
@@ -27,11 +31,11 @@ export function createWorld(scene) {
   const mat = (color, roughness = 0.8, extra = {}) =>
     new THREE.MeshStandardMaterial({ color, roughness, ...extra });
   const materials = {
-    limestone: mat('#e8d9c4'), white: mat('#efede0'), pale: mat('#d1cbb8'),
-    blush: mat('#c98e79'), peach: mat('#dec4a2'), terracotta: mat('#98604c'),
-    sage: mat('#9cafa2'), teal: mat('#376e6e'), blue: mat('#688f9c'),
+    limestone: mat('#dacdb5'), white: mat('#e2e0d3'), pale: mat('#c4c0b3'),
+    blush: mat('#bd9581'), peach: mat('#cbb699'), terracotta: mat('#785245'),
+    sage: mat('#96a399'), teal: mat('#3e5b59'), blue: mat('#728b94'),
     concrete: mat('#b2b0a4'), curb: mat('#d2d2c2'), sidewalk: mat('#b8b8aa'),
-    trim: mat('#ece9d7'), dark: mat('#293638', 0.64), metal: mat('#5b6664', 0.42, { metalness: 0.65 }),
+    trim: mat('#d7d2c0'), dark: mat('#263033', 0.64), metal: mat('#616965', 0.42, { metalness: 0.65 }),
     blackMetal: mat('#202b2e', 0.42, { metalness: 0.6 }),
     glass: mat('#527c88', 0.22, { metalness: 0.65 }),
     glassDark: mat('#263f49', 0.24, { metalness: 0.55 }),
@@ -94,50 +98,7 @@ export function createWorld(scene) {
     texture.anisotropy = 4;
     return texture;
   }
-  const asphaltTexture = canvasTexture(512, 512, (ctx, w, h) => {
-    ctx.fillStyle = '#8b8e88'; ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 26000; i++) {
-      const value = Math.floor(range(65, 170));
-      ctx.fillStyle = `rgba(${value},${value},${value - 3},${range(0.1, 0.45)})`;
-      ctx.fillRect(random() * w, random() * h, range(0.5, 2), range(0.5, 2));
-    }
-    for (let i = 0; i < 12; i++) {
-      ctx.strokeStyle = 'rgba(35,37,34,.08)'; ctx.lineWidth = range(1, 3);
-      ctx.beginPath(); ctx.moveTo(random() * w, 0);
-      ctx.bezierCurveTo(random() * w, h / 3, random() * w, h / 2, random() * w, h); ctx.stroke();
-    }
-  });
-  asphaltTexture.wrapS = asphaltTexture.wrapT = THREE.RepeatWrapping;
-  asphaltTexture.repeat.set(8, 100);
-  materials.asphalt.map = asphaltTexture;
-  const asphaltBump = asphaltTexture.clone();
-  asphaltBump.colorSpace = THREE.NoColorSpace;
-  asphaltBump.needsUpdate = true;
-  materials.asphalt.bumpMap = asphaltBump;
-  materials.asphalt.bumpScale = 0.055;
-  const previousSeed = seed;
-  const asphaltRoughness = canvasTexture(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#f2f2f2'; ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 14000; i++) {
-      const value = Math.floor(range(175, 250));
-      ctx.fillStyle = `rgb(${value},${value},${value})`;
-      ctx.fillRect(random() * w, random() * h, range(0.5, 2), range(0.5, 2));
-    }
-  });
-  seed = previousSeed;
-  asphaltRoughness.colorSpace = THREE.NoColorSpace;
-  asphaltRoughness.wrapS = asphaltRoughness.wrapT = THREE.RepeatWrapping;
-  asphaltRoughness.repeat.copy(asphaltTexture.repeat);
-  materials.asphalt.roughnessMap = asphaltRoughness;
-  const wallTexture = canvasTexture(128, 128, (ctx, w, h) => {
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 4200; i++) {
-      ctx.fillStyle = `rgba(70,65,50,${random() * 0.055})`;
-      ctx.fillRect(random() * w, random() * h, 1, 1);
-    }
-  });
-  wallTexture.wrapS = wallTexture.wrapT = THREE.RepeatWrapping;
-  for (const key of ['limestone', 'white', 'pale', 'blush', 'peach', 'terracotta', 'sage', 'concrete']) materials[key].map = wallTexture;
+  const { ready } = applyCityMaterials(materials, canvasTexture, random);
   const breeze = { value: 0 };
   materials.leaves.onBeforeCompile = shader => {
     shader.uniforms.breezeTime = breeze;
@@ -210,6 +171,23 @@ export function createWorld(scene) {
       box(materials.dark, 1.8, 0.043, z + offset, Math.sqrt(0.17 - offset * offset) * 2, 0.002, 0.012, 0, false);
     }
   }
+  // Surface wear stays flat and instanced: tyre arcs, oil staining and repaired
+  // asphalt sit on the actual drivable road instead of adding collision bumps.
+  for (const [x, z, w, d, rotation] of [[7.6, 28, 2.7, 7, .04], [-7, -31, 3.4, 4.2, -.07], [4.3, -65, 3, 6.2, 0], [-4, 65, 2.5, 9, .04]]) {
+    box(materials.patch, x, .037, z, w, .006, d, rotation, false);
+  }
+  for (let i = 0; i < 29; i++) {
+    const x = i % 2 ? 8.4 : -8.4;
+    const z = -207 + i * 13.3;
+    instance(panelGeometry, materials.stain, [x + range(-1, 1), .058, z], [range(1.8, 4), range(2, 5), 1], [-Math.PI / 2, 0, range(-.5, .5)], false);
+  }
+  for (const z of [-116, -24, 18, 62, 114]) {
+    instance(panelGeometry, materials.tyre, [4.8, .061, z], [2.3, 12, 1], [-Math.PI / 2, 0, -.07], false);
+    instance(panelGeometry, materials.tyre, [-5.1, .061, z - 8], [2.2, 9, 1], [-Math.PI / 2, 0, .08], false);
+  }
+  for (const z of intersections) for (const side of [-1, 1]) {
+    box(materials.red, side * 11.23, .19, z + side * 20, .27, .29, 6.5, 0, false);
+  }
 
   function sign(text, x, y, z, width, height, rotation = 0, options = {}) {
     const texture = canvasTexture(1024, 192, (ctx, w, h) => {
@@ -224,6 +202,7 @@ export function createWorld(scene) {
       ctx.fillText(text, w / 2, h / 2 + 3, w - 60);
     });
     const material = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.72, emissive: '#e1c89c', emissiveMap: texture, emissiveIntensity: options.glow || 0.09 });
+    illuminatedSigns.push({material, intensity:material.emissiveIntensity});
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
     mesh.position.set(x, y, z); mesh.rotation.y = rotation; root.add(mesh);
     return mesh;
@@ -233,7 +212,7 @@ export function createWorld(scene) {
     const floorHeight = 3.2;
     const height = 4.2 + floors * floorHeight;
     const detailed = Math.abs(x) < 50 && Math.abs(z) < 100;
-    const palette = [materials.white, materials.limestone, materials.blush, materials.sage, materials.peach, materials.pale];
+    const palette = [materials.white, materials.brick, materials.blush, materials.limestone, materials.pale, materials.sage];
     const facade = palette[style % palette.length];
     const accent = style % 3 === 0 ? materials.teal : style % 3 === 1 ? materials.terracotta : materials.dark;
     box(facade, x, height / 2 + 0.2, z, width, height, depth);
@@ -247,6 +226,12 @@ export function createWorld(scene) {
     for (const dx of [-1, 1]) box(facade, x + dx * (width / 2 - 0.2), height + 0.65, z, 0.4, 0.8, depth);
     if (style === 0 || style === 3) {
       for (let f = 1; f <= floors; f++) box(materials.trim, x, 4.2 + f * floorHeight, z, width + 0.22, 0.13, depth + 0.22, 0, false);
+    }
+    if (style === 3) {
+      // A recessed curtain-wall bay changes the silhouette of the street-facing
+      // elevation; existing glass panels sit in front of its dark backing.
+      box(materials.dark, x + front * (width / 2 + .013), height / 2 + 2.3, z, .035, height - 4.2, depth * .7, 0, false);
+      for (const dz of [-depth * .35, depth * .35]) box(materials.trim, x + front * (width / 2 + .22), height / 2 + 2.1, z + dz, .5, height - 4, .42);
     }
     for (const side of [-1, 1]) {
       for (let i = 0; i < Math.floor(depth / 3.5); i++) {
@@ -313,6 +298,58 @@ export function createWorld(scene) {
       for (let n = 0; n < (detailed ? 7 : 3); n++) box(materials.concrete, xx - 1.05 + n * (detailed ? 0.35 : 0.9), height + 1.8, z + 1, 0.08, 0.05, 1.7, 0, false);
       cylinder(materials.metal, xx + 2.6, height + 1.0, z - 2, 0.23, 1.4);
       box(materials.metal, xx + 1.9, height + 0.6, z - 2, 2.1, 0.5, 0.55);
+    }
+    // Distinct building types replace a uniform wall of identical cuboids.
+    if (style === 0 && index < 20) {
+      const radius = 3.1;
+      const bx = x + front * (width / 2 - 2.65), bz = z + depth / 2 - 3.2;
+      instance(bayGeometry, facade, [bx, height / 2 + 2.1, bz], [radius, height - 3.6, radius]);
+      for (let floor = 0; floor < floors; floor++) {
+        const yy = 5.85 + floor * floorHeight;
+        instance(bayGeometry, materials.trim, [bx, yy - 1.3, bz], [radius + .13, .16, radius + .13], [0, 0, 0], false);
+        for (let col = -2; col <= 2; col++) {
+          const angle = (front > 0 ? 0 : Math.PI) + col * .36;
+          panel(materials.glass, bx + Math.cos(angle) * (radius + .035), yy, bz + Math.sin(angle) * (radius + .035), .83, 2.1, Math.PI / 2 - angle);
+        }
+      }
+      instance(bayGeometry, materials.trim, [bx, height + .55, bz], [radius + .23, .35, radius + .23]);
+    }
+    if (style === 1 && detailed) {
+      const ex = x + front * (width / 2 + .9), ez = z - depth * .28;
+      for (let floor = 0; floor < Math.min(floors, 5); floor++) {
+        const yy = 4.6 + floor * floorHeight;
+        box(materials.blackMetal, ex, yy, ez, 1.6, .12, 4.5);
+        box(materials.blackMetal, ex + front * .75, yy + 1, ez, .045, .05, 4.5, 0, false);
+        for (let k = 0; k < 10; k++) box(materials.blackMetal, ex + front * .75, yy + .5, ez - 2.1 + k * .46, .035, 1, .035, 0, false);
+        if (floor > 0) {
+          for (let step = 0; step < 9; step++) box(materials.blackMetal, ex, yy - step * .355, ez - 1.85 + step * .42, 1.35, .06, .39, 0, false);
+          line(materials.blackMetal, [ex + front * .65, yy + .9, ez - 1.85], [ex + front * .65, yy - 2.3, ez + 1.85], .035, cylinderGeometry, false);
+        }
+      }
+      const tx = x - front * width * .2;
+      for (const dx of [-1, 1]) for (const dz of [-1, 1]) box(materials.blackMetal, tx + dx, height + 1.5, z + dz, .12, 2.7, .12);
+      instance(bayGeometry, materials.terracotta, [tx, height + 3.4, z], [1.65, 2.5, 1.65]);
+      instance(coneGeometry, materials.dark, [tx, height + 4.9, z], [1.8, .7, 1.8]);
+    }
+    if (style === 2 || style === 3) {
+      const terraceY = height + 1.1;
+      for (const dx of [-1, 1]) for (const dz of [-1, 1]) box(materials.trunk, x + dx * width * .23, terraceY + 1.4, z + dz * depth * .23, .18, 2.8, .18);
+      for (let k = 0; k < 10; k++) box(materials.trunkLight, x - width * .27 + k * width * .06, terraceY + 2.9, z, .14, .17, depth * .58);
+      for (const dz of [-1, 1]) {
+        box(materials.concrete, x, height + .8, z + dz * depth * .37, width * .72, .8, .8);
+        for (let k = 0; k < 5; k++) instance(sphereGeometry, materials.shrub, [x - width * .29 + k * width * .145, height + 1.3, z + dz * depth * .37], [1.1, .6, .5]);
+      }
+    }
+    if (style === 4) {
+      const extra = index % 2 ? 9 : 5;
+      box(materials.concrete, x + front * 3, height + extra / 2, z - 1, width * .64, extra, depth * .68);
+      for (const side of [-1, 1]) {
+        panel(materials.glassDark, x + front * 3, height + extra * .56, z - 1 + side * (depth * .34 + .03), width * .6, extra * .65, side < 0 ? Math.PI : 0);
+        panel(materials.glass, x + front * 3 + side * (width * .32 + .03), height + extra * .56, z - 1, depth * .62, extra * .65, side * Math.PI / 2);
+      }
+      box(materials.trim, x + front * 3, height + extra + .15, z - 1, width * .68, .3, depth * .72);
+      cylinder(materials.metal, x, height + extra + 3.3, z, .055, 6.4);
+      colliders[colliders.length - 1].maxY = height + extra + 1;
     }
     if (index < 21) {
       const names = ['PALMA SOCIAL', 'THE MARLOW', 'SOL MARKET', 'COASTAL RECORDS', 'MOTEL AZUL', 'PACIFIC COFFEE', 'CASA LUNA', 'MARINA CLUB', 'LAUNDROMAT', 'SUNDOWN STUDIO', 'PALMETTO HOTEL', 'FRESH & LOCAL', 'GOLDEN HOUR', 'OCEAN DRIVE', 'VELOCE MOTORS', 'WAVES SURF CO.', 'CINÉMA', 'FLORIDA ROOM', 'THE TERRACE', 'SUNSET DELI', 'BAR CALYPSO'];
@@ -383,7 +420,9 @@ export function createWorld(scene) {
         const a = [base[0] - 0.035, base[1], 0];
         const b = [base[0] + (leaflets < 20 ? 0.24 : 0.14), base[1] + 0.025, side * 0.08];
         const c = [base[0] + 0.54 + t * 0.15, base[1] - 0.28 - t * 0.2, side * length];
-        addTriangle(a, b, c, 0.72 + (i % 4) * 0.08);
+        const ridge = [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3 + .045, c[2] * .35];
+        addTriangle(a, ridge, c, .68 + (i % 4) * .07);
+        addTriangle(ridge, b, c, .83 + (i % 3) * .05);
       }
       addTriangle([base[0], base[1] + 0.015, -0.035], [base[0], base[1] + 0.015, 0.035], [end[0], end[1] + 0.015, 0], 0.93);
     }
@@ -437,6 +476,7 @@ export function createWorld(scene) {
   }
 
   function streetLamp(x, z, inward) {
+    lampPositions.push(new THREE.Vector3(x+inward*2.3,7.9,z));
     cylinder(materials.blackMetal, x, 0.45, z, 0.22, 0.6);
     cylinder(materials.metal, x, 3.8, z, 0.075, 7.3);
     line(materials.metal, [x, 7.3, z], [x + inward * 0.8, 8.1, z], 0.06);
@@ -584,18 +624,46 @@ export function createWorld(scene) {
   ocean.rotation.x = -Math.PI / 2; ocean.position.set(-1050, -0.04, -80); root.add(ocean);
 
   // Distant metropolitan silhouettes wrap the drivable district without walls.
+  // Conventional repeated interior atlas here gives each long strip a bank of
+  // windows while retaining the real sky's reflections on the glazing.
+  const skylineGlass = materials.glass.clone();
+  skylineGlass.map = materials.glass.map.clone();
+  skylineGlass.map.wrapS = THREE.RepeatWrapping;
+  skylineGlass.map.repeat.set(2, 1);
+  skylineGlass.map.needsUpdate = true;
+  skylineGlass.color.set('#b0bfbd');
   for (let i = 0; i < 46; i++) {
     const x = i < 22 ? range(-80, 190) : range(155, 290);
     const z = i < 22 ? range(-390, -268) : range(-235, 210);
-    const w = range(15, 31), d = range(16, 35), h = range(28, 95);
+    const w = range(15, 31), d = range(16, 35), h = i % 7 === 0 ? range(105, 145) : range(28, 85);
     const facade = i % 3 === 0 ? materials.blue : i % 3 === 1 ? materials.pale : materials.sage;
     box(facade, x, h / 2, z, w, h, d);
     box(materials.trim, x, h + 0.3, z, w + 0.4, 0.4, d + 0.4);
-    if (i % 3 === 0) box(facade, x, h + 4, z, w * 0.6, 8, d * 0.6);
+    if (i % 3 === 0) {
+      box(facade, x - w * .08, h + 5, z, w * .72, 10, d * .68);
+      box(materials.metal, x - w * .08, h + 10.2, z, w * .75, .4, d * .71);
+    }
+    if (i % 7 === 0) {
+      box(facade, x, h + 14, z, w * .48, 12, d * .45);
+      box(materials.glassDark, x, h + 21, z, w * .28, 3, d * .28);
+      cylinder(materials.metal, x, h + 27, z, .09, 12);
+    }
     for (let yy = 5; yy < h - 1; yy += 3.2) {
       for (const side of [-1, 1]) {
-        panel(materials.glass, x, yy, z + side * (d / 2 + 0.02), w - 1.6, 1.7, side < 0 ? Math.PI : 0);
-        panel(materials.glass, x + side * (w / 2 + 0.02), yy, z, d - 1.6, 1.7, side * Math.PI / 2);
+        panel(skylineGlass, x, yy, z + side * (d / 2 + 0.02), w - 1.6, 1.7, side < 0 ? Math.PI : 0);
+        panel(skylineGlass, x + side * (w / 2 + 0.02), yy, z, d - 1.6, 1.7, side * Math.PI / 2);
+      }
+    }
+  }
+  // A recognizable tapered downtown crown terminates the boulevard's sightline.
+  const towerX = -3, towerZ = -310;
+  for (const [y, height, radius] of [[42, 84, 15], [94, 20, 12.5], [111, 14, 9.5], [122, 8, 6.5]]) {
+    instance(bayGeometry, materials.blue, [towerX, y, towerZ], [radius, height, radius]);
+    instance(bayGeometry, materials.trim, [towerX, y + height / 2, towerZ], [radius + .2, .6, radius + .2]);
+    for (let yy = y - height / 2 + 2; yy < y + height / 2 - 1; yy += 3.3) {
+      for (let k = 0; k < 16; k++) {
+        const angle = k * Math.PI / 8;
+        panel(skylineGlass, towerX + Math.cos(angle) * (radius + .04), yy, towerZ + Math.sin(angle) * (radius + .04), radius * .35, 2.0, Math.PI / 2 - angle);
       }
     }
   }
@@ -627,7 +695,14 @@ export function createWorld(scene) {
     root.add(mesh);
   }
   return {
-    root, colliders, roads,
+    root, colliders, roads, ready, lampPositions,
+    setNight(value) {
+      materials.lamp.emissiveIntensity=value?4.5:1.3;
+      materials.glassWarm.emissiveMap=value?materials.glassWarm.map:null;
+      materials.glassWarm.emissiveIntensity=value?.8:.035;
+      materials.glassWarm.needsUpdate=true;
+      illuminatedSigns.forEach(({material,intensity})=>material.emissiveIntensity=intensity*(value?3:1));
+    },
     bounds: { minX: -148, maxX: 143, minZ: -238, maxZ: 194 },
     update(dt, time) { waterMaterial.uniforms.time.value = time; breeze.value = time; },
   };
