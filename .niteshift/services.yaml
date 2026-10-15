@@ -2,3 +2,6 @@ services:
   - name: web
     command: npm run dev
     port: 3000
+  - name: blender
+    command: bash .niteshift/blender-desktop
+    port: 6082

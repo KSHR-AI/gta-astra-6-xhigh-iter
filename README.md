@@ -70,6 +70,8 @@ Rendering combines local PBR surface maps, a photographic HDR sky, local vehicle
 
 Niteshift runs the Vite service on port 3000 using `.niteshift/`. A read-only `window.__GRAND_THEFT_ASTRA__.getState()` view exposes gameplay and renderer state for browser inspection.
 
+Blender 4.5.14 LTS is available through a separate interactive desktop on port 6082. Use `ns preview 6082` to model assets, then `ns preview 3000` to return to the game. See [the Blender workspace guide](art/blender/README.md) for controls, source files, exports, and command-line automation.
+
 ## Prototype limits and asset terms
 
 This is a compact prototype, not a finished AAA game or GTA V recreation. It contains one mission chain, a limited population and patrol, simplified road routing, and a small set of accessible ground-floor spaces. Most buildings and motel guest rooms remain scenery. It has no multiplayer, extensive campaign, cloud saves, advanced ragdolls, facial capture, spoken dialogue, or fully simulated vehicle interiors. Character interaction poses are partly procedural, and occasional clipping can occur. Driving uses custom arcade handling rather than a full rigid-body vehicle simulator.

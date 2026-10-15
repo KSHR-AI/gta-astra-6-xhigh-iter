@@ -4,3 +4,4 @@ cd "$(dirname "$0")/.."
 if [[ ! -d node_modules || ! -f node_modules/.package-lock.json || package-lock.json -nt node_modules/.package-lock.json ]]; then
   npm ci --no-audit --no-fund
 fi
+bash .niteshift/install-blender
