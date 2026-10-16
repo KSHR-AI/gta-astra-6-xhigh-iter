@@ -103,3 +103,26 @@ The `AstraAurora` root uses +Z forward and Y up in glTF. Keep these game-space a
 | `exhaust_left`, `exhaust_right` | Rear outlets `(±.61, .29, -2.33)` |
 
 Tire radius is `.352 m`. The windshield runs from half-width `.82`, height `.88`, Z `.72` to half-width `.73`, height `1.29`, Z `.15`, with a `.025 m` vertical crown and `.04 m` forward crown. The rear plate backing is `.429 × .166 m`, centered at `(0, .52, -2.257)`; runtime lettering sits just behind it. Named paint, glass, lamp and interior materials are shared across static detail, while runtime clones materials that need individual damage or brake-light state. Verify steering, wheel rotation, door travel, seated hands, both LODs, and the windshield after changing the source.
+
+### Deliberate appearance rebuild with facial morphs
+
+Stage an appearance change separately from the browser's current assets. Raw head GLBs must name relative morph targets through `mesh.extras.targetNames` (`blinkLeft`, `blinkRight`, optionally `jawOpen`) and provide finite `POSITION`/`NORMAL` deltas with the original vertex counts. Rest weights are zero. The atlas aligns targets by name, zero-fills unaffected eyes/hair, supports sparse source accessors, and carries targets onto both opaque and translucent material batches. Head node transforms must already be baked, as in `character_humans.py` exports. Default mesh weights for the same merged target must agree.
+
+```sh
+python3 art/blender/character_head_atlas.py /tmp/astra-face-stage
+node art/blender/character_humans.mjs /tmp/astra-face-stage \
+  --body-dir /tmp/astra-clothing-stage --output-dir /tmp/astra-appearance-stage
+node art/blender/character_lod.mjs \
+  /tmp/astra-lod-tool/node_modules/meshoptimizer/meshopt_simplifier.module.js \
+  --input-dir /tmp/astra-appearance-stage --output-dir /tmp/astra-appearance-stage
+node art/blender/character_indices.mjs \
+  /tmp/astra-lod-tool/node_modules/meshoptimizer/meshopt_encoder.module.js \
+  --input-dir /tmp/astra-appearance-stage --output-dir /tmp/astra-appearance-stage
+node --test tests/character-morph-pipeline.test.js tests/character-indices.test.js
+```
+
+The optional body directory contains `CivilianMale.glb` and `Michelle-crowd.glb` with their original rig contracts. Omit `--body-dir` to retain the existing clothed bodies. Facial position deltas are transformed by the graft's scale/bind linear transform without translation. Normal deltas share the transformed base normal's divisor, preserving correct partial-weight interpolation. Facial targets must not move the fitted neck seam. Near/mid LOD simplification locks every morph-active vertex and includes every morph delta in exact-weld comparisons. Far LOD alone may suppress exactly the named `blinkLeft`/`blinkRight` pair when every mesh/node default is zero and no other target exists; its sidecar level carries `disabledMorphTargets: ["blinkLeft", "blinkRight"]`. Runtime validates that contract and zeros those weights on every far update. Generic/custom morphs remain fully protected. Geometry keeps original morph attributes so approaching/zooming restores animation without replacing vertex buffers; the subsequent index optimizer already preserves complete morph payloads and transparent triangle order.
+
+Inspect staged rest, half-blink, and closed-eye poses, validate the complete original skeleton and inverse binds, exercise near/far transitions, and review actual game rendering before promoting the staged GLBs/sidecars. A deliberate appearance rebuild changes the production surface/material fingerprints in `tests/character-indices.test.js`; keep those checks enabled and only update their expected values after reviewing the new geometry/materials. The index optimizer's generated proof describes exact index-only preservation of the newly reviewed inputs; it is not permission to bypass an appearance change review.
+
+The current authored assets contain male 22,943 / 16,603 / 12,951 and female 22,092 / 12,562 / 8,844 triangles at near/mid/far distance, each in three material batches. Compared with the earlier static heads, retained far geometry grows primarily through raised clothing (+1,008 male / +924 female triangles) and male hair ribbons (+1,806 authored triangles); ribbon borders remain protected to preserve their alpha silhouettes. Male neck cut normals and bone weights match the interpolated body contour, fading smoothly back to authored head values above the cut.

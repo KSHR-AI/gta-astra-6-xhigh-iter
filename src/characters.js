@@ -4,6 +4,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createHumanoidAnimator } from './character-animation.js';
 import { createCharacterLOD, registerCharacterLODs } from './character-lod.js';
 import { createCharacterBounds } from './character-bounds.js';
+import { createCharacterFace } from './character-face.js';
 
 let characterAsset;
 let pedestrianAsset;
@@ -16,6 +17,7 @@ const white = new THREE.Color(0xffffff);
 
 function prepareCharacterMaterial(original, { civilian, male, natural, skinTint, hairTint, npc, color, police }) {
   const material = original.clone();
+  const authoredCloth = Boolean(original.userData.clothingAuthored && material.roughnessMap);
   // Retain the source's baked textile, seams and normal maps at oblique angles.
   for (const texture of [material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.specularColorMap]) {
     if (!texture) continue;
@@ -44,15 +46,18 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
       `);
       shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
         #include <roughnessmap_fragment>
+        // Keep the atlas variation while preventing oily highlights on skin;
+        // the eye surface keeps its separately authored wet specular response.
+        roughnessFactor = mix(roughnessFactor, clamp(roughnessFactor, 0.60, 0.85), vSkinRegion);
         roughnessFactor = mix(roughnessFactor, 0.62, vHairRegion);
       `);
     };
-    material.customProgramCacheKey = () => 'natural-human-skin-hair-v2';
+    material.customProgramCacheKey = () => 'natural-human-skin-hair-v3';
     return material;
   }
   material.color.copy(white);
   material.envMapIntensity = civilian ? 0.65 : 0.85;
-  material.normalScale?.setScalar(civilian ? 0.85 : 1.12);
+  if (!authoredCloth) material.normalScale?.setScalar(civilian ? 0.85 : 1.12);
   // UV V was flipped for glTF without altering the original bitmap, so the
   // tangent-space bitangent must flip too to preserve the sculpted normal detail.
   if (male && material.normalScale) material.normalScale.y *= -1;
@@ -65,7 +70,8 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
 
   // Dye the civilian fabric while preserving skin, hair and baked textile detail.
   const wardrobe = new THREE.Color(police ? 0x172b43 : color ?? (npc ? 0x647078 : 0x384c58));
-  material.roughness = male ? 0.82 : civilian ? 0.9 : 0.72;
+  const femaleTrouserMask = 'smoothstep(0.18, 0.42, diffuseColor.g) * smoothstep(0.16, 0.38, diffuseColor.r - diffuseColor.b) * smoothstep(0.12, 0.30, diffuseColor.g - diffuseColor.b)';
+  material.roughness = authoredCloth ? 1 : male ? 0.82 : civilian ? 0.9 : 0.72;
   // The imported civilian's metalness factor was 0.5, making skin look metallic.
   material.metalness = civilian ? 0 : 0.14;
   material.onBeforeCompile = (shader) => {
@@ -79,13 +85,16 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
     }
     shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
       #include <map_fragment>
-      float wardrobeMask = ${male
+      float wardrobeMask = ${authoredCloth
+        ? male ? 'clamp(texture2D(roughnessMap, vRoughnessMapUv).r, 0.0, 1.0)'
+          : `max(clamp(texture2D(roughnessMap, vRoughnessMapUv).r, 0.0, 1.0), ${femaleTrouserMask})`
+        : male
         ? 'vClothDye * (1.0 - smoothstep(0.08, 0.18, (max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b) - min(min(diffuseColor.r, diffuseColor.g), diffuseColor.b)) / max(max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b), 0.001))) * smoothstep(0.025, 0.09, diffuseColor.g)'
         : civilian
-        ? 'smoothstep(0.18, 0.42, diffuseColor.g) * smoothstep(0.16, 0.38, diffuseColor.r - diffuseColor.b) * smoothstep(0.12, 0.30, diffuseColor.g - diffuseColor.b)'
+        ? femaleTrouserMask
         : 'smoothstep(0.10, 0.24, diffuseColor.r - diffuseColor.b) * smoothstep(0.035, 0.12, diffuseColor.g - diffuseColor.b)'};
       float sourceLuminance = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-      float skinMask = ${natural ? `smoothstep(0.22, 0.36, (diffuseColor.r - diffuseColor.g) / max(diffuseColor.r, 0.001))
+      float skinMask = ${authoredCloth ? 'clamp(texture2D(roughnessMap, vRoughnessMapUv).b, 0.0, 1.0) * (1.0 - wardrobeMask)' : natural ? `smoothstep(0.22, 0.36, (diffuseColor.r - diffuseColor.g) / max(diffuseColor.r, 0.001))
         * smoothstep(0.30, 0.46, (diffuseColor.r - diffuseColor.b) / max(diffuseColor.r, 0.001))
         * smoothstep(0.002, 0.012, sourceLuminance) * (1.0 - wardrobeMask)` : `smoothstep(0.018, 0.075, diffuseColor.r - diffuseColor.b)
         * smoothstep(0.006, 0.035, diffuseColor.r - diffuseColor.g)
@@ -97,7 +106,10 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
       // Linear RGB references are sampled at each new head's actual neck cut.
       // Relative chroma above recognizes both source skin palettes, including
       // Michelle's dark albedo; absolute brightness thresholds missed it.
-      vec3 matchedSkin = ${male ? 'vec3(0.7565, 0.4080, 0.2547) * (0.74 + sourceLuminance * 0.70)' : 'vec3(0.6918, 0.4451, 0.3076) * (0.74 + sourceLuminance * 3.5)'} * skinTint;
+      // The male front-neck seam samples source luminance 0.36203. Normalize
+      // its tonal transfer there to the actual new neck median, retaining the
+      // source's relative texture variation away from the join.
+      vec3 matchedSkin = ${male ? 'vec3(0.7682, 0.4260, 0.2705) * ((0.74 + sourceLuminance * 0.70) / 0.99342)' : 'vec3(0.6918, 0.4451, 0.3076) * (0.74 + sourceLuminance * 3.5)'} * skinTint;
       diffuseColor.rgb = mix(diffuseColor.rgb, matchedSkin, skinMask);` : ''}
       ${male ? `// Dark fabric still reflects light; preserve texture contrast in shade.
       float trouserMask = vTrouserRegion * (1.0 - smoothstep(0.05, 0.14, sourceLuminance));
@@ -106,8 +118,9 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
     if (civilian) {
       shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
         #include <roughnessmap_fragment>
-        // Skin has a broad soft highlight; woven clothing remains matte.
-        roughnessFactor = mix(${male ? '0.86' : '0.90'}, ${natural ? '0.64' : '0.56'}, skinMask);
+        // Authored G contains actual weave/seam roughness. Keep it instead of
+        // flattening every cloth pixel to one constant; only skin is softened.
+        roughnessFactor = mix(${authoredCloth ? 'roughnessFactor' : 'clamp(roughnessFactor, 0.72, 1.0)'}, ${natural ? '0.64' : '0.56'}, skinMask);
       `);
     } else {
       shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
@@ -119,7 +132,7 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
       `);
     }
   };
-  material.customProgramCacheKey = () => `${male ? 'civilian-male' : civilian ? 'civilian' : 'player'}-skin-cloth-${natural ? 'natural-v2' : 'v2'}`;
+  material.customProgramCacheKey = () => `${male ? 'civilian-male' : civilian ? 'civilian' : 'player'}-skin-cloth-${natural ? 'natural' : 'legacy'}-${authoredCloth ? 'authored' : 'source'}-v3`;
   return material;
 }
 
@@ -437,14 +450,15 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
   });
   animator.update(0);
   const lod = createCharacterLOD(model, mesh, { enabled: npc });
+  const face = createCharacterFace(model, mesh, { seed: npc ? variant + 2 : 1 });
   const renderBounds = createCharacterBounds(model, mesh, { height });
   const getHitVolumes = createHitVolumeReader(mesh, model, bones);
   return {
     mesh, mixer, weapon, muzzle,
-    updateLOD(camera) { animator.flushPose(); const level = lod.update(camera); renderBounds.update(); return level; },
+    updateLOD(camera) { animator.flushPose(); const level = lod.update(camera); face.update(camera, level); renderBounds.update(); return level; },
     getLODInfo() { return { ...lod.getInfo(), culling: renderBounds.getInfo() }; },
-    update: animator.update,
-    advance: animator.advance,
+    update(dt, options) { animator.update(dt, options); face.advance(dt, options); },
+    advance(dt, options) { animator.advance(dt, options); face.advance(dt, options); },
     flushPose: animator.flushPose,
     getEvaluationStats: animator.getEvaluationStats,
     seatOffset: animator.seatOffset,
@@ -452,6 +466,7 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
     setWeapon: animator.setWeapon,
     reactToHit: animator.reactToHit,
     getPoseInfo: animator.getPoseInfo,
+    getFaceInfo: face.getInfo,
     getHitVolumes() { animator.flushPose(); return getHitVolumes(); },
     setVisible(visible) { mesh.visible = Boolean(visible); },
     getMuzzlePosition(target = new THREE.Vector3()) { animator.flushPose(); return muzzle.getWorldPosition(target); },
@@ -527,6 +542,7 @@ function createFallbackCharacter({ npc, color, police }) {
     setVisible(visible) { mesh.visible = Boolean(visible); },
     reactToHit(strength = 1) { hitWeight = strength; },
     getPoseInfo() { return { state: mesh.userData.animationState, pelvis: [0, 0.94 + visual.position.y, 0] }; },
+    getFaceInfo() { return { supported: false, meshes: 0, active: false, blinkLeft: 0, blinkRight: 0, samples: 0, writes: 0 }; },
     getHitVolumes() {
       const scale = visual.getWorldScale(new THREE.Vector3());
       const radiusScale = Math.max(Math.abs(scale.x), Math.abs(scale.y), Math.abs(scale.z));

@@ -310,12 +310,13 @@ test('repeating the transform is byte-stable and stale optimization metadata is 
   assert.throws(() => optimizeCharacterAsset(input.glb, wrongSource, encoderFixture()), /hash|sha256|match|source/i);
 });
 
-// Captured from the actual pre-optimization natural characters. These allow
+// Captured from the authored clothing, hair, and blink PRE-index exports, then
+// independently verified against the optimized production files. These allow
 // index order and exact duplicate references to change, while independently
 // detecting altered skinning, seams, morphs, surface winding, textures or rigs.
 const baselines = {
-  Male: { attributes: '44fd07f7fbdc7d1a808e9c29bd9e06084aea10f92f3908ed824f10820e4c9f2f', orientedSurfaces: 'afe5aaf538bb3f6d76fca01aeca8304150ce0460982f6d0e5325d197a0012c5a', blendOrder: '0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260', rig: '3f7087b99cde7bc508fa63461ab37154f8d50f08898ec328186d771dac561be9', materials: '1716b8948e3f7412a8cf5113f2ff54901050f09fa12f86ea52d23b7e46ff197f' },
-  Female: { attributes: '8264537d11bf0cb8debc52d95c3060d8611690800a2280c203339dbea4b971cd', orientedSurfaces: '01aa21bc1794c8ae18e398fd26eef7d95d109387371c207c88b1feafd884b8e1', blendOrder: '1b2397b4b23db70f8447e687c207a8e9b48d074d3f7b4d08cf64e6107b802669', rig: '5e66e1d0f0590a9ee999c3fa40a25722f5cc371a3a825686e1a4a803d36a52f4', materials: '3ebbf5cf47c6b6380c22ac0fe8866e337bbf5ec5d0fc2084e8a685fd28527c2e' },
+  Male: { attributes: '0c68688c5e59a6c810ccdcb3d6e40ea31c9b6331cc4b1acd68a477c0c52b0419', orientedSurfaces: 'dd07b5cf8405dc97da7eab42d4ab24b30ec0167b3fbe6e7e253a035f418acc5f', blendOrder: '0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260', rig: '3f7087b99cde7bc508fa63461ab37154f8d50f08898ec328186d771dac561be9', materials: '10d6d4299ef2fd86408599ed351482b2278956a365286dd9cc55c7fb392f3b24' },
+  Female: { attributes: 'e547bb937b229c5feebfd742009acad42edd10641f90829e8d5ea95b2d0bd573', orientedSurfaces: '60bde6ad0ebf345c5c2d72a98d24d0635e3c84c226feccb7767a09ff764c4402', blendOrder: '1b2397b4b23db70f8447e687c207a8e9b48d074d3f7b4d08cf64e6107b802669', rig: '5e66e1d0f0590a9ee999c3fa40a25722f5cc371a3a825686e1a4a803d36a52f4', materials: '0c83ccbaac50807c3f01d19f3b430957d2ecfb59cb53e46a1dd116d87c9e3386' },
 };
 for (const sex of ['Male', 'Female']) test(`${sex}: production asset retains its authored surfaces, vertex payloads, materials and rig`, async () => {
   const bytes = await readFile(new URL(`../public/models/Civilian${sex}Natural.glb`, import.meta.url));
@@ -323,6 +324,6 @@ for (const sex of ['Male', 'Female']) test(`${sex}: production asset retains its
   assert.deepEqual(fingerprint(asset), baselines[sex]);
   const body = asset.json.meshes[0].primitives[0];
   assert.notEqual(body.indices, undefined, 'near body uses a shared-vertex index stream');
-  assert.equal(new Set(indexes(asset, body)).size, sex === 'Male' ? 4970 : 2924,
+  assert.equal(new Set(indexes(asset, body)).size, sex === 'Male' ? 5642 : 3540,
     'exact welding reduces repeated vertex skinning without changing any authored surface');
 });

@@ -23,8 +23,8 @@ async function glb(name) {
 }
 
 for (const [sourceName, naturalName, triangleBudget] of [
-  ['CivilianMale.glb', 'CivilianMaleNatural.glb', 20500],
-  ['Michelle-crowd.glb', 'CivilianFemaleNatural.glb', 21500],
+  ['CivilianMale.glb', 'CivilianMaleNatural.glb', 23000],
+  ['Michelle-crowd.glb', 'CivilianFemaleNatural.glb', 22200],
 ]) {
   test(`${naturalName}: replacement appearance preserves the exact animation skeleton`, async () => {
     const [source, natural] = await Promise.all([glb(sourceName), glb(naturalName)]);
@@ -54,13 +54,20 @@ for (const [sourceName, naturalName, triangleBudget] of [
         assert.ok(accessor(attributes[key]).every(Number.isFinite), `${key} contains only finite values`);
         assert.equal(json.accessors[attributes[key]].count, json.accessors[attributes.POSITION].count);
       }
-      const skin = json.skins[0], weights = accessor(attributes.WEIGHTS_0), joints = accessor(attributes.JOINTS_0), positions = accessor(attributes.POSITION);
+      const skin = json.skins[0], weights = accessor(attributes.WEIGHTS_0), joints = accessor(attributes.JOINTS_0), positions = accessor(attributes.POSITION), skinMask = accessor(attributes._SKIN_MASK);
+      const female = naturalName.includes('Female');
       for (let i = 0; i < weights.length; i += 4) {
         assert.ok(Math.abs(weights[i] + weights[i + 1] + weights[i + 2] + weights[i + 3] - 1) < 1e-6);
         for (let k = 0; k < 4; k++) if (weights[i + k] > 0) {
           const name = json.nodes[skin.joints[joints[i + k]]].name;
-          if (naturalName.includes('Female') && positions[i / 4 * 3 + 1] < 1.371) {
-            assert.match(name, /mixamorig[:_]?(Head|Neck|Spine2|LeftShoulder|RightShoulder)$/i, 'lower neck preserves the original body joint mixture');
+          // Only the fitted skin at the collar inherits body influences. These
+          // bounds and joint sets come from the original body at each neck join;
+          // eyes, hair, and the face must still follow only the head and neck.
+          if (skinMask[i / 4] > 0.5 && positions[i / 4 * 3 + 1] < (female ? 1.371 : 0.685)) {
+            const collarJoints = female
+              ? /mixamorig[:_]?(Head|Neck|Spine2|LeftShoulder|RightShoulder)$/i
+              : /mixamorig[:_]?(Head|Neck|Spine1|Spine2|LeftShoulder|RightShoulder|LeftArm|RightArm)$/i;
+            assert.match(name, collarJoints, 'lower neck preserves the original body joint mixture');
           } else assert.match(name, /mixamorig[:_]?(Head|Neck)$/i, 'the face and upper neck retain their original neck/head joints');
         }
       }

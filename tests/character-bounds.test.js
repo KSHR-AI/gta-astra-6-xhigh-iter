@@ -154,3 +154,84 @@ test('a sheared actor-to-mesh conversion stays uncullable even if object world b
   assert.ok(mesh.matrixWorld.elements.every((value, i) => Math.abs(value - identity.elements[i]) < 1e-10));
   assert.equal(mesh.frustumCulled, false, 'the actor envelope conversion itself is sheared');
 });
+
+function addRelativeMorph(mesh, offset = [8, -3, 2]) {
+  const values = new Float32Array(mesh.geometry.attributes.position.count * 3);
+  for (let i = 0; i < values.length; i += 3) values.set(offset, i);
+  mesh.geometry.morphTargetsRelative = true;
+  mesh.geometry.morphAttributes.position = [new THREE.Float32BufferAttribute(values, 3)];
+  mesh.updateMorphTargets();
+}
+
+test('relative position morphs expand bounds before scaled, rotated skin deformation', () => {
+  const { root, mesh, bone, bounds } = simpleRig();
+  addRelativeMorph(mesh);
+  const second = new THREE.Bone(); root.add(second);
+  mesh.bind(new THREE.Skeleton([bone, second]));
+  const weights = mesh.geometry.attributes.skinWeight, indices = mesh.geometry.attributes.skinIndex;
+  for (let i = 0; i < weights.count; i++) { weights.setXYZW(i, .25, .75, 0, 0); indices.setXYZW(i, 0, 1, 0, 0); }
+  weights.needsUpdate = true; indices.needsUpdate = true;
+  bone.scale.set(2, .7, 1.3); bone.rotation.z = .8;
+  second.scale.set(.6, 1.5, .8); second.rotation.y = -.7;
+  root.position.set(15, 2, -8); root.rotation.y = .9; root.scale.setScalar(.8);
+  for (const weight of [0, .25, 1, -1]) {
+    mesh.morphTargetInfluences[0] = weight;
+    root.updateMatrixWorld(true); bounds.update();
+    assert.equal(mesh.frustumCulled, true);
+    const point = new THREE.Vector3();
+    for (let i = 0; i < mesh.geometry.attributes.position.count; i++) {
+      mesh.getVertexPosition(i, point);
+      assert.ok(mesh.boundingSphere.containsPoint(point), `weight ${weight}, vertex ${i} must remain enclosed after morph then skin`);
+    }
+  }
+  mesh.morphTargetInfluences[0] = 1;
+  root.updateMatrixWorld(true); bounds.update(); const radius = mesh.boundingSphere.radius;
+  const target = mesh.geometry.morphAttributes.position[0];
+  target.setXYZ(0, 100, 0, 0); target.needsUpdate = true;
+  bounds.update(); assert.ok(mesh.boundingSphere.radius > radius, 'versioned delta changes invalidate cached displacement');
+});
+
+test('unsupported morph and skin data falls back safely and can recover', () => {
+  const { mesh, bounds } = simpleRig(); addRelativeMorph(mesh);
+  for (const weight of [NaN, Infinity, 1.1, -1.1]) {
+    mesh.morphTargetInfluences[0] = weight; bounds.update(); assert.equal(mesh.frustumCulled, false);
+  }
+  mesh.morphTargetInfluences[0] = 1;
+  const targets = mesh.geometry.morphAttributes.position;
+  mesh.geometry.morphTargetsRelative = false; bounds.update(); assert.equal(mesh.frustumCulled, false);
+  mesh.geometry.morphTargetsRelative = true;
+  mesh.geometry.morphAttributes.position = [new THREE.Float32BufferAttribute([0, 0, 0], 3)];
+  bounds.update(); assert.equal(mesh.frustumCulled, false);
+  mesh.geometry.morphAttributes.position = targets;
+  targets[0].setX(0, NaN); targets[0].needsUpdate = true; bounds.update(); assert.equal(mesh.frustumCulled, false);
+  targets[0].setX(0, 8); targets[0].needsUpdate = true;
+  mesh.geometry.attributes.skinWeight.setX(0, -1); mesh.geometry.attributes.skinWeight.needsUpdate = true;
+  bounds.update(); assert.equal(mesh.frustumCulled, false);
+  mesh.geometry.attributes.skinWeight.setX(0, 1); mesh.geometry.attributes.skinWeight.needsUpdate = true;
+  bounds.update(); assert.equal(mesh.frustumCulled, true);
+  mesh.morphTargetInfluences = undefined; bounds.update(); assert.equal(mesh.frustumCulled, false);
+});
+
+test('normal-only morph targets do not move the skinned silhouette', () => {
+  const { mesh, bounds } = simpleRig();
+  mesh.geometry.morphAttributes.normal = [mesh.geometry.attributes.normal.clone()]; mesh.updateMorphTargets();
+  mesh.morphTargetInfluences[0] = 1; bounds.update(); assert.equal(mesh.frustumCulled, true);
+});
+
+test('simultaneous eyelid-style targets remain bounded through nonidentity bind matrices', () => {
+  const { root, mesh, bone, bounds } = simpleRig();
+  mesh.position.set(.3, .2, -.1); mesh.rotation.y = .6;
+  root.updateMatrixWorld(true); mesh.bind(new THREE.Skeleton([bone]));
+  addRelativeMorph(mesh, [10, 0, 0]);
+  const second = mesh.geometry.morphAttributes.position[0].clone();
+  for (let i = 0; i < second.count; i++) second.setXYZ(i, 0, 12, -5);
+  mesh.geometry.morphAttributes.position.push(second); mesh.updateMorphTargets();
+  mesh.morphTargetInfluences[0] = 1; mesh.morphTargetInfluences[1] = 1;
+  bone.scale.set(1.1, .9, 1.3); bone.rotation.z = .5;
+  root.updateMatrixWorld(true); bounds.update();
+  assert.equal(mesh.frustumCulled, true);
+  const point = new THREE.Vector3();
+  for (let i = 0; i < mesh.geometry.attributes.position.count; i++) {
+    mesh.getVertexPosition(i, point); assert.ok(mesh.boundingSphere.containsPoint(point));
+  }
+});

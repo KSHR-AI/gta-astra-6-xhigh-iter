@@ -39,8 +39,11 @@ for (const sex of ['Male', 'Female']) {
         assert.ok(level.error < 0.019);
       }
     }
-    assert.ok(totals[1] < totals[0] * 0.65);
-    assert.ok(totals[2] < totals[0] * 0.51);
+    // Male authored flyaway ribbons retain borders (1806 triangles) and both
+    // bodies retain raised clothing/skin seams. Blink suppression recovers far
+    // face simplification; these ceilings retain little headroom for growth.
+    assert.ok(totals[1] < totals[0] * (sex === 'Male' ? 0.74 : 0.65));
+    assert.ok(totals[2] < totals[0] * (sex === 'Male' ? 0.57 : 0.51));
   });
 
   test(`${sex}: actual GLTF meshes swap geometry without changing skinning, wardrobe masks or sole probes`, async () => {
@@ -80,4 +83,49 @@ test('malformed optional LOD files leave full-quality asset usable', async () =>
     { version: 1, meshes: [{ ...data.meshes[0], levels: [{ indices: 'abc' }, { indices: [] }] }] },
     { version: 1, meshes: [{ ...data.meshes[0], levels: [{ indices: [0, 1, Infinity] }, { indices: [0, 1, 2] }] }] },
   ]) assert.equal(registerCharacterLODs(asset, invalid), 0);
+});
+
+function blinkLODFixture() {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  geometry.morphAttributes.position = [0, 1].map(() => new THREE.Float32BufferAttribute(new Float32Array(9), 3));
+  geometry.morphTargetsRelative = true;
+  const mesh = new THREE.SkinnedMesh(geometry, new THREE.MeshBasicMaterial());
+  mesh.morphTargetDictionary = { blinkLeft: 0, blinkRight: 1 }; mesh.morphTargetInfluences = [0, 0];
+  const scene = new THREE.Group(); scene.add(mesh);
+  const asset = { scene, parser: { associations: new Map([[mesh, { meshes: 0, primitives: 0 }]]) } };
+  const data = { version: 1, meshes: [{ mesh: 0, primitive: 0, vertices: 3, levels: [
+    { indices: [0, 1, 2] }, { indices: [0, 1, 2], disabledMorphTargets: ['blinkLeft', 'blinkRight'] },
+  ] }] };
+  return { asset, data, mesh };
+}
+
+test('far blink contract zeros both targets every frame while near/mid retain animation', () => {
+  const { asset, data, mesh } = blinkLODFixture();
+  assert.equal(registerCharacterLODs(asset, data), 1);
+  const lod = createCharacterLOD(asset.scene, asset.scene), camera = new THREE.PerspectiveCamera(55);
+  mesh.morphTargetInfluences = [.5, .7]; camera.position.z = 20;
+  assert.equal(lod.update(camera), 1); assert.deepEqual(mesh.morphTargetInfluences, [.5, .7]);
+  camera.position.z = 50; assert.equal(lod.update(camera), 2); assert.deepEqual(mesh.morphTargetInfluences, [0, 0]);
+  mesh.morphTargetInfluences = [1, 1]; lod.update(camera); assert.deepEqual(mesh.morphTargetInfluences, [0, 0]);
+  camera.position.z = 2; lod.update(camera); mesh.morphTargetInfluences = [.3, .4]; lod.update(camera);
+  assert.deepEqual(mesh.morphTargetInfluences, [.3, .4]);
+});
+
+test('unsafe far suppression sidecars retain full geometry', () => {
+  for (const corrupt of [
+    ({ data }) => { data.meshes[0].levels[0].disabledMorphTargets = ['blinkLeft', 'blinkRight']; },
+    ({ data }) => { data.meshes[0].levels[1].disabledMorphTargets = ['blinkLeft', 'jawOpen']; },
+    ({ data }) => { data.meshes[0].levels[1].disabledMorphTargets = ['blinkLeft', 'blinkLeft']; },
+    ({ data }) => { data.meshes[0].levels[1].disabledMorphTargets = 'blinkLeft'; },
+    ({ mesh }) => { mesh.morphTargetInfluences[0] = .5; },
+    ({ mesh }) => { mesh.morphTargetDictionary.blinkRight = 0; },
+    ({ mesh }) => { mesh.morphTargetDictionary.jawOpen = 2; },
+    ({ mesh }) => { mesh.geometry.morphTargetsRelative = false; },
+    ({ mesh }) => { mesh.geometry.morphAttributes.position.pop(); },
+  ]) {
+    const fixture = blinkLODFixture(); corrupt(fixture);
+    assert.equal(registerCharacterLODs(fixture.asset, fixture.data), 0);
+    assert.equal(createCharacterLOD(fixture.asset.scene, fixture.asset.scene).getInfo().meshes, 0);
+  }
 });

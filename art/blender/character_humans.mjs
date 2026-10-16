@@ -9,9 +9,18 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import * as THREE from 'three';
+import { transformMorphDeltas, matchNeckBoundaryNormal } from './character_morphs.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const INPUT = resolve(process.argv[2] ?? '/tmp/astra-human-source');
+let bodyDirectory = resolve(ROOT, 'public/models'), outputDirectory = resolve(ROOT, 'public/models');
+for (let i = 3; i < process.argv.length; i += 2) {
+  const flag = process.argv[i], value = process.argv[i + 1];
+  if (!value) throw new Error(`Missing value for ${flag}`);
+  if (flag === '--body-dir') bodyDirectory = resolve(value);
+  else if (flag === '--output-dir') outputDirectory = resolve(value);
+  else throw new Error(`Unknown option ${flag}`);
+}
 const COMPONENTS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
 const ARRAYS = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
 
@@ -214,7 +223,7 @@ const configs = [
 
 const report = [];
 for (const config of configs) {
-  const body = new GLB(await readFile(resolve(ROOT, 'public/models', config.body)));
+  const body = new GLB(await readFile(resolve(bodyDirectory, config.body)));
   let headPath = resolve(INPUT, `soft_${config.gender}_head.glb`);
   let headBytes;
   try { headBytes = await readFile(headPath); } catch { headPath = resolve(INPUT, `${config.gender}_head.glb`); headBytes = await readFile(headPath); }
@@ -256,6 +265,7 @@ for (const config of configs) {
     }
     return ring[0];
   }
+  const neckBoundaryProof = [];
   const materials = mergeMaterials(body, head);
   const headWorld = nodeWorld(head.json).matrices;
   for (const [nodeIndex, node] of head.json.nodes.entries()) {
@@ -269,7 +279,8 @@ for (const config of configs) {
       const points = [], normals = [], joints = [], weights = [], skinMask = [], hairMask = [], neckNormalBlend = [];
       const existingSkin = primitive.attributes._SKIN_MASK === undefined ? null : head.read(primitive.attributes._SKIN_MASK).values;
       const existingHair = primitive.attributes._HAIR_MASK === undefined ? null : head.read(primitive.attributes._HAIR_MASK).values;
-      const normalMatrix = new THREE.Matrix3().getNormalMatrix(inverseBind.clone().multiply(new THREE.Matrix4().makeScale(...config.scale)).multiply(headWorld[nodeIndex]));
+      const morphTransform = inverseBind.clone().multiply(new THREE.Matrix4().makeScale(...config.scale)).multiply(headWorld[nodeIndex]);
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(morphTransform);
       for (let i = 0; i < p.accessor.count; i++) {
         const native = new THREE.Vector3().fromArray(p.values, i * 3).applyMatrix4(headWorld[nodeIndex]);
         const isHeadSkin = existingSkin ? existingSkin[i] > 0.5 : isSkin;
@@ -285,12 +296,21 @@ for (const config of configs) {
             // A slight overlap conceals the cut, while matching its actual body
             // weights prevents the two surfaces separating during head turns.
             world.y -= 0.0015 * blend;
-            boundary = sample.skinVertex; boundaryBlend = blend;
           }
+          boundary = sample.skinVertex; boundaryBlend = blend;
         }
         const neckWeight = isHeadSkin ? 1 - THREE.MathUtils.smoothstep(native.y, config.sourceCut, config.blendHeight + 0.35) : 0;
         points.push(...world.applyMatrix4(inverseBind).toArray());
-        normals.push(...new THREE.Vector3().fromArray(n.values, i * 3).applyMatrix3(normalMatrix).normalize().toArray());
+        const fittedNormal = new THREE.Vector3().fromArray(n.values, i * 3).applyMatrix3(normalMatrix).normalize();
+        // Both normals are in the same bind-mesh space. Match the cut exactly,
+        // restoring the authored head normal smoothly above the boundary.
+        if (boundary && config.gender === 'male') {
+          const boundaryNormal = new THREE.Vector3().fromArray(boundary.NORMAL).normalize();
+          const before = fittedNormal.angleTo(boundaryNormal);
+          fittedNormal.copy(matchNeckBoundaryNormal(fittedNormal, boundaryNormal, boundaryBlend));
+          if (boundaryBlend > 0.99999) neckBoundaryProof.push({ beforeDegrees: THREE.MathUtils.radToDeg(before), afterDegrees: THREE.MathUtils.radToDeg(fittedNormal.angleTo(boundaryNormal)) });
+        }
+        normals.push(...fittedNormal.toArray());
         let influence = { JOINTS_0: [headJoint, neckJoint, 0, 0], WEIGHTS_0: [1 - neckWeight, neckWeight, 0, 0] };
         if (boundary) influence = interpolate(influence, boundary, boundaryBlend);
         joints.push(...influence.JOINTS_0); weights.push(...influence.WEIGHTS_0);
@@ -308,13 +328,34 @@ for (const config of configs) {
         attributes[name] = body.attribute(attr.values, attr.accessor.type, attr.accessor.componentType, attr.accessor.normalized);
       }
       const packed = { attributes, material: materials[primitive.material], mode: 4 };
+      if (primitive.targets?.length) {
+        packed.targets = primitive.targets.map(target => {
+          const unsupported = Object.keys(target).filter(name => !['POSITION', 'NORMAL'].includes(name));
+          if (unsupported.length) throw new Error(`Unsupported head morph semantics: ${unsupported}`);
+          const positionDeltas = target.POSITION === undefined ? null : head.read(target.POSITION).values;
+          const normalDeltas = target.NORMAL === undefined ? null : head.read(target.NORMAL).values;
+          for (const deltas of [positionDeltas, normalDeltas]) if (deltas && deltas.length !== p.values.length) throw new Error('Morph vertex count differs from head');
+          if (positionDeltas) for (let i = 0; i < p.accessor.count; i++) {
+            const native = new THREE.Vector3().fromArray(p.values, i * 3).applyMatrix4(headWorld[nodeIndex]);
+            if (native.y < config.blendHeight && positionDeltas.subarray(i * 3, i * 3 + 3).some(value => Math.abs(value) > 1e-7)) throw new Error('Facial morph must not deform the fitted neck seam');
+          }
+          return Object.fromEntries(Object.entries(transformMorphDeltas(positionDeltas, normalDeltas, n.values, morphTransform))
+            .map(([name, values]) => [name, body.attribute(values, 'VEC3')]));
+        });
+      }
       if (primitive.indices !== undefined) { const idx = head.read(primitive.indices); packed.indices = body.attribute(idx.values, 'SCALAR', idx.accessor.componentType); }
       primitives.push(packed);
     }
     const newNode = { name: `Natural_${node.name}`, mesh: json.meshes.length, skin: bodyNode.skin,
       extras: { naturalHuman: true, appearancePart: isSkin ? 'skin' : isHair ? 'hair' : 'eyes' } };
     for (const name of ['translation', 'rotation', 'scale', 'matrix']) if (bodyNode[name]) newNode[name] = [...bodyNode[name]];
-    json.meshes.push({ name: newNode.name, primitives });
+    const sourceMesh = head.json.meshes[node.mesh];
+    const morphCount = primitives[0]?.targets?.length ?? 0;
+    if (morphCount && sourceMesh.extras?.targetNames?.length !== morphCount) throw new Error('Head morph names must match target count');
+    if (node.weights) newNode.weights = [...node.weights];
+    json.meshes.push({ name: newNode.name, primitives,
+      ...(sourceMesh.extras ? { extras: structuredClone(sourceMesh.extras) } : {}),
+      ...(sourceMesh.weights ? { weights: [...sourceMesh.weights] } : {}) });
     const index = json.nodes.length; json.nodes.push(newNode);
     if (parents.has(bodyNodeIndex)) json.nodes[parents.get(bodyNodeIndex)].children.push(index);
     else json.scenes[json.scene ?? 0].nodes.push(index);
@@ -324,10 +365,10 @@ for (const config of configs) {
     license: 'CC0-1.0 (MakeHuman head assets); original body license unchanged' };
   delete json.animations;
   const output = body.encode();
-  await mkdir(resolve(ROOT, 'public/models'), { recursive: true });
-  await writeFile(resolve(ROOT, 'public/models', config.out), output);
+  await mkdir(outputDirectory, { recursive: true });
+  await writeFile(resolve(outputDirectory, config.out), output);
   const triangles = json.meshes.reduce((sum, mesh) => sum + mesh.primitives.reduce((n, p) => n + (p.indices === undefined ? json.accessors[p.attributes.POSITION].count : json.accessors[p.indices].count) / 3, 0), 0);
-  report.push({ output: config.out, sourceHead: headPath, bytes: output.length, triangles, bodyCut: config.cut, headJoint, neckJoint,
+  report.push({ output: config.out, sourceHead: headPath, bytes: output.length, triangles, bodyCut: config.cut, headJoint, neckJoint, neckBoundaryProof,
     originalNodesPreserved: bodyNodeIndex, primitives: json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0) });
 }
 await writeFile(resolve(INPUT, 'integrated-report.json'), JSON.stringify(report, null, 2));

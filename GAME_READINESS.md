@@ -18,7 +18,16 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current combat and animation pass
+## Current character authoring pass
+
+- Added original raised garment collars, cuffs, armholes and hems, with authored fabric normals, folds, seams and roughness. The base bodies and skeletons remain unchanged. The male hairstyle has a tapered nape and additional textured locks; editable Blender sources and repeatable exports are included.
+- Added eyelid and lash deformation from pinned CC0 MakeHuman targets. Blinks use separate actor schedules, pause with simulation, and settle toward closed eyes when an actor is down. This is eyelid motion only: dialogue, eye tracking and facial acting remain missing.
+- Matched the male head's neck boundary normals and skin weights to the body. Close-up browser review found and removed the previous horizontal shading band. The clothing still uses the existing body topology and does not establish production character quality.
+- Near and middle character geometry preserve the eyelid deformation. Distant geometry explicitly disables the supported blink pair before using cheaper indices; photo zoom restores near detail and the paused phase. Bounds account for supported relative facial motion, retaining conservative fallbacks for unsupported rigs.
+- New clothing and hair increase geometry cost. Far counts are 12,951 male and 8,844 female triangles, versus 10,177 and 7,920 previously. No claim of hardware performance or release frame pacing follows from this art pass.
+- Browser review covered both faces, paused eyelid poses, front/back garments, far-to-near photo zoom, aimed occupant fire, driving and exit. It caught and corrected a collar strip crossing exposed skin and pale UV-edge bleeding. The final live sample measured 5.85 fps at 1039 × 491 on llvmpipe, versus the preceding 5.73 fps with different traffic and triangle counts; this is not a controlled performance improvement. Facial acting, body/garment finish, interaction motion, foot contact and hardware frame pacing remain open.
+
+## Previous combat and animation pass
 
 - Police rounds originate at the current posed muzzle and stop at the first building, ground, vehicle surface or posed actor they strike. Spread changes the visible ray; damage follows its actual impact. The initial warning window aims outside the player's full posed envelope, and shots retain a shared 1.7-second cadence.
 - Normal browser play confirmed that a parked car intercepted rounds without player damage, followed by an exposed torso hit after leaving cover. A separate controlled live-scene fixture confirmed bystander/driver interception, unchanged player crime, fresh moving-car seats and preservation of the driver exit pose. This does not establish extended police-AI fairness or tactical cover behavior.
@@ -30,7 +39,7 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 ## Previous rendering pass
 
 - Skip world instances fully hidden behind explicitly registered solid building bodies. Hollow interiors and inflated collision bounds are excluded; shadow casters remain available to light cameras. Unsupported camera/world transforms fall back to ordinary frustum visibility.
-- Give skinned characters conservative pose envelopes for each render camera. Detached/external rigs, morphs, shear and invalid transforms retain the safe always-submit behavior.
+- Give skinned characters conservative pose envelopes for each render camera. Detached/external rigs, unsupported morphs, shear and invalid transforms retain the safe always-submit behavior; the current character pass adds bounds for supported relative facial motion.
 - Reuse only byte-identical character vertices and reorder opaque/cutout triangles without changing source vertex arrays, skin weights, masks, textures, rigs or triangle count. Transparent brow/lash ordering remains intact.
 - Correct the Aurora's projector cells so they sit inside both headlamp housings. The Blender source and both exported detail levels contain the fix.
 - Refresh paused simulation poses once per frame instead of repeating zero-time physics subdivisions; photo camera movement and presentation continue normally.

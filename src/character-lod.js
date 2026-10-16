@@ -27,6 +27,13 @@ export function registerCharacterLODs(asset, data) {
     const geometry = object.geometry;
     if (!entry || entry.vertices !== geometry.attributes.position.count || !Array.isArray(entry.levels) || entry.levels.length !== 2) return;
     if (entry.levels.some(level => !level || !Array.isArray(level.indices) || !level.indices.length || level.indices.length % 3 || level.indices.some(index => !Number.isInteger(index) || index < 0 || index >= entry.vertices))) return;
+    if (entry.levels.some((definition, index) => {
+      if (definition.disabledMorphTargets === undefined) return false;
+      const names = definition.disabledMorphTargets, dictionary = object.morphTargetDictionary;
+      if (index !== 1 || !Array.isArray(names) || names.length !== 2 || new Set(names).size !== 2 || !names.includes('blinkLeft') || !names.includes('blinkRight')) return true;
+      if (!dictionary || Object.keys(dictionary).length !== 2 || !geometry.morphTargetsRelative || geometry.morphAttributes.position?.length !== 2 || object.morphTargetInfluences?.length !== 2 || object.morphTargetInfluences.some(weight => weight !== 0)) return true;
+      return names.some(name => !Number.isInteger(dictionary[name]) || dictionary[name] < 0 || dictionary[name] > 1) || dictionary.blinkLeft === dictionary.blinkRight;
+    })) return;
     levelsByGeometry.set(geometry, entry.levels);
     registered++;
   });
@@ -58,7 +65,7 @@ export function createCharacterLOD(model, root, { enabled = true } = {}) {
   model.traverse(object => {
     if (!object.isSkinnedMesh) return;
     const geometries = geometriesFor(object.geometry);
-    if (geometries) meshes.push({ object, geometries });
+    if (geometries) meshes.push({ object, geometries, definitions: levelsByGeometry.get(object.geometry) });
   });
   let level = 0;
   const info = () => ({ level, meshes: meshes.length, triangles: meshes.reduce((total, item) => {
@@ -74,6 +81,11 @@ export function createCharacterLOD(model, root, { enabled = true } = {}) {
       if (next !== level) {
         level = next;
         for (const item of meshes) item.object.geometry = item.geometries[level];
+      }
+      // Enforce the sidecar contract even if an external caller changed a
+      // weight since the previous update without changing distance.
+      if (level > 0) for (const item of meshes) for (const name of item.definitions[level - 1].disabledMorphTargets ?? []) {
+        item.object.morphTargetInfluences[item.object.morphTargetDictionary[name]] = 0;
       }
       root.userData.characterLOD = level;
       return level;
