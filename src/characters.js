@@ -173,31 +173,53 @@ async function loadLocomotion(path) {
 export function makeSoleProbes(model) {
   const probes = [];
   const vertex = new THREE.Vector3();
+  const directions = [new THREE.Vector3(0, -1, 0)];
+  for (const tilt of [.35, .7, 1.05, 1.4]) {
+    for (let i = 0; i < 16; i++) {
+      const angle = i * Math.PI / 8;
+      directions.push(new THREE.Vector3(Math.sin(tilt) * Math.cos(angle), -Math.cos(tilt), Math.sin(tilt) * Math.sin(angle)));
+    }
+  }
   model.traverse((object) => {
     if (!object.isSkinnedMesh) return;
-    const candidates = [];
-    for (let index = 0; index < object.geometry.attributes.position.count; index++) {
+    const candidates = new Map();
+    // Retopology retains some unused vertex payload. Only rendered shoe
+    // vertices may define contact; a removed triangle cannot support a foot.
+    const indices = object.geometry.index
+      ? new Set(object.geometry.index.array)
+      : Array.from({ length: object.geometry.attributes.position.count }, (_, i) => i);
+    for (const index of indices) {
       object.getVertexPosition(index, vertex);
       object.localToWorld(vertex);
-      if (vertex.y < 0.085) candidates.push({ index, position: vertex.clone() });
+      if (vertex.y >= .20) continue;
+      const joints = object.geometry.attributes.skinIndex, weights = object.geometry.attributes.skinWeight;
+      let strongest = 0;
+      for (let i = 1; i < 4; i++) if (weights.getComponent(index, i) > weights.getComponent(index, strongest)) strongest = i;
+      const joint = object.skeleton.bones[joints.getComponent(index, strongest)]?.name ?? '';
+      if (/Leg$/.test(joint)) continue;
+      const side = /Left/.test(joint) ? 'Left' : /Right/.test(joint) ? 'Right' : vertex.x > 0 ? 'Left' : 'Right';
+      // A retargeted idle may cross the centre line. Classify the shoe by its
+      // skinning joint, never by vertex X. Separate heel and articulated toe
+      // support so a toe bend cannot reveal an unsampled interior extremum.
+      const key = `${side}:${joint}`;
+      if (!candidates.has(key)) candidates.set(key, { side, vertices: [] });
+      candidates.get(key).vertices.push({ index, position: vertex.clone() });
     }
-    candidates.sort((a, b) => a.position.y - b.position.y);
-    if (!candidates.length) return;
-    const selected = [candidates[0]];
-    // Cover both soles with a small set of actual skinned vertices, including
-    // toe and heel corners. This avoids recalculating full mesh bounds per frame.
-    while (selected.length < Math.min(12, candidates.length)) {
-      let farthest;
-      let greatestDistance = -1;
-      for (const candidate of candidates) {
-        let distance = Infinity;
-        for (const picked of selected) distance = Math.min(distance, candidate.position.distanceToSquared(picked.position));
-        if (distance > greatestDistance) { greatestDistance = distance; farthest = candidate; }
+    for (const { side, vertices } of candidates.values()) {
+      const selected = new Set();
+      // Contact is a support extremum, not a farthest-point coverage problem.
+      // Sample the lower support cone of EACH shoe, including its tilted heel
+      // and edges. Twelve spread-out vertices missed the female sole by 3 cm.
+      for (const direction of directions) {
+        let maximum = -Infinity, extreme;
+        for (const candidate of vertices) {
+          const distance = candidate.position.dot(direction);
+          if (distance > maximum) { maximum = distance; extreme = candidate.index; }
+        }
+        if (extreme !== undefined) selected.add(extreme);
       }
-      if (!farthest || greatestDistance < 0.000001) break;
-      selected.push(farthest);
+      for (const index of selected) probes.push({ object, index, side });
     }
-    for (const candidate of selected) probes.push({ object, index: candidate.index });
   });
   return probes;
 }
@@ -353,7 +375,7 @@ function createHitVolumeReader(mesh, model, bones) {
  * Grounded 1.8 m character. The root's +Z axis is forward.
  * Each clone has its own skeleton, materials, mixer, and animation state.
  */
-export function createCharacter({ npc = false, color, police = false } = {}) {
+export function createCharacter({ npc = false, color, police = false, groundHeightAt } = {}) {
   if (!characterAsset && !pedestrianAsset && !civilianMaleAsset) return createFallbackCharacter({ npc, color, police });
 
   const mesh = new THREE.Group();
@@ -445,7 +467,7 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
   magazine.visible = false;
   mesh.add(magazine);
   const animator = createHumanoidAnimator({
-    mesh, visual, bones, actions, mixer, weapon, magazine, soleProbes, restPose, bindHeadOrientation, npc,
+    mesh, visual, bones, actions, mixer, weapon, magazine, soleProbes, restPose, bindHeadOrientation, npc, groundHeightAt,
     phaseOffset: npc ? ((variant + 1) * 0.381966) % 1 : 0,
   });
   animator.update(0);
@@ -460,6 +482,7 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
     update(dt, options) { animator.update(dt, options); face.advance(dt, options); },
     advance(dt, options) { animator.advance(dt, options); face.advance(dt, options); },
     flushPose: animator.flushPose,
+    resetGrounding: animator.resetGrounding,
     getEvaluationStats: animator.getEvaluationStats,
     seatOffset: animator.seatOffset,
     seatAnchor: animator.seatAnchor,

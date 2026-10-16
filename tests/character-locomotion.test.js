@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createHumanoidAnimator } from '../src/character-animation.js';
+import { makeSoleProbes } from '../src/characters.js';
 
 const RIGS = [
   { model: 'CivilianMaleNatural.glb', motion: 'civilian-male-motion.json', height: 1.82 },
@@ -37,29 +38,7 @@ async function fixture({ model, motion, height }) {
   asset.scene.position.y -= bounds.min.y;
   mesh.updateMatrixWorld(true);
 
-  // Use actual shoe vertices, spread across both soles, so ankle-height
-  // calibration exercises the different male/female shoe and leg geometry.
-  const soleProbes = [], vertex = new THREE.Vector3();
-  for (const object of skinned) {
-    const candidates = [];
-    for (let index = 0; index < object.geometry.attributes.position.count; index++) {
-      object.getVertexPosition(index, vertex); object.localToWorld(vertex);
-      if (vertex.y < 0.085) candidates.push({ index, position: vertex.clone() });
-    }
-    candidates.sort((a, b) => a.position.y - b.position.y);
-    if (!candidates.length) continue;
-    const selected = [candidates[0]];
-    while (selected.length < Math.min(12, candidates.length)) {
-      let farthest, greatest = -1;
-      for (const candidate of candidates) {
-        const distance = Math.min(...selected.map((chosen) => candidate.position.distanceToSquared(chosen.position)));
-        if (distance > greatest) { greatest = distance; farthest = candidate; }
-      }
-      if (!farthest || greatest < 1e-6) break;
-      selected.push(farthest);
-    }
-    for (const { index } of selected) soleProbes.push({ object, index });
-  }
+  const soleProbes = makeSoleProbes(asset.scene), vertex = new THREE.Vector3();
   assert.ok(soleProbes.length >= 2, 'the actual imported shoes supply ground probes');
   const weapon = new THREE.Group(), magazine = new THREE.Group();
   mesh.add(weapon, magazine);

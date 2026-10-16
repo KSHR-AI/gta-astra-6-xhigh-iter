@@ -125,4 +125,20 @@ The optional body directory contains `CivilianMale.glb` and `Michelle-crowd.glb`
 
 Inspect staged rest, half-blink, and closed-eye poses, validate the complete original skeleton and inverse binds, exercise near/far transitions, and review actual game rendering before promoting the staged GLBs/sidecars. A deliberate appearance rebuild changes the production surface/material fingerprints in `tests/character-indices.test.js`; keep those checks enabled and only update their expected values after reviewing the new geometry/materials. The index optimizer's generated proof describes exact index-only preservation of the newly reviewed inputs; it is not permission to bypass an appearance change review.
 
-The current authored assets contain male 22,943 / 16,603 / 12,951 and female 22,092 / 12,562 / 8,844 triangles at near/mid/far distance, each in three material batches. Compared with the earlier static heads, retained far geometry grows primarily through raised clothing (+1,008 male / +924 female triangles) and male hair ribbons (+1,806 authored triangles); ribbon borders remain protected to preserve their alpha silhouettes. Male neck cut normals and bone weights match the interpolated body contour, fading smoothly back to authored head values above the cut.
+The current authored assets contain male 22,943 / 16,603 / 4,126 and female 22,092 / 12,562 / 4,914 triangles at near/mid/far distance, each in three material batches. Far geometry now compacts the simplifier working set before reducing triangles. This removes unused duplicate vertices that otherwise appear to be complex seams. Returned indices map back to original vertex IDs, keeping all shipped skin weights, UVs, normals, masks, rig data, and morph attributes exact. True geometric open boundaries remain locked for the body and head skin; alpha hair surfaces use the normal/UV/posed-error metric rather than blanket border locks. Male neck cut normals and bone weights match the interpolated body contour, fading smoothly back to authored head values above the cut.
+
+### Far-only character rebuild
+
+To update distant geometry without touching the reviewed near GLBs or any mid-level index stream:
+
+```sh
+node art/blender/character_lod.mjs \
+  /tmp/astra-lod-tool/node_modules/meshoptimizer/meshopt_simplifier.module.js \
+  --far-only --input-dir public/models --output-dir /tmp/astra-character-far-stage
+```
+
+The command writes sidecars only. Copy the unchanged GLBs beside them when staging a complete asset directory. The sidecar `farLODRebuild` records the input sidecar SHA256, matching GLB SHA256, previous index-optimization proof, and nine deformation sample phases. It replaces, rather than falsely reusing, the old top-level index-only proof because the far triangle surfaces deliberately changed. Do not run the full index optimizer on this far-only result; use the ordinary graft → LOD → index pipeline when rebuilding the complete appearance.
+
+Far simplification targets 18% of source triangles with a maximum .018 normalized surface error. Its 32-channel metric includes original normals/UVs plus nine real Idle/Walk/Run deformation samples. Mixed skinning is evaluated through these sampled deformations instead of categorically locking every influenced vertex. Generic morph-active vertices remain locked; only the explicit zero-rest blink pair is suppressed at far distance. Near geometry and the existing mid index streams remain untouched.
+
+The staged candidate was independently sampled in 22 actual procedural poses per sex (including aiming, reload, airborne, seated, downed, split support and step transitions), using vertices, edge midpoints, and triangle centroids against the opposite triangle surface in both directions. Maximum observed surface deviations were 38.17 mm male / 15.29 mm female, with silhouette support changes 22.23 / 12.52 mm. Visible shoe-floor changes introduced no downward penetration; true body/head-skin boundary edges were unchanged. This is dense sampled evidence, not an exhaustive Hausdorff bound. Re-run posed geometry and browser checks after changing the assets, locomotion, or simplification policy.

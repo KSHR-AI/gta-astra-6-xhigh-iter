@@ -37,6 +37,14 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
   // swallow the first recoil impulse after returning to a checkpoint.
   let policeShotSequence = 0;
   const officerShotIds = new WeakMap();
+  function groundActor(actor) {
+    const p = actor.mesh.position;
+    p.y = world.heightAt?.(p.x, p.z) ?? 0;
+  }
+  function advanceGroundedActor(actor, dt, options) {
+    groundActor(actor);
+    advanceActor(actor, dt, options);
+  }
 
   function reportCrime({ position, level = 1, kind = 'theft', now = 0, force = false }) {
     const seenByPatrol = !police.stolen && !police.occupied && distance(police.model.mesh.position, position) < 62 && hasSight(police.model.mesh.position, position, world.colliders);
@@ -164,11 +172,11 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
       if (p.down) {
         p.streetBehavior = 'down';
         p.detour = null;
-        advanceActor(p.actor, dt, { speed: 0, dead: true });
+        advanceGroundedActor(p.actor, dt, { speed: 0, dead: true });
         if (time > p.recoverAt) { p.down = false; p.fleeUntil = time + 6; }
         continue;
       }
-      if (p.evictedUntil > time) { p.detour = null; advanceActor(p.actor, dt, { speed: 0 }); continue; }
+      if (p.evictedUntil > time) { p.detour = null; advanceGroundedActor(p.actor, dt, { speed: 0 }); continue; }
       let speed = 1.1, dx = 0, dz = 0;
       const fleeing = p.fleeUntil > time;
       if (fleeing !== p.wasFleeing) p.detour = null;
@@ -255,11 +263,15 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
       p.velocity.z = (pos.z - previous.z) / Math.max(dt, .001);
       const actualSpeed = Math.hypot(p.velocity.x, p.velocity.z);
       if (actualSpeed < .01 && (p.streetBehavior === 'walking' || p.streetBehavior === 'avoiding')) { p.streetBehavior = 'waiting'; p.yieldReason = 'blocked-path'; }
-      advanceActor(p.actor, dt, { speed: actualSpeed, dead: false });
+      advanceGroundedActor(p.actor, dt, { speed: actualSpeed, dead: false });
     }
   }
 
   function update(dt, { playerPosition, currentCar, time }) {
+    // Establish world floor heights before visibility/combat snapshots. The
+    // animator's shoe support remains local y=0, independent of these slabs.
+    for (const pedestrian of pedestrians) groundActor(pedestrian.actor);
+    for (const officer of officers) groundActor(officer);
     updateTraffic(dt, time, currentCar, playerPosition);
     updatePedestrians(dt, time, playerPosition);
     if (heat.policeState === 'reported') {
@@ -295,7 +307,7 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
     }
     for (let i = 0; i < officers.length; i++) {
       const actor = officers[i];
-      if ((actor.mesh.userData.downUntil || 0) > time) { advanceActor(actor, dt, { speed: 0, dead: true }); continue; }
+      if ((actor.mesh.userData.downUntil || 0) > time) { advanceGroundedActor(actor, dt, { speed: 0, dead: true }); continue; }
       if (deploy) {
         if (!actor.mesh.visible) {
           actor.mesh.position.copy(patrolPosition).add(new THREE.Vector3(i ? 1.8 : -1.8, 0, 1));
@@ -307,6 +319,7 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
         const speed = d > 14 ? 3.1 : 0;
         if (speed) moveBody(p, delta.x * speed * dt, delta.z * speed * dt, .4);
         actor.mesh.rotation.y = Math.atan2(delta.x, delta.z);
+        groundActor(actor);
         const readyToFire = d < 26 && hasSight(p, playerPosition, world.colliders) && time > nextShot;
         // Missing collision/target data holds fire; it must never restore the
         // former random damage path through cover. Snapshot only for a round.
@@ -319,7 +332,7 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
         if (firing) { shotId = ++policeShotSequence; officerShotIds.set(actor, shotId); nextShot = time + POLICE_FIRE.interval; }
         // The gun follows the current aiming/turning pose before its world
         // muzzle is read. Deferred animators flush without advancing time twice.
-        advanceActor(actor, dt, { speed, aiming: true, shooting: firing, shotId, aimPitch });
+        advanceGroundedActor(actor, dt, { speed, aiming: true, shooting: firing, shotId, aimPitch });
         if (firing) {
           actor.flushPose?.();
           const origin = actor.getMuzzlePosition(new THREE.Vector3());
@@ -335,8 +348,8 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
   function reset() {
     Object.assign(heat, { wanted: 0, policeState: 'clear', searchProgress: 0, reportProgress: 0, lastKnown: null });
     pendingLevel = 0; reportAt = 0; lastSeen = engagementStarted = -100; nextShot = 0;
-    officers.forEach(actor => { actor.mesh.visible = false; actor.mesh.userData.downUntil = 0; });
-    pedestrians.forEach(p => { p.route = null; p.reportingUntil = 0; p.evictedUntil = 0; p.detour = null; p.nextDetourCheck = 0; p.velocity = { x: 0, z: 0 }; p.streetBehavior = 'idle'; p.yieldReason = null; });
+    officers.forEach(actor => { groundActor(actor); actor.mesh.visible = false; actor.mesh.userData.downUntil = 0; });
+    pedestrians.forEach(p => { groundActor(p.actor); p.route = null; p.reportingUntil = 0; p.evictedUntil = 0; p.detour = null; p.nextDetourCheck = 0; p.velocity = { x: 0, z: 0 }; p.streetBehavior = 'idle'; p.yieldReason = null; });
     vehicles.forEach(car => { car.yieldingToPedestrian = false; car.desiredSpeed = 0; car.trafficDecision = 'idle'; });
   }
   return { reportCrime, update, reset, getState: () => ({ ...heat }), getDiagnostics: () => ({

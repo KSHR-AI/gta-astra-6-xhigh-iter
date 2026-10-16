@@ -69,7 +69,7 @@ export function addAuthoredDistrict(api) {
   const awning = (x, y, z, width, yaw) => instance(canopy, fabric, [x, y, z], [width, 1, 1], [0, yaw, 0]);
   const solid = (x, z, w, d, h = 4) => colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, minY: 0, maxY: h });
   const wall = (material, x, z, w, d, h, y = h / 2) => { box(material, x, y, z, w, h, d); solid(x, z, w, d, y + h / 2); };
-  const floor = (material, x, z, w, d) => box(material, x, .022, z, w, .025, d, 0, false);
+  const floor = (material, x, z, w, d) => (api.walkableBox ?? box)(material, x, .022, z, w, .025, d, 0, false, 'district-floor');
   const flat = (material, x, z, w, d, angle = 0, y = .055) => instance(panelGeometry, material, [x, y, z], [w, d, 1], [-Math.PI / 2, 0, angle], false);
   const planter = (x, z, w = 1.2, d = 1.2, h = .65) => {
     wall(m.terracotta, x, z, w, d, h);

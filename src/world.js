@@ -8,6 +8,7 @@ import { createOcean } from './world-ocean.js';
 import { createCityProps } from './world-props.js';
 import { createInstanceVisibility } from './instance-visibility.js';
 import { createBuildingOcclusion } from './building-occlusion.js';
+import { createWalkableGround } from './world-ground.js';
 
 // Everything in the district is real geometry. Repeated architectural details
 // share instanced meshes, so the dense streetscape stays inexpensive to render.
@@ -16,6 +17,7 @@ export function createWorld(scene) {
   root.name = 'Grand Theft Astra — Pacific district';
   scene.add(root);
   const colliders = [];
+  const ground = createWalkableGround();
   const solidBuildingBounds = [];
   const lampPositions = [];
   const illuminatedSigns = [];
@@ -79,6 +81,10 @@ export function createWorld(scene) {
   function box(material, x, y, z, w, h, d, rotation = 0, shadow = true) {
     instance(boxGeometry, material, [x, y, z], [w, h, d], [0, rotation, 0], shadow);
   }
+  function walkableBox(material, x, y, z, w, h, d, rotation = 0, shadow = true, kind = 'floor') {
+    box(material, x, y, z, w, h, d, rotation, shadow);
+    ground.addBox({ x, y, z, width: w, height: h, depth: d, rotation, kind });
+  }
   function panel(material, x, y, z, width, height, rotation = 0) {
     instance(panelGeometry, material, [x, y, z], [width, height, 1], [0, rotation, 0], false);
   }
@@ -129,14 +135,14 @@ export function createWorld(scene) {
   // Terrain and street grid. Pavements sit above the roads, with actual curbs.
   // End the land at the beach; a flat slab under the waves would cut through
   // their troughs and expose large triangular patches of sand offshore.
-  box(materials.sand, -7.5, -0.24, -25, 295, 0.35, 1200, 0, false);
-  box(materials.sidewalk, 51, -0.10, -25, 324, 0.25, 540, 0, false);
+  walkableBox(materials.sand, -7.5, -0.24, -25, 295, 0.35, 1200, 0, false, 'sand');
+  walkableBox(materials.sidewalk, 51, -0.10, -25, 324, 0.25, 540, 0, false, 'base-paving');
   const roads = [
     { x: 0, z: -20, width: 22, length: 440, axis: 'z' },
     { x: 80, z: -20, width: 20, length: 440, axis: 'z' },
     ...[-90, 0, 90].map(z => ({ x: 37, z, width: 20, length: 290, axis: 'x' })),
   ];
-  for (const road of roads) box(materials.asphalt, road.x, 0.012, road.z, road.axis === 'x' ? road.length : road.width, 0.045, road.axis === 'x' ? road.width : road.length, 0, false);
+  for (const road of roads) walkableBox(materials.asphalt, road.x, 0.012, road.z, road.axis === 'x' ? road.length : road.width, 0.045, road.axis === 'x' ? road.width : road.length, 0, false, 'road');
   const intersections = [-90, 0, 90];
   const nearCross = (z, margin = 15) => intersections.some(c => Math.abs(z - c) < margin);
   const segments = [[-240, -100], [-80, -10], [10, 80], [100, 200]];
@@ -146,8 +152,8 @@ export function createWorld(scene) {
       // The repair shop has a flush, wide driveway through the actual curb.
       const pavement = x === 14.1 && start < -132 && end > -120 ? [[start, -132], [-120, end]] : [[start, end]];
       for (const [a, b] of pavement) {
-        box(materials.sidewalk, x, 0.10, (a + b) / 2, 5.7, 0.24, b - a, 0, false);
-        box(materials.curb, curbX, 0.18, (a + b) / 2, 0.24, 0.32, b - a, 0, false);
+        walkableBox(materials.sidewalk, x, 0.10, (a + b) / 2, 5.7, 0.24, b - a, 0, false, 'sidewalk');
+        walkableBox(materials.curb, curbX, 0.18, (a + b) / 2, 0.24, 0.32, b - a, 0, false, 'curb');
         for (let z = a + 3; z < b; z += 4) box(materials.concrete, x, 0.225, z, 5.5, 0.01, 0.025, 0, false);
       }
     }
@@ -168,10 +174,10 @@ export function createWorld(scene) {
       for (const side of [-1, 1]) box(materials.paint, xCenter + side * 5.4, 0.051, z + side * 16, 9.2, 0.014, 0.23, 0, false);
     }
     for (const side of [-1, 1]) {
-      box(materials.sidewalk, -55, 0.1, z + side * 13, 88, 0.24, 5.5, 0, false);
-      box(materials.sidewalk, 40, 0.1, z + side * 13, 48, 0.24, 5.5, 0, false);
-      box(materials.curb, -55, 0.18, z + side * 10.2, 88, 0.3, 0.23, 0, false);
-      box(materials.curb, 40, 0.18, z + side * 10.2, 48, 0.3, 0.23, 0, false);
+      walkableBox(materials.sidewalk, -55, 0.1, z + side * 13, 88, 0.24, 5.5, 0, false, 'sidewalk');
+      walkableBox(materials.sidewalk, 40, 0.1, z + side * 13, 48, 0.24, 5.5, 0, false, 'sidewalk');
+      walkableBox(materials.curb, -55, 0.18, z + side * 10.2, 88, 0.3, 0.23, 0, false, 'curb');
+      walkableBox(materials.curb, 40, 0.18, z + side * 10.2, 48, 0.3, 0.23, 0, false, 'curb');
     }
   }
   // Painted turn arrows and manhole covers add scale at eye level.
@@ -482,7 +488,7 @@ export function createWorld(scene) {
     palm(x, z, height, 0.95);
   }
 
-  const districtAPI = { box, panel, cylinder, line, instance, materials, canvasTexture,
+  const districtAPI = { box, walkableBox, panel, cylinder, line, instance, materials, canvasTexture,
     root, colliders, panelGeometry, random, range, sign, palm, shrub };
   const district = addAuthoredDistrict(districtAPI);
   const streetDetails = addStreetDetails(districtAPI);
@@ -712,6 +718,8 @@ export function createWorld(scene) {
   const occlusionWorldIdentity = new THREE.Matrix4();
   return {
     root, colliders, roads, ready, lampPositions,
+    heightAt: ground.heightAt,
+    sampleGround: ground.sample,
     updateInstanceVisibility(camera, options) {
       root.updateWorldMatrix(true, false);
       // Registered boxes are in the original district world frame. A moved or

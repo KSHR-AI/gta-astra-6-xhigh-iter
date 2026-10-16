@@ -111,11 +111,8 @@ for (const rig of rigs) test(`${rig.model}: production sole probes keep actual s
     previous = sample;
   }
   t.diagnostic(JSON.stringify({ lowestShoe, lowestReferenceShoe, maximumSettledSlide, maximumExtension, heldContacts, planted }));
-  // The female source shoe already reaches roughly2.7cm below the floor in
-  // the immediate controller during turns. Batching must not deepen that
-  // existing asset/contact limitation; test allshoevertices instead of ankleheight.
-  assert.ok(lowestShoe > -.03, `actual shoes stay within the existing3cm envelope: ${lowestShoe}`);
-  assert.ok(lowestShoe >= lowestReferenceShoe - .005, 'batched contact does not worsen full-shoe penetration by more than5mm');
+  assert.ok(lowestShoe > -.002, `actual shoe surfaces stay within 2 mm of the floor: ${lowestShoe}`);
+  assert.ok(lowestShoe >= lowestReferenceShoe - .002, 'batched support remains within 2 mm of the immediate pose');
   assert.ok(maximumExtension < .9998, 'planted feet remain reachable without fully locked knees');
   assert.ok(heldContacts > 5 && planted > 15, 'real contacts occur, so no-slide cannot pass by never planting');
   assert.ok(maximumSettledSlide < .035, `a settled held contact shifts at most3.5cm per displayed frame: ${maximumSettledSlide}`);

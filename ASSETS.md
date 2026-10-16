@@ -56,8 +56,8 @@ weapons and police accessories. Each character uses three material batches.
 
 | Character | Near triangles | Middle triangles | Far triangles |
 | --- | ---: | ---: | ---: |
-| `CivilianMaleNatural.glb` | 22,943 | 16,603 | 12,951 |
-| `CivilianFemaleNatural.glb` | 22,092 | 12,562 | 8,844 |
+| `CivilianMaleNatural.glb` | 22,943 | 16,603 | 4,126 |
+| `CivilianFemaleNatural.glb` | 22,092 | 12,562 | 4,914 |
 
 The `.lod.json` sidecars contain the reduced index buffers and source hashes.
 Near and middle levels retain the eyelid morphs; the far level disables those

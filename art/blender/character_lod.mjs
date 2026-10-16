@@ -8,10 +8,15 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { poseSamples, POSE_SAMPLES } from './character_lod_poses.mjs';
+import { simplifyFarCharacter } from './character_lod_far.mjs';
 import { prepareMorphVertices, suppressibleBlinkTargets } from './character_morphs.mjs';
+let farOnly = false;
 let inputDirectory = fileURLToPath(new URL('../../public/models/', import.meta.url)), outputDirectory;
-for (let i = 3; i < process.argv.length; i += 2) {
-  const flag = process.argv[i], value = process.argv[i + 1];
+for (let i = 3; i < process.argv.length; i++) {
+  const flag = process.argv[i];
+  if (flag === '--far-only') { farOnly = true; continue; }
+  const value = process.argv[++i];
   if (!value) throw new Error(`Missing value for ${flag}`);
   if (flag === '--input-dir') inputDirectory = resolve(value);
   else if (flag === '--output-dir') outputDirectory = resolve(value);
@@ -37,6 +42,11 @@ for (const sex of ['Male', 'Female']) {
     }
     return { values: result, width };
   };
+  const clips = JSON.parse(await readFile(new URL(`../../public/models/${sex === 'Male' ? 'civilian-male-motion' : 'pedestrian-motion'}.json`, import.meta.url)));
+  const poses = await poseSamples(bytes, clips);
+  const previousBytes = farOnly ? await readFile(resolve(inputDirectory, `Civilian${sex}Natural.lod.json`)) : null;
+  const previous = previousBytes ? JSON.parse(previousBytes) : null;
+  if (previous && (previous.version !== 1 || previous.sha256 !== createHash('sha256').update(bytes).digest('hex'))) throw new Error('Far-only rebuild requires the matching source sidecar');
   const output = { version: 1, source: filename, sha256: createHash('sha256').update(bytes).digest('hex'), meshes: [] };
   for (const [meshIndex, mesh] of json.meshes.entries()) for (const [primitiveIndex, primitive] of mesh.primitives.entries()) {
     const attributes = Object.fromEntries(Object.entries(primitive.attributes).map(([name, index]) => [name, read(index)]));
@@ -45,8 +55,11 @@ for (const sex of ['Male', 'Female']) {
     const source = primitive.indices === undefined ? Uint32Array.from({ length: count }, (_, i) => i) : Uint32Array.from(read(primitive.indices).values);
     const blinkTargets = suppressibleBlinkTargets(mesh.extras?.targetNames, primitive.targets?.length ?? 0,
       [mesh.weights, ...json.nodes.filter(node => node.mesh === meshIndex).map(node => node.weights)]);
+    const previousEntry = previous?.meshes.find(entry => entry.mesh === meshIndex && entry.primitive === primitiveIndex);
+    if (farOnly && (!previousEntry || previousEntry.vertices !== count || previousEntry.levels.length !== 2)) throw new Error('Far-only rebuild requires both existing levels');
     const levels = [];
     for (const [levelIndex, [ratio, error]] of [[0.42, 0.008], [0.19, 0.018]].entries()) {
+      if (farOnly && levelIndex === 0) { levels.push(structuredClone(previousEntry.levels[0])); continue; }
       const disabledMorphTargets = levelIndex === 1 ? blinkTargets : [];
       const levelMorphs = disabledMorphTargets.length ? prepareMorphVertices([], count) : morphs;
       // Weld only exact attribute matches. Texture seams and different skin
@@ -58,6 +71,12 @@ for (const sex of ['Male', 'Female']) {
         remap[i] = unique.get(key);
       }
       const indices = source.map(i => remap[i]);
+      if (levelIndex === 1) {
+        const far = simplifyFarCharacter({ simplifier, indices, positions, attributes, morphLocks: levelMorphs.locked,
+          poses: poses.get(`${meshIndex}:${primitiveIndex}`) });
+        levels.push({ ...far, ...(disabledMorphTargets.length ? { disabledMorphTargets } : {}) });
+        continue;
+      }
       // Preserve normals/UVs and explicitly lock mixed-influence vertices to
       // protect bending regions. Categorical joint IDs cannot be interpolated.
       const surface = new Float32Array(count * 5), lock = new Uint8Array(count);
@@ -72,6 +91,12 @@ for (const sex of ['Male', 'Female']) {
     }
     output.meshes.push({ mesh: meshIndex, primitive: primitiveIndex, vertices: count, triangles: source.length / 3, levels });
   }
+  if (previous) output.farLODRebuild = {
+    version: 1, method: 'compact-referenced-vertices-posed-error',
+    sourceSidecarSha256: createHash('sha256').update(previousBytes).digest('hex'), sourceGlbSha256: output.sha256,
+    sourceIndexOptimization: previous.indexOptimization ?? null,
+    poseSamples: POSE_SAMPLES, nearAndMidUnchanged: true,
+  };
   await writeFile(resolve(outputDirectory, `Civilian${sex}Natural.lod.json`), JSON.stringify(output));
   console.log(filename, output.meshes.map(m => [m.triangles, ...m.levels.map(l => l.triangles)]));
 }
