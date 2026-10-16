@@ -284,6 +284,57 @@ function handgun() {
   return { group, muzzle };
 }
 
+/** Calibrate the skull once, then read small posed combat volumes from bones. */
+function createHitVolumeReader(mesh, model, bones) {
+  const headBounds = new THREE.Box3(), vertex = new THREE.Vector3();
+  model.updateMatrixWorld(true);
+  model.traverse(object => {
+    if (!object.isSkinnedMesh || !bones.Head) return;
+    const headIndex = object.skeleton.bones.indexOf(bones.Head);
+    if (headIndex < 0) return;
+    const indices = object.geometry.attributes.skinIndex, weights = object.geometry.attributes.skinWeight;
+    const hair = object.geometry.attributes._hair_mask;
+    for (let index = 0; index < indices.count; index++) {
+      let headWeight = 0;
+      for (let component = 0; component < 4; component++) {
+        if (indices.getComponent(index, component) === headIndex) headWeight += weights.getComponent(index, component);
+      }
+      // A ponytail and the neck seam must not move the skull's center away
+      // from the visible face. Both natural and legacy heads retain weights.
+      if (headWeight < 0.8 || hair?.getX(index) > 0.5) continue;
+      object.getVertexPosition(index, vertex);
+      object.localToWorld(vertex);
+      headBounds.expandByPoint(vertex);
+    }
+  });
+  const headNode = bones.Head ?? bones.Neck ?? mesh;
+  const headScale = headNode.getWorldScale(new THREE.Vector3());
+  const initialScale = Math.max(Math.abs(headScale.x), Math.abs(headScale.y), Math.abs(headScale.z));
+  const headCenter = headBounds.isEmpty()
+    ? headNode.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.12, 0))
+    : headBounds.getCenter(new THREE.Vector3());
+  const headSize = headBounds.isEmpty() ? new THREE.Vector3(0.26, 0.28, 0.26) : headBounds.getSize(new THREE.Vector3());
+  const headRadius = (Math.max(headSize.x, headSize.y, headSize.z) * 0.5 + 0.015) / initialScale;
+  headNode.worldToLocal(headCenter);
+  const rootScale = mesh.getWorldScale(new THREE.Vector3());
+  const scaleAtSetup = Math.max(Math.abs(rootScale.x), Math.abs(rootScale.y), Math.abs(rootScale.z));
+  const shoulderWidth = bones.LeftArm && bones.RightArm
+    ? bones.LeftArm.getWorldPosition(new THREE.Vector3()).distanceTo(bones.RightArm.getWorldPosition(new THREE.Vector3())) : 0.36;
+  const torsoRadius = THREE.MathUtils.clamp(shoulderWidth * 0.5 + 0.025, 0.18, 0.25) / scaleAtSetup;
+  return () => {
+    // Fresh vectors make this a read-only snapshot: ray tests may retain or
+    // inspect it without sharing mutable scratch data with the next shot.
+    const scale = headNode.getWorldScale(new THREE.Vector3());
+    const bodyScale = mesh.getWorldScale(new THREE.Vector3());
+    return {
+      spheres: [{ center: headNode.localToWorld(headCenter.clone()), radius: headRadius * Math.max(Math.abs(scale.x), Math.abs(scale.y), Math.abs(scale.z)) }],
+      capsules: [{ start: (bones.Hips ?? mesh).getWorldPosition(new THREE.Vector3()),
+        end: (bones.Spine2 ?? bones.Neck ?? mesh).getWorldPosition(new THREE.Vector3()),
+        radius: torsoRadius * Math.max(Math.abs(bodyScale.x), Math.abs(bodyScale.y), Math.abs(bodyScale.z)) }],
+    };
+  };
+}
+
 /**
  * Grounded 1.8 m character. The root's +Z axis is forward.
  * Each clone has its own skeleton, materials, mixer, and animation state.
@@ -385,6 +436,7 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
   });
   animator.update(0);
   const lod = createCharacterLOD(model, mesh, { enabled: npc });
+  const getHitVolumes = createHitVolumeReader(mesh, model, bones);
   return {
     mesh, mixer, weapon, muzzle,
     updateLOD: lod.update,
@@ -395,6 +447,7 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
     setWeapon: animator.setWeapon,
     reactToHit: animator.reactToHit,
     getPoseInfo: animator.getPoseInfo,
+    getHitVolumes,
     setVisible(visible) { mesh.visible = Boolean(visible); },
     getMuzzlePosition(target = new THREE.Vector3()) { return muzzle.getWorldPosition(target); },
     dispose() { mixer.stopAllAction(); materials.forEach((material) => material.dispose()); },
@@ -416,9 +469,10 @@ function createFallbackCharacter({ npc, color, police }) {
     const item = new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 5, 9), material);
     item.position.set(...position); item.castShadow = true; item.receiveShadow = true; parent.add(item); return item;
   }
-  capsule(0.18, 0.33, cloth, visual, [0, 1.22, 0]);
-  capsule(0.115, 0.11, skin, visual, [0, 1.59, 0]);
-  capsule(0.125, 0.055, black, visual, [0, 1.68, -0.025]);
+  const upperBody = new THREE.Group(); upperBody.position.y = 0.94; visual.add(upperBody);
+  capsule(0.18, 0.33, cloth, upperBody, [0, 0.28, 0]);
+  capsule(0.115, 0.11, skin, upperBody, [0, 0.65, 0]);
+  capsule(0.125, 0.055, black, upperBody, [0, 0.74, -0.025]);
   const limbs = [];
   for (const side of [-1, 1]) {
     const thigh = new THREE.Group(); thigh.position.set(side * 0.105, 0.94, 0); visual.add(thigh);
@@ -426,7 +480,7 @@ function createFallbackCharacter({ npc, color, police }) {
     const shin = new THREE.Group(); shin.position.y = -0.36; thigh.add(shin);
     capsule(0.074, 0.29, denim, shin, [0, -0.21, 0]);
     capsule(0.08, 0.11, black, shin, [0, -0.47, 0.045]).rotation.x = Math.PI / 2;
-    const arm = new THREE.Group(); arm.position.set(side * 0.22, 1.4, 0); visual.add(arm);
+    const arm = new THREE.Group(); arm.position.set(side * 0.22, 0.46, 0); upperBody.add(arm);
     capsule(0.065, 0.17, cloth, arm, [0, -0.14, 0]);
     const forearm = new THREE.Group(); forearm.position.y = -0.27; arm.add(forearm);
     capsule(0.057, 0.14, cloth, forearm, [0, -0.12, 0]);
@@ -452,12 +506,13 @@ function createFallbackCharacter({ npc, color, police }) {
       for (const limb of limbs) {
         limb.thigh.rotation.x = Math.sin(time) * stride * limb.side - seatWeight * 1.4 - (airborne ? 0.6 : landing * 0.18);
         limb.shin.rotation.x = seatWeight * 0.9 + (airborne ? 1.0 : landing * 0.4);
-        limb.arm.rotation.x = seatWeight ? -1.2 : reloading ? -0.9 : (aiming || shooting) ? -Math.PI / 2 - aimPitch : -Math.sin(time) * stride * limb.side;
+        limb.arm.rotation.x = seatWeight ? dead ? 0.15 : -1.2 : reloading ? -0.9 : (aiming || shooting) ? -Math.PI / 2 - aimPitch : -Math.sin(time) * stride * limb.side;
         limb.arm.rotation.z = seatWeight ? steering * 0.15 : 0;
         limb.forearm.rotation.x = reloading ? -0.5 - Math.sin(reloadProgress * Math.PI) * 0.4 : seatWeight ? -0.3 : -0.1;
       }
       visual.position.copy(seatOffset).multiplyScalar(seatWeight); visual.position.y -= landing * 0.08;
-      visual.rotation.set(hitWeight * 0.18, interacting ? -Math.sin(interactionProgress * Math.PI) * 0.35 : 0, dead ? -Math.PI / 2 : 0);
+      visual.rotation.set(hitWeight * 0.18, interacting ? -Math.sin(interactionProgress * Math.PI) * 0.35 : 0, dead ? -(1 - seatWeight) * Math.PI / 2 : 0);
+      upperBody.rotation.x = dead ? seatWeight * 0.55 : 0;
       weapon.visible = weaponVisible && !dead && !seated && !interacting;
       mesh.userData.animationState = dead ? 'down' : interacting ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : speed > 0.1 ? 'walking' : 'idle';
     },
@@ -465,6 +520,15 @@ function createFallbackCharacter({ npc, color, police }) {
     setVisible(visible) { mesh.visible = Boolean(visible); },
     reactToHit(strength = 1) { hitWeight = strength; },
     getPoseInfo() { return { state: mesh.userData.animationState, pelvis: [0, 0.94 + visual.position.y, 0] }; },
+    getHitVolumes() {
+      const scale = visual.getWorldScale(new THREE.Vector3());
+      const radiusScale = Math.max(Math.abs(scale.x), Math.abs(scale.y), Math.abs(scale.z));
+      return {
+        spheres: [{ center: upperBody.localToWorld(new THREE.Vector3(0, 0.69, 0)), radius: 0.17 * radiusScale }],
+        capsules: [{ start: upperBody.localToWorld(new THREE.Vector3(0, 0.115, 0)),
+          end: upperBody.localToWorld(new THREE.Vector3(0, 0.445, 0)), radius: 0.18 * radiusScale }],
+      };
+    },
     getMuzzlePosition(target = new THREE.Vector3()) { return muzzle.getWorldPosition(target); },
   };
 }

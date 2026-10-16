@@ -274,6 +274,17 @@ export function createHandPoseController({ mesh, bones, restPose = {} }) {
     return mesh.worldToLocal(out.copy(worldAnchor).sub(worldOffset));
   }
 
+  /** Wrist target that places this posed palm around a root-local grip center. */
+  function getGripTarget(side, center, out = new THREE.Vector3()) {
+    const hand = hands.find((item) => item.side === side);
+    if (!hand) return out.copy(center);
+    mesh.localToWorld(worldAnchor.copy(center));
+    handAnchor(hand, worldOffset);
+    hand.bone.getWorldPosition(v2);
+    worldOffset.sub(v2);
+    return mesh.worldToLocal(out.copy(worldAnchor).sub(worldOffset));
+  }
+
   /** Restore only the wrist after a second arm-IK pass; fingers stay posed. */
   function refreshWrist(side = 'Left') {
     const hand = hands.find((item) => item.side === side);
@@ -303,5 +314,5 @@ export function createHandPoseController({ mesh, bones, restPose = {} }) {
     return info;
   }
 
-  return { update, refreshWrist, getWeaponPosition, getSupportTarget, getGripInfo };
+  return { update, refreshWrist, getWeaponPosition, getSupportTarget, getGripTarget, getGripInfo };
 }

@@ -18,7 +18,15 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current asset and interaction pass
+## Current vehicle and rendering pass
+
+- Vehicle shots and camera obstruction now query the full-detail body, glass, wheels and articulated doors. Open cockpit space is no longer filled by a generic hit box; broken glass and body deformation update the query geometry.
+- Occupant hit volumes follow the posed skull and torso. Exposed drivers slump in their seat, retain their down state when evicted, and recover; vehicle surfaces shield them from covered shots.
+- Seated characters follow suspension orientation as well as position, and palm targets follow the steering rim. Photo lens zoom restores vehicle detail as it already did for characters.
+- Camera visibility compacts offscreen instances out of existing world batches. Full instances are restored for shadow refreshes and reflections; hardware with shadows updating every frame currently retains the complete batches.
+- A valid GPU timer sample on the software renderer attributed about 172 ms to the scene, 3 ms to ambient occlusion and 8 ms to the final image pass. This identifies further scene work; it does not establish release performance.
+
+## Previous asset and interaction pass
 
 - Replaced the gameplay Ferrari with the original Blender-authored Astra Aurora, including a cockpit, articulated steering wheel and door, wheel assemblies and two detail levels. Historical benchmark fixtures stay outside the game distribution.
 - Added eased walking approaches to car doors, shorter pedestrian strides, smoother locomotion transitions and directional foot placement.

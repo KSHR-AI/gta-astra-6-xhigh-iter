@@ -384,6 +384,21 @@ function createOriginalCar({ color = 0xe4bb67, type = 'sport', police = false } 
   };
 }
 
+// Keep a consistent projected-size threshold when the photo lens narrows or
+// widens. Three's built-in LOD accounts for zoom, but not camera field of view.
+class VehicleLOD extends THREE.LOD {
+  update(camera) {
+    const reference = Math.tan(THREE.MathUtils.degToRad(55) / 2);
+    const field = camera.isPerspectiveCamera && Number.isFinite(camera.fov)
+      ? Math.tan(THREE.MathUtils.degToRad(THREE.MathUtils.clamp(camera.fov, 1, 175)) / 2) : reference;
+    const zoom = (Number.isFinite(camera.zoom) && camera.zoom > 0 ? camera.zoom : 1) * reference / field;
+    super.update({ matrixWorld: camera.matrixWorld, zoom });
+    const car = new THREE.Vector3().setFromMatrixPosition(this.matrixWorld);
+    const eye = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+    this.userData.effectiveDistance = car.distanceTo(eye) / zoom;
+  }
+}
+
 // Authored models keep wheel and door pivots in their exported hierarchy.
 // The procedural coupe remains available if local asset loading fails.
 let vehicleAssetsPromise;
@@ -452,7 +467,7 @@ function vehiclePalette(color) {
 
 function createAuroraCar({ color }) {
   const mesh = new THREE.Group(); mesh.name = 'Astra Aurora — coastal roadster';
-  const lod = new THREE.LOD(); mesh.add(lod);
+  const lod = new VehicleLOD(); mesh.add(lod);
   const palette = new Map();
   const materialFor = source => {
     if (!palette.has(source.name)) {
@@ -573,7 +588,7 @@ function addPatrolEquipment(level, palette, strobes) {
 function createSedanCar({ color, police }) {
   const mesh = new THREE.Group();
   mesh.name = police ? 'Astra Meridian — Los Pacificos patrol' : 'Astra Meridian — executive sedan';
-  const lod = new THREE.LOD(); mesh.add(lod);
+  const lod = new VehicleLOD(); mesh.add(lod);
   const palette = sedanPalette(color, police);
   const strobes = police ? [0x135eff, 0xff172a].map(color => new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.5, roughness: 0.27, metalness: 0.08 })) : [];
   const levels = sedanVehicleTemplates.map((template, index) => {
@@ -679,6 +694,185 @@ function makeWindshieldCracks(roadster, sedan = false) {
   return cracks;
 }
 
+// Geometry trees are shared by undamaged vehicle instances. A broken window or
+// dent changes its attribute/index version and rebuilds only that mesh's tree.
+const surfaceTrees = new WeakMap();
+function vehicleSurfaceTree(geometry) {
+  const position = geometry.attributes.position, index = geometry.index;
+  const cached = surfaceTrees.get(geometry);
+  if (cached && cached.position === position && cached.positionVersion === position.version
+    && cached.index === index && cached.indexVersion === index?.version
+    && cached.start === geometry.drawRange.start && cached.count === geometry.drawRange.count) return cached;
+  const start = Math.ceil(geometry.drawRange.start / 3) * 3;
+  const end = Math.floor(Math.min(index?.count ?? position.count, geometry.drawRange.start + geometry.drawRange.count) / 3) * 3;
+  const count = Math.max(0, (end - start) / 3);
+  const vertices = new Uint32Array(count * 3), bounds = new Float32Array(count * 6);
+  const order = new Uint32Array(count);
+  for (let face = 0; face < count; face++) {
+    order[face] = face;
+    const offset = start + face * 3;
+    const ids = [0, 1, 2].map(corner => index ? index.getX(offset + corner) : offset + corner);
+    vertices.set(ids, face * 3);
+    for (let axis = 0; axis < 3; axis++) {
+      const values = ids.map(id => position.getComponent(id, axis));
+      bounds[face * 6 + axis] = Math.min(...values);
+      bounds[face * 6 + axis + 3] = Math.max(...values);
+    }
+  }
+  const build = ids => {
+    if (!ids.length) return null;
+    const box = new THREE.Box3();
+    for (const face of ids) {
+      const offset = face * 6;
+      box.min.x = Math.min(box.min.x, bounds[offset]); box.max.x = Math.max(box.max.x, bounds[offset + 3]);
+      box.min.y = Math.min(box.min.y, bounds[offset + 1]); box.max.y = Math.max(box.max.y, bounds[offset + 4]);
+      box.min.z = Math.min(box.min.z, bounds[offset + 2]); box.max.z = Math.max(box.max.z, bounds[offset + 5]);
+    }
+    // Small leaves bound the number of exact triangle tests for narrow rays.
+    if (ids.length <= 12) return { box, faces: ids };
+    const size = box.getSize(new THREE.Vector3());
+    const axis = size.x >= size.y && size.x >= size.z ? 0 : size.y >= size.z ? 1 : 2;
+    ids.sort((a, b) => bounds[a * 6 + axis] + bounds[a * 6 + axis + 3] - bounds[b * 6 + axis] - bounds[b * 6 + axis + 3]);
+    const middle = Math.floor(ids.length / 2);
+    return { box, left: build(ids.slice(0, middle)), right: build(ids.slice(middle)) };
+  };
+  const tree = { position, positionVersion: position.version, index, indexVersion: index?.version,
+    start: geometry.drawRange.start, count: geometry.drawRange.count, firstTriangle: start / 3, vertices, root: build(order) };
+  surfaceTrees.set(geometry, tree);
+  return tree;
+}
+
+// Entry distance into a bounds volume. Containment is only a broadphase test;
+// it never establishes a hit inside an empty cockpit or broken windshield.
+function rayBoundsDistance(ray, box, maximum) {
+  let near = 0, far = maximum;
+  for (const axis of ['x', 'y', 'z']) {
+    const direction = ray.direction[axis], origin = ray.origin[axis];
+    if (Math.abs(direction) < 1e-12) {
+      if (origin < box.min[axis] || origin > box.max[axis]) return Infinity;
+      continue;
+    }
+    const a = (box.min[axis] - origin) / direction, b = (box.max[axis] - origin) / direction;
+    near = Math.max(near, Math.min(a, b)); far = Math.min(far, Math.max(a, b));
+    if (near > far) return Infinity;
+  }
+  return near;
+}
+
+function addVehicleSurfaceQueries(vehicle, lod, extras, getRevision) {
+  const model = vehicle.mesh;
+  const roots = lod ? [lod.levels[0].object, extras] : [model];
+  const surfaces = [];
+  for (const root of roots) root.traverse(object => {
+    if (object.isMesh) {
+      vehicleSurfaceTree(object.geometry); // Warm shared trees while constructing the scene, before play.
+      surfaces.push({ object, root, inverse: new THREE.Matrix4(), normal: new THREE.Matrix3() });
+    }
+  });
+  model.updateWorldMatrix(true, true);
+  const inverseModel = model.matrixWorld.clone().invert();
+  const broadBounds = new THREE.Box3().setFromObject(roots[0]).applyMatrix4(inverseModel);
+  const door = roots[0].getObjectByName('driver_door');
+  if (door) {
+    const hinge = door.getWorldPosition(new THREE.Vector3()).applyMatrix4(inverseModel);
+    const bounds = new THREE.Box3().setFromObject(door).applyMatrix4(inverseModel);
+    const radius = Math.max(...[bounds.min.x, bounds.max.x].flatMap(x => [bounds.min.z, bounds.max.z].map(z => Math.hypot(x - hinge.x, z - hinge.z))));
+    broadBounds.expandByPoint(new THREE.Vector3(hinge.x - radius, bounds.min.y, hinge.z - radius));
+    broadBounds.expandByPoint(new THREE.Vector3(hinge.x + radius, bounds.max.y, hinge.z + radius));
+  } else {
+    // The procedural fallback has unnamed doors but keeps the same full swing.
+    broadBounds.expandByScalar(1.5);
+  }
+  // Includes steering tires, permitted body suspension and small dent offsets.
+  broadBounds.expandByScalar(0.35);
+  const previousWorld = new THREE.Matrix4(), worldRay = new THREE.Ray(), localRay = new THREE.Ray();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), intersection = new THREE.Vector3();
+  const localNormal = new THREE.Vector3(), normalEdge = new THREE.Vector3();
+  const stack = [];
+  let previousRevision = -1;
+  let diagnostics = { broadphaseMiss: false, meshesTested: 0, trianglesTested: 0 };
+  const rayInFrame = inverse => {
+    localRay.origin.copy(worldRay.origin).applyMatrix4(inverse);
+    const e = inverse.elements, d = worldRay.direction;
+    localRay.direction.set(e[0] * d.x + e[4] * d.y + e[8] * d.z,
+      e[1] * d.x + e[5] * d.y + e[9] * d.z, e[2] * d.x + e[6] * d.y + e[10] * d.z);
+    const scale = localRay.direction.length(); localRay.direction.multiplyScalar(1 / scale);
+    return scale;
+  };
+  vehicle.getSurfaceQueryInfo = () => ({ ...diagnostics });
+  /** World-space two-sided physical surfaces, independent of rendering LOD.
+   * The contact normal faces the incoming ray. Empty bounding space is a miss.
+   */
+  vehicle.raycastSurface = (ray, maxDistance = Infinity) => {
+    if (typeof maxDistance !== 'number' || Number.isNaN(maxDistance) || maxDistance < 0) throw new RangeError('Vehicle ray distance must be nonnegative.');
+    diagnostics = { broadphaseMiss: false, meshesTested: 0, trianglesTested: 0 };
+    const lengthSq = ray.direction.lengthSq();
+    if (!model.visible || !Number.isFinite(lengthSq) || lengthSq < 1e-18
+      || ![ray.origin.x, ray.origin.y, ray.origin.z].every(Number.isFinite)) return null;
+    worldRay.origin.copy(ray.origin); worldRay.direction.copy(ray.direction).normalize();
+    model.updateWorldMatrix(true, false);
+    inverseModel.copy(model.matrixWorld).invert();
+    const scale = rayInFrame(inverseModel);
+    if (rayBoundsDistance(localRay, broadBounds, maxDistance * scale) === Infinity) {
+      diagnostics.broadphaseMiss = true; return null;
+    }
+    const revision = getRevision();
+    if (previousRevision !== revision || !previousWorld.equals(model.matrixWorld)) {
+      for (const root of roots) root.updateWorldMatrix(true, true);
+      for (const entry of surfaces) {
+        entry.inverse.copy(entry.object.matrixWorld).invert();
+        entry.normal.getNormalMatrix(entry.object.matrixWorld);
+      }
+      previousRevision = revision; previousWorld.copy(model.matrixWorld);
+    }
+    let closest = null, nearest = maxDistance;
+    for (const { object, root, inverse, normal } of surfaces) {
+      let visible = true;
+      for (let node = object; node && node !== root; node = node.parent) if (!node.visible) { visible = false; break; }
+      if (!visible || !object.visible) continue;
+      const tree = vehicleSurfaceTree(object.geometry);
+      if (!tree.root) continue;
+      const localScale = rayInFrame(inverse);
+      let localNearest = nearest * localScale;
+      if (rayBoundsDistance(localRay, tree.root.box, localNearest) === Infinity) continue;
+      diagnostics.meshesTested++;
+      stack.length = 0; stack.push(tree.root);
+      while (stack.length) {
+        const node = stack.pop();
+        if (rayBoundsDistance(localRay, node.box, localNearest) === Infinity) continue;
+        if (!node.faces) {
+          const left = rayBoundsDistance(localRay, node.left.box, localNearest);
+          const right = rayBoundsDistance(localRay, node.right.box, localNearest);
+          if (left < right) { if (right !== Infinity) stack.push(node.right); if (left !== Infinity) stack.push(node.left); }
+          else { if (left !== Infinity) stack.push(node.left); if (right !== Infinity) stack.push(node.right); }
+          continue;
+        }
+        for (const face of node.faces) {
+          const faceIndex = tree.firstTriangle + face;
+          const materialIndex = Array.isArray(object.material)
+            ? object.geometry.groups.find(group => faceIndex * 3 >= group.start && faceIndex * 3 < group.start + group.count)?.materialIndex ?? 0 : 0;
+          const material = Array.isArray(object.material) ? object.material[materialIndex] : object.material;
+          if (!material?.visible || material.transparent && material.opacity === 0) continue;
+          a.fromBufferAttribute(tree.position, tree.vertices[face * 3]);
+          b.fromBufferAttribute(tree.position, tree.vertices[face * 3 + 1]);
+          c.fromBufferAttribute(tree.position, tree.vertices[face * 3 + 2]);
+          diagnostics.trianglesTested++;
+          if (!localRay.intersectTriangle(a, b, c, false, intersection)) continue;
+          const distance = intersection.distanceTo(localRay.origin) / localScale;
+          if (distance > nearest) continue;
+          localNormal.subVectors(b, a).cross(normalEdge.subVectors(c, a)).applyNormalMatrix(normal);
+          const frontFace = localNormal.dot(worldRay.direction) <= 0;
+          if (!frontFace) localNormal.negate();
+          nearest = distance; localNearest = nearest * localScale;
+          closest = { distance, point: worldRay.at(distance, new THREE.Vector3()), normal: localNormal.clone(),
+            mesh: object, material, faceIndex, frontFace, surfaceName: object.name || material.name || 'vehicle_surface' };
+        }
+      }
+    }
+    return closest;
+  };
+}
+
 /** Adds suspension, staged damage, and consistent local interaction anchors. */
 function enhanceVehicle(vehicle, { type, roadster }) {
   vehicle.type = type;
@@ -729,7 +923,7 @@ function enhanceVehicle(vehicle, { type, roadster }) {
   const wheelRest = wheelPivots.map(pivot => ({ pivot, y: pivot.position.y }));
   const dynamics = { roll: 0, pitch: 0, heave: 0, brake: 0, slip: 0, speed: 0 };
   const spring = { roll: 0, rollVelocity: 0, pitch: 0, pitchVelocity: 0, heave: 0, heaveVelocity: 0 };
-  let externalDynamics = false, damageHealth = 100, time = 0, lastSpeed = 0, lights = true;
+  let externalDynamics = false, damageHealth = 100, time = 0, lastSpeed = 0, lights = true, surfaceRevision = 0;
   const baseUpdate = vehicle.update.bind(vehicle), baseLights = vehicle.setLights.bind(vehicle);
   function updateLamps() {
     for (const material of uniqueHeadlights) {
@@ -839,7 +1033,7 @@ function enhanceVehicle(vehicle, { type, roadster }) {
   vehicle.setDamage = (health = 100) => {
     const next = THREE.MathUtils.clamp(Number.isFinite(health) ? health : 100, 0, 100);
     if (next === damageHealth) return;
-    damageHealth = next; vehicle.mesh.userData.damageHealth = next;
+    damageHealth = next; vehicle.mesh.userData.damageHealth = next; surfaceRevision++;
     for (const object of paintMeshes) deformBody(object, next);
     for (const [material, original] of originalPaint) {
       material.roughness = original.roughness + (1 - next / 100) * 0.16;
@@ -862,10 +1056,18 @@ function enhanceVehicle(vehicle, { type, roadster }) {
     chassis[0].updateMatrix(); return target.applyMatrix4(chassis[0].matrix);
   };
   vehicle.getDoorPosition = (target = new THREE.Vector3()) => target.copy(doorEntry);
+  vehicle.getDriverOrientation = (target = new THREE.Quaternion()) => chassis[0].getWorldQuaternion(target);
+  let fullTriangles = 0;
+  if (!lod) vehicle.mesh.traverse(object => { if (object.isMesh) fullTriangles += (object.geometry.index?.count ?? object.geometry.attributes.position.count) / 3; });
+  vehicle.getDetailInfo = () => {
+    const level = lod?.getCurrentLevel() ?? 0;
+    return { level, triangles: lod ? vehicle.mesh.userData.detailLevels[level ? 'far' : 'near'] : fullTriangles,
+      effectiveDistance: lod?.userData.effectiveDistance ?? null };
+  };
   vehicle.setLights = enabled => { lights = Boolean(enabled); baseLights(lights); updateLamps(); };
   vehicle.update = (dt = 0, speed = 0, steer = 0) => {
     const delta = THREE.MathUtils.clamp(Number.isFinite(dt) ? dt : 0, 0, 0.3);
-    time += delta; baseUpdate(delta, speed, steer);
+    time += delta; baseUpdate(delta, speed, steer); surfaceRevision++;
     if (!externalDynamics) {
       const acceleration = delta > 0 ? THREE.MathUtils.clamp((speed - lastSpeed) / delta, -15, 12) : 0;
       dynamics.roll = steer * speed * speed * 0.00007;
@@ -897,5 +1099,6 @@ function enhanceVehicle(vehicle, { type, roadster }) {
     updateLamps();
   };
   vehicle.setLights(true);
+  addVehicleSurfaceQueries(vehicle, lod, extras, () => surfaceRevision);
   return vehicle;
 }

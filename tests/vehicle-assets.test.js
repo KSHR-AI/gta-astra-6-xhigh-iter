@@ -132,6 +132,8 @@ test('missing optional Aurora LOD retains the full model without a startup failu
   assert.equal(car.mesh.children.find(child => child.isLOD).levels.length, 1);
   car.setDoor(true); car.update(0.1, 2, 0.2);
   assert.ok(car.wheels.every(wheel => Number.isFinite(wheel.rotation.x)));
+  assert.ok(car.raycastSurface(new THREE.Ray(new THREE.Vector3(0, .6, 5), new THREE.Vector3(0, 0, -1)), 8));
+  assert.equal(car.getDetailInfo().level, 0);
 });
 
 test('unavailable or malformed Aurora falls back to a usable procedural vehicle', async t => {
@@ -149,6 +151,10 @@ test('unavailable or malformed Aurora falls back to a usable procedural vehicle'
     car.setDoor(true); car.setDamage(50); car.update(0.1, 4, 0.2);
     assert.ok(car.getDriverSeat().toArray().every(Number.isFinite));
     assert.ok(car.wheels.every(wheel => Number.isFinite(wheel.rotation.x)));
+    assert.ok(car.raycastSurface(new THREE.Ray(new THREE.Vector3(0, .6, 5), new THREE.Vector3(0, 0, -1)), 8));
+    assert.ok(car.getDetailInfo().triangles > 0);
+    const orientation = new THREE.Quaternion();
+    assert.equal(car.getDriverOrientation(orientation), orientation); close(orientation.length(), 1);
     assert.equal(api.createCar({ type: 'sedan' }).mesh.userData.originalSedan, true);
   }
 });

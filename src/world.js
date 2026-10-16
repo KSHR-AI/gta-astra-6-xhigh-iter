@@ -6,6 +6,7 @@ import { createPalmAssets } from './world-palms.js';
 import { createShrubBuilder } from './world-shrubs.js';
 import { createOcean } from './world-ocean.js';
 import { createCityProps } from './world-props.js';
+import { createInstanceVisibility } from './instance-visibility.js';
 
 // Everything in the district is real geometry. Repeated architectural details
 // share instanced meshes, so the dense streetscape stays inexpensive to render.
@@ -17,6 +18,7 @@ export function createWorld(scene) {
   const lampPositions = [];
   const illuminatedSigns = [];
   const batches = new Map();
+  const instanceVisibility = createInstanceVisibility();
   const object = new THREE.Object3D();
   const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
   const panelGeometry = new THREE.PlaneGeometry(1, 1);
@@ -695,9 +697,13 @@ export function createWorld(scene) {
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
     root.add(mesh);
+    instanceVisibility.add(mesh, { padding: batch.material === materials.leaves ? .16 : 0 });
   }
   return {
     root, colliders, roads, ready, lampPositions,
+    updateInstanceVisibility: instanceVisibility.update,
+    restoreInstances: instanceVisibility.restore,
+    getInstanceVisibility: instanceVisibility.getStats,
     setSky: data => ocean.setSky(data),
     landmarks: district.landmarks,
     zones: district.zones,

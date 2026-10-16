@@ -211,7 +211,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     const hipY = pelvis.y;
     const bodyLean = landing * 0.20 + hitReaction * 0.26 + airWeight * 0.08 + movingWeight * runningWeight * 0.07 + aimWeight * 0.035 - recoil * 0.2;
     point('Spine', 'Spine1', -weightShift * idleLife, 1, bodyLean - seatedWeight * 0.13 + breathing * idleLife * 0.012, Math.max(neutralWeight * 0.55, airWeight, landing, hitReaction));
-    point('Spine2', 'Neck', -turnLean * 0.025 + weightShift * idleLife * 0.6, 1, bodyLean * 0.25 + breathing * idleLife * 0.009, Math.max(neutralWeight * 0.4, hitReaction));
+    point('Spine2', 'Neck', -turnLean * (1 - seatedWeight) * 0.025 + weightShift * idleLife * 0.6, 1, bodyLean * 0.25 + breathing * idleLife * 0.009, Math.max(neutralWeight * 0.4, hitReaction));
 
     // Warp the authored ankle trajectory, retaining its alternating contact and
     // swing timing. Shorten low-speed steps and reduce the soldier's exaggerated
@@ -396,11 +396,33 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       bones.Head.quaternion.slerp(headWorld, (1 - movingWeight * 0.12) * (1 - deathWeight));
     }
     if (deathWeight > 0.01) {
-      point('LeftUpLeg', 'LeftLeg', 0.1, -0.9, 0.4, deathWeight);
-      point('LeftLeg', 'LeftFoot', 0, -0.8, -0.6, deathWeight);
-      reachArm('Left', 0.20, hipY + 0.15, 0.32, 0.45, hipY, 0.14, deathWeight);
-      visual.rotation.z -= deathWeight * Math.PI / 2;
-      visual.position.y += deathWeight * 0.14;
+      const seatedSlump = deathWeight * seatedWeight;
+      if (seatedSlump > 0.001) {
+        // A disabled driver folds over the lap while the pelvis remains at the
+        // seat anchor. Rotating the entire visual through 90 degrees drove the
+        // torso through the door and detached it from the suspended cockpit.
+        point('Spine', 'Spine1', 0.08, 1, 0.72, seatedSlump);
+        point('Spine1', 'Spine2', 0.10, 1, 0.88, seatedSlump);
+        point('Spine2', 'Neck', 0.12, 1, 0.78, seatedSlump);
+        for (const [side, sign] of [['Right', -1], ['Left', 1]]) {
+          reachArm(side, sign * 0.19, hipY + 0.055, 0.31,
+            sign * 0.35, hipY + 0.12, 0.17, seatedSlump);
+        }
+        if (bones.Head && bindHeadOrientation) {
+          lookEuler.set(0.70, 0.10, 0.08);
+          headWorld.copy(rootRotation).multiply(wantedLook.setFromEuler(lookEuler)).multiply(bindHeadOrientation);
+          bones.Head.parent.getWorldQuaternion(headParentInverse).invert();
+          bones.Head.quaternion.slerp(headWorld.premultiply(headParentInverse), seatedSlump);
+        }
+      }
+      const groundFall = deathWeight * (1 - seatedWeight);
+      if (groundFall > 0.001) {
+        point('LeftUpLeg', 'LeftLeg', 0.1, -0.9, 0.4, groundFall);
+        point('LeftLeg', 'LeftFoot', 0, -0.8, -0.6, groundFall);
+        reachArm('Left', 0.20, hipY + 0.15, 0.32, 0.45, hipY, 0.14, groundFall);
+        visual.rotation.z -= groundFall * Math.PI / 2;
+        visual.position.y += groundFall * 0.14;
+      }
     }
     // SkinnedMesh.updateMatrixWorld also refreshes its inverse bind transform;
     // CPU sole sampling must see the same transform the renderer will use.
@@ -454,8 +476,22 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       THREE.MathUtils.lerp((1 - aimWeight) * -0.055, -0.24, reloadWeight));
     weapon.visible = carrying;
     const supportWeight = Math.max(aimWeight, readyWeight * (1 - lowRun * 0.82)) * (1 - reloadWeight);
+    const wheelHold = seatedWeight * (1 - smooth(deathWeight, 0.05, 0.7));
     hands.update({ dt: step, weapon, armed: weapon.visible, aimWeight, readyWeight: supportWeight,
-      reloading: reloading && canUseWeapon, reloadProgress: reloadT, seated: seatedWeight, steering });
+      reloading: reloading && canUseWeapon, reloadProgress: reloadT, seated: wheelHold, steering });
+    if (wheelHold > 0.001) {
+      // The arm solve initially reaches with the wrist joint. After posing the
+      // fingers, use each rig's measured palm offset to put the actual grip on
+      // the steering rim. The full actor quaternion carries this local cockpit
+      // frame through suspension pitch/roll and world heading together.
+      const wheelAngle = clamp(steering, -1, 1) * 0.8;
+      for (const [side, sign] of [['Right', -1], ['Left', 1]]) {
+        temp.set(sign * 0.15 * Math.cos(wheelAngle), hipY + 0.35 + sign * 0.15 * Math.sin(wheelAngle), 0.47);
+        hands.getGripTarget(side, temp, temp);
+        reachArm(side, temp.x, temp.y, temp.z, sign * 0.42, hipY + 0.12, 0.20, wheelHold);
+        hands.refreshWrist(side);
+      }
+    }
     if (weapon.visible) {
       if (supportWeight > 0.01 && !reloading) {
         // Place the support palm on the same measured grip as the firing hand,
