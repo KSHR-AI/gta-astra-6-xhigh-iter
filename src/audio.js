@@ -20,6 +20,8 @@ export function createAudio() {
   let stepDistance = 0, stepIndex = 0, trafficAt = 4, musicAt = 0, musicBeat = 0;
   let lastCrash = -10, lastHorn = -10;
   let previousCar = false;
+  let lastPistol = -1, groundSurface = 'concrete';
+  const listener = { x: 0, y: 0, z: 0, forwardX: 0, forwardZ: -1 };
   const buffers = {};
   const nodes = new Set();
   const continuous = new Set();
@@ -66,8 +68,9 @@ export function createAudio() {
   function ready() {
     return Boolean(context && enabled && active && !disposed && context.state === 'running');
   }
-  function clearTemporary() {
+  function clearTemporary(group) {
     for (const voice of [...temporary]) {
+      if (group && voice.group !== group) continue;
       try { voice.source.stop(); } catch { /* The voice may already have ended. */ }
       voice.clean();
     }
@@ -76,7 +79,8 @@ export function createAudio() {
   // Voices allocate only at an audible event, never for continuous frame updates.
   function play({ sample, noise = false, type = 'sine', frequency = 440, endFrequency,
     duration = 0.15, volume = 0.1, delay = 0, cutoff = 6000, highpass = 0,
-    pan = 0, endPan, rate = 1, endRate, looped = false, attack = 0.004, echo = 0 } = {}) {
+    pan = 0, endPan, rate = 1, endRate, looped = false, attack = 0.004, echo = 0,
+    offset = 0, group } = {}) {
     if (!ready() || temporary.size > 40) return false;
     const buffer = sample && buffers[sample];
     if (sample && !buffer) return false;
@@ -120,15 +124,76 @@ export function createAudio() {
     } else envelope.connect(world);
     const send = echo ? context.createGain() : null;
     if (send) { send.gain.value = echo; envelope.connect(send); send.connect(echoInput); }
-    const voice = { source, clean: () => {
+    const voice = { source, group, clean: () => {
       source.disconnect(); low.disconnect(); high?.disconnect(); envelope.disconnect();
       panner?.disconnect(); send?.disconnect(); temporary.delete(voice);
     } };
     temporary.add(voice);
     source.onended = voice.clean;
-    source.start(now, ...(noise ? [Math.random() * 2] : []));
+    source.start(now, ...(noise ? [Math.random() * 2] : buffer ? [offset] : []));
     source.stop(now + duration + 0.02);
     return true;
+  }
+
+  function createPistolBuffers() {
+    // Original, baked pressure impulses: an irregular crack and short resonant
+    // body, not a pitched oscillator sweep. Five variants are reused per shot.
+    const sampleRate = context.sampleRate;
+    for (let variant = 0; variant < 5; variant++) {
+      const buffer = context.createBuffer(1, Math.ceil(sampleRate * 0.29), sampleRate);
+      const data = buffer.getChannelData(0);
+      const tone = 0.94 + Math.random() * 0.12;
+      const bassCoefficient = 1 - Math.exp(-2 * Math.PI * 460 / sampleRate);
+      const airCoefficient = 1 - Math.exp(-2 * Math.PI * 2400 / sampleRate);
+      let low = 0, air = 0, previous = 0, dc = 0, peak = 0;
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sampleRate;
+        const noise = Math.random() * 2 - 1;
+        low += bassCoefficient * (noise - low);
+        air += airCoefficient * (noise - air);
+        const attack = 1 - Math.exp(-t / 0.00018);
+        const crack = (noise - low) * (Math.exp(-t / 0.0055) + 0.23 * Math.exp(-t / 0.018));
+        const body = low * 2.9 * Math.exp(-t / 0.027)
+          + (Math.sin(t * 2 * Math.PI * 148 * tone)
+            + 0.42 * Math.sin(t * 2 * Math.PI * 263 * tone)) * 0.19 * Math.exp(-t / 0.023);
+        const tail = air * 0.2 * Math.exp(-t / 0.062) * (1 - Math.exp(-t / 0.009));
+        const value = (crack + body + tail) * attack;
+        // Remove subsonic/DC drift, then taper the already quiet tail to zero.
+        dc = value - previous + 0.995 * dc; previous = value;
+        const fade = clamp((0.29 - t) / 0.025, 0, 1);
+        data[i] = dc * fade * fade;
+        peak = Math.max(peak, Math.abs(data[i]));
+      }
+      for (let i = 0; i < data.length; i++) data[i] *= 0.92 / Math.max(peak, 0.001);
+      buffers[`pistol${variant}`] = buffer;
+    }
+
+    // A small brass case has a bright, rapidly dying tick, not a heavy clang.
+    const casing = context.createBuffer(1, Math.ceil(sampleRate * 0.095), sampleRate);
+    const data = casing.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sampleRate, attack = 1 - Math.exp(-t / 0.0002);
+      data[i] = attack * (0.34 * Math.sin(t * 2 * Math.PI * 3670) * Math.exp(-t / 0.012)
+        + 0.2 * Math.sin(t * 2 * Math.PI * 5210) * Math.exp(-t / 0.008)
+        + (Math.random() * 2 - 1) * 0.25 * Math.exp(-t / 0.002));
+    }
+    buffers.casing = casing;
+  }
+
+  function spatial(position) {
+    if (!position) return { distance: 0, volume: 1, pan: 0.08, cutoff: 11000, delay: 0 };
+    const dx = finite(position.x) - listener.x;
+    const dy = finite(position.y) - listener.y;
+    const dz = finite(position.z) - listener.z;
+    const distance = Math.hypot(dx, dy, dz);
+    const horizontal = Math.max(1, Math.hypot(dx, dz));
+    return {
+      distance,
+      volume: 1 / (1 + Math.pow(distance / 17, 1.35)),
+      pan: clamp((dx * -listener.forwardZ + dz * listener.forwardX) / horizontal, -0.92, 0.92),
+      cutoff: 1800 + 9200 / (1 + distance / 24),
+      delay: Math.min(0.22, distance / 343),
+    };
   }
 
   function createMixer() {
@@ -141,6 +206,7 @@ export function createAudio() {
     noiseBuffer = context.createBuffer(1, context.sampleRate * 4, context.sampleRate);
     const samples = noiseBuffer.getChannelData(0);
     for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
+    createPistolBuffers();
 
     // Short, filtered building reflections; no costly long convolution or feedback loop.
     echoInput = gain(1, null);
@@ -246,6 +312,15 @@ export function createAudio() {
     lastTime = now;
     if (wasActive && !active) clearTemporary();
     smooth(world.gain, active ? 1 : 0, 0.06);
+    if (playerPosition) {
+      listener.x = finite(playerPosition.x); listener.y = finite(playerPosition.y); listener.z = finite(playerPosition.z);
+    }
+    if (cameraForward) {
+      const x = finite(cameraForward.x), z = finite(cameraForward.z, -1);
+      const length = Math.hypot(x, z) || 1;
+      listener.forwardX = x / length; listener.forwardZ = z / length;
+    }
+    groundSurface = surface || (playerPosition && playerPosition.x < -119 ? 'sand' : 'concrete');
     if (!active || !enabled) {
       stepDistance = 0; lastSpeed = Math.abs(finite(speed));
       musicAt = now + 0.5; trafficAt = now + 5;
@@ -342,19 +417,68 @@ export function createAudio() {
     if (context) smooth(master.gain, enabled ? 0.62 : 0, 0.035);
     if (!enabled) clearTemporary();
   }
-  function shoot() {
-    const variation = 0.96 + Math.random() * 0.08;
-    play({ noise: true, volume: 0.48, duration: 0.075, cutoff: 7200, highpass: 350, pan: 0.12, echo: 0.3 });
-    play({ frequency: 165 * variation, endFrequency: 45, volume: 0.3, duration: 0.14, pan: 0.08 });
-    play({ noise: true, volume: 0.13, duration: 0.3, cutoff: 1800, delay: 0.015, pan: -0.16, echo: 0.3 });
-    play({ sample: 'click', volume: 0.1, duration: 0.16, rate: 1.5, delay: 0.075, pan: 0.22 });
-    play({ sample: 'metal', volume: 0.025, duration: 0.2, rate: 1.9, delay: 0.35 + Math.random() * 0.12, pan: 0.4 });
+  function shoot({ position } = {}) {
+    if (!ready()) return;
+    if (!position) cancelReload();
+    const location = spatial(position);
+    if (location.volume < 0.025) return;
+    // Avoid consecutive identical transients while keeping every shot the same weapon.
+    lastPistol = (lastPistol + 1 + Math.floor(Math.random() * 4)) % 5;
+    const rate = 0.975 + Math.random() * 0.05;
+    play({ sample: `pistol${lastPistol}`, volume: 0.77 * location.volume * (0.96 + Math.random() * 0.08),
+      duration: 0.30, rate, attack: 0.0002, highpass: 55, cutoff: location.cutoff,
+      pan: location.pan, delay: location.delay, echo: 0.23 });
+    // The slide cycles immediately; the case reaches the ground later and bounces.
+    if (location.distance < 12) {
+      play({ sample: 'click', volume: 0.048 * location.volume, duration: 0.025, offset: 0.002,
+        rate: 1.25, cutoff: 4600, highpass: 800, delay: location.delay + 0.043, pan: location.pan });
+      const hardGround = groundSurface !== 'grass' && groundSurface !== 'sand';
+      if (hardGround) {
+        const landing = 0.43 + Math.random() * 0.12 + location.delay;
+        const casePan = clamp(location.pan + 0.29, -0.92, 0.92);
+        play({ sample: 'casing', volume: 0.085 * location.volume, duration: 0.095, rate: 0.9 + Math.random() * 0.2,
+          delay: landing, pan: casePan, cutoff: location.cutoff, attack: 0.0003 });
+        play({ sample: 'casing', volume: 0.028 * location.volume, duration: 0.075, rate: 1.13,
+          delay: landing + 0.12 + Math.random() * 0.05, pan: casePan, cutoff: 6500, attack: 0.0003 });
+      }
+    }
   }
-  function reload() {
-    if (!play({ sample: 'magazine', volume: 0.28, duration: 0.32, pan: 0.16, cutoff: 5300 }))
-      play({ noise: true, volume: 0.07, duration: 0.1, cutoff: 2800, pan: 0.16 });
-    play({ sample: 'magazine', volume: 0.2, duration: 0.33, delay: 0.45, rate: 0.92, pan: -0.1 });
-    play({ sample: 'click', volume: 0.2, duration: 0.2, delay: 0.83, rate: 1.25, pan: 0.14 });
+  function cancelReload() { clearTemporary('reload'); }
+  function reload({ duration = 1.45 } = {}) {
+    if (!ready()) return;
+    cancelReload();
+    const seconds = clamp(finite(duration, 1.45), 0.65, 4);
+    const variation = 0.97 + Math.random() * 0.06;
+    const common = { group: 'reload', cutoff: 4800, highpass: 180 };
+    if (!play({ ...common, sample: 'click', volume: 0.095, duration: 0.025, offset: 0.002, rate: 1.2 * variation, pan: 0.12 }))
+      play({ ...common, noise: true, volume: 0.045, duration: 0.045, cutoff: 2200, pan: 0.12 });
+    if (!play({ ...common, sample: 'magazine', volume: 0.14, duration: 0.022, offset: 0.072,
+      delay: seconds * 0.16, rate: 0.86 * variation, pan: -0.1 }))
+      play({ ...common, noise: true, volume: 0.035, duration: 0.12, delay: seconds * 0.16, cutoff: 1700 });
+    if (!play({ ...common, sample: 'magazine', volume: 0.22, duration: 0.023, offset: 0.102,
+      delay: seconds * 0.60, rate: 1.05 * variation, pan: -0.035 }))
+      play({ ...common, noise: true, volume: 0.06, duration: 0.08, delay: seconds * 0.60, cutoff: 3000 });
+    if (!play({ ...common, sample: 'click', volume: 0.16, duration: 0.035, offset: 0.002,
+      delay: seconds * 0.85, rate: 1.1 * variation, pan: 0.13 }))
+      play({ ...common, noise: true, volume: 0.055, duration: 0.045, delay: seconds * 0.85, cutoff: 4200 });
+  }
+  function dryFire() {
+    if (!play({ sample: 'click', volume: 0.065, duration: 0.023, offset: 0.002, rate: 1.45, cutoff: 2700, highpass: 500, pan: 0.08 }))
+      play({ noise: true, volume: 0.045, duration: 0.025, cutoff: 2200, highpass: 550, pan: 0.08 });
+  }
+  function impact({ position, material, surface = material || 'concrete', strength = 1, delay = 0 } = {}) {
+    if (!ready()) return;
+    const location = spatial(position);
+    const level = clamp(finite(strength, 1), 0.15, 1.5) * location.volume;
+    const when = location.delay + clamp(finite(delay), 0, 1);
+    const soft = surface === 'body' || surface === 'flesh' || surface === 'sand' || surface === 'grass';
+    play({ noise: true, volume: (soft ? 0.13 : 0.19) * level, duration: soft ? 0.085 : 0.055,
+      cutoff: Math.min(location.cutoff, soft ? 850 : 4700), highpass: soft ? 70 : 650,
+      delay: when, pan: location.pan, attack: 0.0006, echo: soft ? 0 : 0.09 });
+    if (surface === 'metal' || surface === 'vehicle' || surface === 'glass')
+      play({ sample: surface === 'glass' ? 'glass' : 'metal', volume: 0.13 * level,
+        duration: surface === 'glass' ? 0.25 : 0.14, rate: 1.35 + Math.random() * 0.15,
+        cutoff: location.cutoff, highpass: 650, delay: when, pan: location.pan });
   }
   function horn() {
     if (!ready() || context.currentTime - lastHorn < 0.45) return;
@@ -403,5 +527,6 @@ export function createAudio() {
     context = undefined;
   }
 
-  return { start, setEnabled, update, shoot, reload, horn, crash, notify, door, mission, interact, dispose };
+  return { start, setEnabled, update, shoot, reload, cancelReload, dryFire, impact,
+    horn, crash, notify, door, mission, interact, dispose };
 }

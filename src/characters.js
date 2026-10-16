@@ -12,7 +12,7 @@ let pedestrianCount = 0;
 let loadingPromise;
 const white = new THREE.Color(0xffffff);
 
-function prepareCharacterMaterial(original, { civilian, male, npc, color, police }) {
+function prepareCharacterMaterial(original, { civilian, male, natural, skinTint, hairTint, npc, color, police }) {
   const material = original.clone();
   // Retain the source's baked textile, seams and normal maps at oblique angles.
   for (const texture of [material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.specularColorMap]) {
@@ -22,6 +22,31 @@ function prepareCharacterMaterial(original, { civilian, male, npc, color, police
     texture.magFilter = THREE.LinearFilter;
     texture.generateMipmaps = true;
     texture.needsUpdate = true;
+  }
+  if (original.userData.naturalHuman) {
+    material.envMapIntensity = 0.72;
+    material.metalness = 0;
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.skinTint = { value: skinTint };
+      shader.uniforms.hairTint = { value: hairTint };
+      shader.vertexShader = `attribute float _skin_mask;\nattribute float _hair_mask;\nvarying float vSkinRegion;\nvarying float vHairRegion;\n${shader.vertexShader}`;
+      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvSkinRegion = _skin_mask;\nvHairRegion = _hair_mask;');
+      shader.fragmentShader = `uniform vec3 skinTint;\nuniform vec3 hairTint;\nvarying float vSkinRegion;\nvarying float vHairRegion;\n${shader.fragmentShader}`;
+      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+        #include <map_fragment>
+        diffuseColor.rgb *= mix(vec3(1.0), skinTint, vSkinRegion);
+        float hairLight = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+        // Lift the atlas's near-black hair into dark brown without flattening
+        // its strand texture; the source tint was already baked into the atlas.
+        diffuseColor.rgb = mix(diffuseColor.rgb, (vec3(hairLight * 1.8) + vec3(0.012)) * hairTint, vHairRegion * 0.78);
+      `);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
+        #include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.62, vHairRegion);
+      `);
+    };
+    material.customProgramCacheKey = () => 'natural-human-skin-hair-v2';
+    return material;
   }
   material.color.copy(white);
   material.envMapIntensity = civilian ? 0.65 : 0.85;
@@ -43,7 +68,8 @@ function prepareCharacterMaterial(original, { civilian, male, npc, color, police
   material.metalness = civilian ? 0 : 0.14;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.wardrobeColor = { value: wardrobe };
-    shader.fragmentShader = `uniform vec3 wardrobeColor;\n${shader.fragmentShader}`;
+    shader.uniforms.skinTint = { value: skinTint };
+    shader.fragmentShader = `uniform vec3 wardrobeColor;\nuniform vec3 skinTint;\n${shader.fragmentShader}`;
     if (male) {
       shader.vertexShader = `attribute float clothDye;\nattribute float trouserRegion;\nvarying float vClothDye;\nvarying float vTrouserRegion;\n${shader.vertexShader}`;
       shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvClothDye = clothDye;\nvTrouserRegion = trouserRegion;');
@@ -57,11 +83,20 @@ function prepareCharacterMaterial(original, { civilian, male, npc, color, police
         ? 'smoothstep(0.18, 0.42, diffuseColor.g) * smoothstep(0.16, 0.38, diffuseColor.r - diffuseColor.b) * smoothstep(0.12, 0.30, diffuseColor.g - diffuseColor.b)'
         : 'smoothstep(0.10, 0.24, diffuseColor.r - diffuseColor.b) * smoothstep(0.035, 0.12, diffuseColor.g - diffuseColor.b)'};
       float sourceLuminance = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-      float skinMask = smoothstep(0.018, 0.075, diffuseColor.r - diffuseColor.b)
+      float skinMask = ${natural ? `smoothstep(0.22, 0.36, (diffuseColor.r - diffuseColor.g) / max(diffuseColor.r, 0.001))
+        * smoothstep(0.30, 0.46, (diffuseColor.r - diffuseColor.b) / max(diffuseColor.r, 0.001))
+        * smoothstep(0.002, 0.012, sourceLuminance) * (1.0 - wardrobeMask)` : `smoothstep(0.018, 0.075, diffuseColor.r - diffuseColor.b)
         * smoothstep(0.006, 0.035, diffuseColor.r - diffuseColor.g)
-        * smoothstep(0.025, 0.13, sourceLuminance) * (1.0 - wardrobeMask);
+        * smoothstep(0.025, 0.13, sourceLuminance) * (1.0 - wardrobeMask)`};
       vec3 dyedSurface = wardrobeColor * (${male ? '0.65 + sourceLuminance * 2.25' : civilian ? '0.45 + sourceLuminance' : '0.45 + sourceLuminance * 1.75'});
       diffuseColor.rgb = mix(diffuseColor.rgb, dyedSurface, wardrobeMask * ${civilian ? '0.94' : '0.88'});
+      ${natural ? `// Match exposed hands/neck to the new phototextured head while
+      // retaining the original body's surface detail and clothing texture.
+      // Linear RGB references are sampled at each new head's actual neck cut.
+      // Relative chroma above recognizes both source skin palettes, including
+      // Michelle's dark albedo; absolute brightness thresholds missed it.
+      vec3 matchedSkin = ${male ? 'vec3(0.7565, 0.4080, 0.2547) * (0.74 + sourceLuminance * 0.70)' : 'vec3(0.6918, 0.4451, 0.3076) * (0.74 + sourceLuminance * 3.5)'} * skinTint;
+      diffuseColor.rgb = mix(diffuseColor.rgb, matchedSkin, skinMask);` : ''}
       ${male ? `// Dark fabric still reflects light; preserve texture contrast in shade.
       float trouserMask = vTrouserRegion * (1.0 - smoothstep(0.05, 0.14, sourceLuminance));
       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.011, 0.013, 0.016) + diffuseColor.rgb * 0.90, trouserMask);` : ''}
@@ -70,7 +105,7 @@ function prepareCharacterMaterial(original, { civilian, male, npc, color, police
       shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
         #include <roughnessmap_fragment>
         // Skin has a broad soft highlight; woven clothing remains matte.
-        roughnessFactor = mix(${male ? '0.86' : '0.90'}, 0.56, skinMask);
+        roughnessFactor = mix(${male ? '0.86' : '0.90'}, ${natural ? '0.64' : '0.56'}, skinMask);
       `);
     } else {
       shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
@@ -82,7 +117,7 @@ function prepareCharacterMaterial(original, { civilian, male, npc, color, police
       `);
     }
   };
-  material.customProgramCacheKey = () => male ? 'civilian-male-skin-cloth-v2' : civilian ? 'civilian-skin-cloth-v2' : 'player-armor-v1';
+  material.customProgramCacheKey = () => `${male ? 'civilian-male' : civilian ? 'civilian' : 'player'}-skin-cloth-${natural ? 'natural-v2' : 'v2'}`;
   return material;
 }
 
@@ -93,11 +128,12 @@ function prepareMaleClothMask(object) {
   if (geometry.hasAttribute('clothDye') && geometry.hasAttribute('trouserRegion')) return;
   geometry.computeBoundingBox();
   const { min, max } = geometry.boundingBox;
+  const [minHeight, maxHeight] = object.userData.originalBodyHeight ?? [min.y, max.y];
   const positions = geometry.attributes.position;
   const mask = new Float32Array(positions.count);
   const trousers = new Float32Array(positions.count);
   for (let i = 0; i < mask.length; i++) {
-    const height = (positions.getY(i) - min.y) / (max.y - min.y);
+    const height = (positions.getY(i) - minHeight) / (maxHeight - minHeight);
     mask[i] = THREE.MathUtils.smoothstep(height, 0.46, 0.51) * (1 - THREE.MathUtils.smoothstep(height, 0.81, 0.84));
     trousers[i] = THREE.MathUtils.smoothstep(height, 0.07, 0.14) * (1 - THREE.MathUtils.smoothstep(height, 0.49, 0.55));
   }
@@ -155,15 +191,18 @@ function makeSoleProbes(model) {
 export async function loadCharacterAssets() {
   if (!loadingPromise) {
     const loader = new GLTFLoader();
+    const naturalOrLegacy = (natural, legacy) => loader.loadAsync(natural)
+      .then((asset) => Object.assign(asset, { naturalHuman: true }))
+      .catch(() => loader.loadAsync(legacy));
     loadingPromise = Promise.allSettled([
       loader.loadAsync('/models/Soldier.glb'),
       Promise.all([
-        loader.loadAsync('/models/Michelle.glb'),
+        naturalOrLegacy('/models/CivilianFemaleNatural.glb', '/models/Michelle.glb'),
         loadLocomotion('/models/pedestrian-motion.json'),
       ]),
       loader.loadAsync('/models/Michelle-crowd.glb'),
       Promise.all([
-        loader.loadAsync('/models/CivilianMale.glb'),
+        naturalOrLegacy('/models/CivilianMaleNatural.glb', '/models/CivilianMale.glb'),
         loadLocomotion('/models/civilian-male-motion.json'),
       ]),
       loader.loadAsync('/models/character_sidearm.glb'),
@@ -172,7 +211,8 @@ export async function loadCharacterAssets() {
         if (pedestrian.status === 'fulfilled') {
           pedestrianAsset = pedestrian.value[0];
           pedestrianAsset.animations = pedestrian.value[1];
-          if (crowd.status === 'fulfilled') {
+          if (pedestrianAsset.naturalHuman) crowdAsset = pedestrianAsset;
+          else if (crowd.status === 'fulfilled') {
             crowdAsset = crowd.value;
             crowdAsset.animations = pedestrianAsset.animations;
           }
@@ -248,10 +288,15 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
   const male = Boolean(civilianMaleAsset && (!npc || police || !pedestrianAsset || variant % 2 === 0));
   const civilian = male || Boolean(pedestrianAsset);
   const asset = male ? civilianMaleAsset : civilian ? (npc && crowdAsset ? crowdAsset : pedestrianAsset) : characterAsset;
+  const natural = Boolean(asset.naturalHuman);
+  const skinTones = [[1, 1, 1], [0.90, 0.82, 0.72], [0.67, 0.48, 0.34], [0.43, 0.28, 0.19], [0.84, 0.73, 0.57], [0.96, 0.91, 0.85]];
+  const hairTones = [[1.0, 0.66, 0.39], [0.44, 0.43, 0.42], [1.4, 0.64, 0.29], [1.8, 1.7, 1.55]];
+  const skinTint = new THREE.Color(...skinTones[npc ? Math.floor(variant / 2) % skinTones.length : 0]);
+  const hairTint = new THREE.Color(...hairTones[npc ? Math.floor(variant / 2) % hairTones.length : 0]);
   const wardrobeColors = [0x6d6757, 0x375c66, 0x824b49, 0x46594b, 0x74627a, 0x858074];
   color ??= npc ? wardrobeColors[Math.floor(variant / 2) % wardrobeColors.length] : 0x495761;
   mesh.name = police ? 'Police officer' : npc ? 'Pedestrian' : 'Astra';
-  mesh.userData.characterAsset = male ? 'EmoPreben Bald Man / CivilianMale.glb' : civilian ? (npc && crowdAsset ? 'Mixamo Michelle / Michelle-crowd.glb' : 'Mixamo Michelle / Michelle.glb') : 'Mixamo Vanguard / Soldier.glb';
+  mesh.userData.characterAsset = natural ? `MakeHuman CC0 ${male ? 'male' : 'female'} / ${male ? 'CivilianMaleNatural.glb' : 'CivilianFemaleNatural.glb'}` : male ? 'EmoPreben Bald Man / CivilianMale.glb' : civilian ? (npc && crowdAsset ? 'Mixamo Michelle / Michelle-crowd.glb' : 'Mixamo Michelle / Michelle.glb') : 'Mixamo Vanguard / Soldier.glb';
   const visual = new THREE.Group();
   mesh.add(visual);
   const model = cloneSkeleton(asset.scene);
@@ -268,13 +313,13 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
       restPose[name] = object.quaternion.clone();
     }
     if (!object.isMesh) return;
-    if (male) prepareMaleClothMask(object);
+    if (male && !object.userData.naturalHuman) prepareMaleClothMask(object);
     object.castShadow = true;
     object.receiveShadow = true;
     // Skinned limbs can extend outside the static bind-pose bounds.
     object.frustumCulled = false;
     const recolor = (original) => {
-      const material = prepareCharacterMaterial(original, { civilian, male, npc, color, police });
+      const material = prepareCharacterMaterial(original, { civilian, male, natural, skinTint, hairTint, npc, color, police });
       materials.push(material);
       return material;
     };

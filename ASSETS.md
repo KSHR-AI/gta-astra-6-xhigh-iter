@@ -2,13 +2,13 @@
 
 ## Male civilian protagonist
 
-- **Original asset:** **Bald Man (Rigged)** by **EmoPreben**.
+- **Original body:** **Bald Man (Rigged)** by **EmoPreben**.
 - **Creator listing and license declaration:** [OpenGameArt — Bald Man (Rigged)](https://opengameart.org/content/bald-man-rigged).
-- **License:** [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/). This applies to the original model and supplied textures; the retargeted locomotion below has separate Mixamo terms.
+- **License:** [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/) for the original model and supplied textures. The replacement MakeHuman head is also CC0; locomotion retains the separate Mixamo terms below.
 - **Original download:** [baldman_painted_rigged.zip](https://opengameart.org/sites/default/files/baldman_painted_rigged.zip).
-- **Local model:** `public/models/CivilianMale.glb`.
-- **Changes:** converted FBX to GLB, retaining the 8,784-triangle skinned mesh, original 2K albedo/normal images, and Mixamo-compatible rig (65 nodes, 52 skin joints). Runtime normalizes scale and floor origin, corrects the source normal map's Y convention, applies nonmetallic rough clothing materials, and varies cloth colors while preserving the original skin, face, and texture detail.
-- **Use:** male protagonist and part of the civilian population. This independent-artist model has modest facial and ear topology; it is not a scanned character.
+- **Local files:** `public/models/CivilianMale.glb` preserves the converted source; `public/models/CivilianMaleNatural.glb` is the current protagonist/civilian derivative.
+- **Changes:** the source FBX was converted to an 8,784-triangle GLB with its original 2K albedo/normal images and Mixamo-compatible rig. The natural derivative replaces the original head with the fitted MakeHuman head described below, blends its neck into the clothed body, and preserves the original skeleton hierarchy and inverse bind matrices. Its complete body/head mesh has 20,129 triangles and three material batches: body, head/eyes/hair, and soft brows/lashes.
+- **Runtime:** normalizes scale and floor origin, corrects the source normal-map Y convention, separates skin and clothing response, and varies clothing, warm skin tones, and natural hair colors. The head follows the existing neck/head bones; it has no facial-expression rig.
 - **Source inspected:** October 15, 2026. Attribution is supplied voluntarily under CC0.
 
 ## Source locomotion and retargeted animation
@@ -22,10 +22,22 @@
 
 ## Female civilian population
 
-- **Original asset:** Mixamo Michelle from the [Three.js Michelle.glb asset](https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Michelle.glb).
-- **Local files:** `public/models/Michelle.glb`, `public/models/Michelle-crowd.glb`, and the retargeted motion JSON described above.
-- **Usage terms:** the Adobe Mixamo terms linked above apply; the model is not CC0 or licensed as Three.js source code.
-- **Changes:** the crowd derivative was simplified with glTF Transform/Meshoptimizer from 28,106 to 8,431 triangles, retaining original embedded images, materials, UVs, skin weights, and the 65-bone skeleton. It needs no additional runtime decoder. Clothing palettes and NPC height variation preserve the original face, skin, hair, and texture detail. Police styling adds an original navy cap and badge.
+- **Original body:** Mixamo Michelle from the [Three.js Michelle.glb asset](https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Michelle.glb).
+- **Local files:** `public/models/Michelle.glb`, `public/models/Michelle-crowd.glb`, `public/models/CivilianFemaleNatural.glb`, and the retargeted motion JSON described above.
+- **Usage terms:** the Adobe Mixamo terms linked above continue to apply to Michelle's body and animations. Adding a CC0 MakeHuman head does **not** make the complete female derivative CC0, and the model is not licensed as Three.js source code.
+- **Changes:** the crowd body was simplified with glTF Transform/Meshoptimizer from 28,106 to 8,431 triangles, retaining its embedded images, materials, UVs, skin weights, and 65-bone skeleton. The natural derivative replaces its original head, headphones, and hair with the MakeHuman head and ponytail below, fitting the new neck to the retained clothed body. It preserves the original skeleton hierarchy and inverse bind matrices, needs no runtime decoder, and has 21,168 triangles across three material batches.
+- **Runtime:** clothing, height, warm skin-tone, and hair-color variations support the civilian population. Police styling adds an original navy cap and badge. The new head inherits neck/head motion but has no facial-expression animation.
+
+## MakeHuman civilian heads
+
+- **Source:** official [MakeHuman Community system assets](https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html), with the [MakeHuman base mesh and morph targets](https://github.com/makehumancommunity/makehuman/tree/master/makehuman/data).
+- **License:** CC0 1.0 Universal for the base mesh, morphs, skins, eyes, hair, brows, and lashes. See the project's [asset license statement](https://github.com/makehumancommunity/makehuman/blob/master/LICENSE.md) and [license overview](https://static.makehumancommunity.org/about/license.html); the copied legal text is `art/blender/character_sources/LICENSE-MAKEHUMAN-CC0.md`.
+- **Credited creators:** MakeHuman Community; the bundled CC0 notices identify Data Collection AB, Joel Palmius, and Jonas Hauquier. Attribution is supplied voluntarily.
+- **Components:** young male/female macro morphs and skin textures; high-poly brown eyes; `short04` male hair; `ponytail01` female hair; `eyebrow001`/`eyebrow003`; and `eyelashes01`. The editable library also retains hidden `short02` and `bob01` hairstyle alternatives.
+- **Changes:** fitted the accessory meshes with their original MHCLO mappings, retained the head UVs, cut below the neck, and grafted the heads onto the existing civilian rigs. Original skin textures are 2K; hair/eye textures are capped at 1K, with 512-pixel brows/lashes. The runtime heads use a 2K color atlas and 1K roughness map, with masked hair and softly blended brows/lashes. Skin/hair vertex masks permit appearance variation without recoloring the eyes.
+- **Editable source and rebuild:** `art/blender/character_humans.blend`, `character_humans.py`, `character_head_atlas.py`, and `character_humans.mjs`. [Rebuild instructions](art/blender/README.md#civilian-head-rebuild) and [full component provenance](art/blender/character_sources/PROVENANCE.md) document the packed-source workflow. Source hashes and the upstream commit are recorded in `character_sources/source-manifest.json`.
+- **Limits:** these are authored human meshes with textured faces, not scanned people; the new heads have no lip sync or facial-expression system. Existing skeletal locomotion and gameplay pose layers remain separate.
+- **Sources and licenses inspected:** October 16, 2026.
 
 ## Original geometry
 

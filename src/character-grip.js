@@ -29,6 +29,7 @@ export function createHandPoseController({ mesh, bones, restPose = {} }) {
   const scale = new THREE.Vector3();
   const targetQ = new THREE.Quaternion();
   const gripRotation = new THREE.Quaternion();
+  const relaxedRotation = new THREE.Quaternion();
   const steeringRotation = new THREE.Quaternion();
   let activeWeapon = null;
   let initialized = false;
@@ -128,10 +129,10 @@ export function createHandPoseController({ mesh, bones, restPose = {} }) {
     return out.setFromRotationMatrix(matrix).premultiply(worldReference).multiply(hand.inverseBasis).normalize();
   }
 
-  function orientWrist(hand) {
+  function orientWrist(hand, weight = hand.wristWeight) {
     hand.bone.parent.getWorldQuaternion(q1).invert();
     targetQ.copy(q1).multiply(hand.desiredWorldQ);
-    hand.bone.quaternion.slerp(targetQ, hand.wristWeight);
+    hand.bone.quaternion.slerp(targetQ, weight);
     hand.bone.updateWorldMatrix(false, false);
   }
 
@@ -148,9 +149,9 @@ export function createHandPoseController({ mesh, bones, restPose = {} }) {
     entry.bone.quaternion.copy(q2.multiply(q1)).normalize();
   }
 
-  function update({ dt = 1 / 60, weapon = null, armed = Boolean(weapon?.visible), aimWeight = 0,
+  function update({ dt = 1 / 60, weapon = null, armed = Boolean(weapon?.visible), aimWeight = 0, readyWeight = aimWeight,
     reloading = false, reloadProgress = 0, seated = 0, steering = 0 } = {}) {
-    const step = clamp(dt, 0, 0.1);
+    const step = clamp(dt, 0, 0.25);
     const blend = initialized ? 1 - Math.exp(-18 * step) : 1;
     const drive = clamp(Number(seated), 0, 1);
     const aim = clamp(aimWeight, 0, 1);
@@ -163,11 +164,22 @@ export function createHandPoseController({ mesh, bones, restPose = {} }) {
 
     for (const hand of hands) {
       const right = hand.side === 'Right';
-      const hold = armed ? (right ? 1 : reloading ? 1 : aim) : 0;
+      const hold = armed ? (right ? 1 : reloading ? 1 : clamp(readyWeight, 0, 1)) : 0;
       const wristTarget = Math.max(hold, drive);
       hand.wristWeight = THREE.MathUtils.lerp(hand.wristWeight, wristTarget, blend);
       hand.mode = drive > 0.5 ? 'steering' : hold > 0.5 ? (reloading ? 'reload' : right ? 'pistol' : 'support') : 'relaxed';
 
+      // A relaxed wrist follows the forearm, with its thumb pointing forward
+      // when the arm hangs and upward when the elbow bends. Rifle-capture wrist
+      // rotations otherwise survive even after civilian arms are lowered.
+      hand.bone.getWorldPosition(v1);
+      hand.bone.parent.getWorldPosition(v2);
+      q1.copy(rootWorldQ).invert();
+      v1.sub(v2).applyQuaternion(q1).normalize();
+      v2.set(0, Math.max(0, v1.z), -v1.y);
+      if (v2.lengthSq() < 0.001) v2.set(0, 0, 1);
+      desiredFrame(hand, rootWorldQ, v1, v2, relaxedRotation);
+      hand.desiredWorldQ.copy(relaxedRotation);
       if (hand.wristWeight > 0.001) {
         // Both thumbs point upward along the pistol; palms face each other.
         v1.set(0, -0.07, 1); v2.set(0, 1, 0.07);
@@ -177,9 +189,9 @@ export function createHandPoseController({ mesh, bones, restPose = {} }) {
         const sign = right ? 1 : -1;
         v2.set(sign * Math.cos(wheelAngle), sign * Math.sin(wheelAngle), 0);
         desiredFrame(hand, rootWorldQ, v1, v2, steeringRotation);
-        hand.desiredWorldQ.copy(gripRotation).slerp(steeringRotation, drive);
-        orientWrist(hand);
+        hand.desiredWorldQ.slerp(gripRotation, hand.wristWeight).slerp(steeringRotation, drive);
       }
+      orientWrist(hand, 1);
 
       for (const entry of hand.digits) {
         const j = entry.joint - 1;

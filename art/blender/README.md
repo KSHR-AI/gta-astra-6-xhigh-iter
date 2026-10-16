@@ -37,3 +37,21 @@ blender --background --factory-startup --threads 2 --python art/blender/characte
 ```
 
 Each generator saves its editable `.blend` beside the script and its GLB under `public/models/`. The city generator also creates its original sign/newspaper/fabric atlas through `city_textures.py`. The vehicle generator exports both near and simplified far meshes. Runtime integration lives in `src/vehicles.js`, `src/world-props.js`, and `src/characters.js`. Keep the named wheel, door, grip, and muzzle attachment conventions when editing assets. Preview changes in-game, including door/steering motion and the seated driver, before committing exports.
+
+## Civilian head rebuild
+
+`character_humans.blend` contains the editable MakeHuman male/female head collections, fitted eyes, brows, lashes, primary hairstyles, and packed textures. The hidden hairstyle alternatives remain available for editing. These are third-party CC0 graphical assets; their [provenance](character_sources/PROVENANCE.md) and [license](character_sources/LICENSE-MAKEHUMAN-CC0.md) are separate from the original project-authored Blender models above.
+
+Rebuild from the repository root with Blender 4.5, Python 3 with **Pillow** and **NumPy**, and the project's installed Node dependencies (including `three`):
+
+```sh
+blender --background --factory-startup --threads 2 --python art/blender/character_humans.py -- /tmp/astra-head-export
+python3 art/blender/character_head_atlas.py /tmp/astra-head-export
+node art/blender/character_humans.mjs /tmp/astra-head-export
+```
+
+The exporter opens the packed `.blend` without modifying it and writes the original head cages to the temporary directory; preview subdivision is omitted. The atlas step preserves geometry and face texture density while packing a 2048-pixel color atlas and a 1024-pixel roughness map. It produces both one-material `optimized_*_head.glb` files and the final two-material `soft_*_head.glb` variants: skin/eyes/hair use alpha masking, while fine brows/lashes use blending. Custom `_SKIN_MASK` and `_HAIR_MASK` attributes support runtime appearance variations.
+
+The graft step reads the existing `CivilianMale.glb` and `Michelle-crowd.glb` bodies and writes `public/models/CivilianMaleNatural.glb` and `CivilianFemaleNatural.glb`. It replaces visible heads and blends the new necks into the retained bodies, preserving the original skeleton nodes, hierarchy, and inverse bind matrices. The resulting characters have three material batches each and 20,129 male / 21,168 female triangles. MakeHuman head assets are CC0; the male body retains EmoPreben's CC0 terms, while Michelle's body and the Mixamo locomotion retain their separate Adobe terms. See [asset credits](../../ASSETS.md).
+
+The packed library contains everything needed to reproduce the head exports without downloading the original asset pack. Keep the collection/object names, source coordinate conventions, and region-mask attributes intact. Inspect the rebuilt characters in-game from the front and back, then exercise walking, aiming, entry/exit, and seated driving before shipping changed assets. These heads inherit skeletal head/neck motion; they do not add facial expressions or lip sync.

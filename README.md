@@ -19,7 +19,7 @@ npm run build
 npm run preview
 ```
 
-Tests exercise mission progression, reward and checkpoint persistence, building visibility, witnesses, and police-state transitions. They do not replace playing the browser build. The production build is written to `dist/`; preview serves that build.
+Tests exercise mission progression, persistence, witnesses, police-state transitions, shot occlusion, recoil timing, and the imported characters’ gait, grip, and reload poses. They do not replace playing the browser build. The production build is written to `dist/`; preview serves that build.
 
 ## The Coastal Job
 
@@ -45,14 +45,14 @@ Progress uses the current browser’s `localStorage`, under `grand-theft-astra:c
 | Double-click the scene | Lock the pointer for mouse look; Escape releases it |
 | 1 | Equip / holster pistol |
 | Right mouse button | Aim |
-| Left mouse button | Fire |
+| Left mouse button | Fire one pistol round per press |
 | R | Reload |
 | H | Horn while driving |
 | M | City map |
 | P | Enter / leave photo mode |
 | Escape | Pause / settings; leave photo mode |
 
-Touch controls provide movement, run/jump, contextual Use, firing, reload, and equip buttons. Drag the scene to look around; the contextual prompt itself can also be tapped. Settings include sound, Cinematic/Performance rendering, golden hour/night, and session restart.
+Touch controls provide movement, run/jump, contextual Use, separate hold-to-aim and fire buttons, reload, and equip. Dragging the scene looks around without firing. The pistol fires once per press; an equipped weapon rests low until aiming or firing. The contextual prompt itself can also be tapped. Settings include sound, Cinematic/Performance rendering, golden hour/night, and session restart.
 
 ## Photo mode
 
@@ -64,10 +64,10 @@ Photo mode renders at native resolution (up to 1.5× device pixels) with four-sa
 
 - **An authored neighborhood:** the Orbit contact office, Sunline diner, Paloma motel office/courtyard, and Astra Auto Works garage have accessible openings and modeled furnishings. Other buildings provide the surrounding streetscape. Curbs, balconies, palms, shrubs, road wear, beach, promenade, and animated water give the district its coastal setting.
 - **Original Blender assets:** curved bus shelters, a newspaper kiosk, cafe seating/parasols, the Meridian executive sedan and police variant, and a detailed compact pistol. Editable `.blend` projects and deterministic generation scripts live in `art/blender/`; the game loads the exported GLBs locally.
-- **Animated people:** a civilian male protagonist, male and female pedestrians, Mara, visible vehicle occupants, and police officers. Retargeted idle/walk/run animation is combined with authored skeletal layers for aiming, reloading, jumping, driving, and entering/exiting cars. Taking an occupied vehicle includes a visible driver exit. Planted-foot correction, asymmetrical breathing, and articulated fingers improve standing, locomotion, weapon grips, and seated steering.
-- **Driving and damage:** imported sports convertibles and original sedans/patrol cars, visible seated drivers, opening doors, steering wheels, wheel rotation, suspension lean, braking/reverse, tire grip, handbrake slip, automatic gears, and collision impulses. Damage changes body panels, glazing, lights, and smoke; repairs restore the vehicle. The HUD displays speed, gear, RPM, and condition.
+- **Animated people:** anatomically proportioned MakeHuman heads with textured skin, fitted eyes, short hair or ponytails, and varied skin/hair tones replace the earlier stylized faces. The civilian protagonist, pedestrians, Mara, visible vehicle occupants, and police officers retain their clothed, rigged bodies. Retargeted idle/walk/run animation is combined with authored skeletal layers for aiming, reloading, jumping, driving, and entering/exiting cars. Taking an occupied vehicle includes a visible driver exit. Planted-foot correction, asymmetrical breathing, and articulated fingers improve standing, locomotion, weapon grips, and seated steering.
+- **Driving and damage:** imported sports convertibles and original sedans/patrol cars, visible seated drivers, opening doors, steering wheels, wheel rotation, suspension lean, braking/reverse, tire grip, handbrake slip, automatic gears, and collision impulses. Damage changes body panels, glazing, lights, and smoke; repairs restore the vehicle. The compact driving HUD shows speed and gear, with a condition warning when the vehicle is damaged.
 - **Witnesses and police:** nearby civilians react to crimes, visible thefts can produce delayed witness reports, and gunfire can be heard nearby. Building collision volumes obstruct sight. Patrols pursue a last-known position, search after losing sight, and clear the alert after an uninterrupted escape. Visible officers can deploy and fire when they have line of sight.
-- **Combat and presentation:** a pistol with ammunition/reload timing, muzzle and impact effects, building occlusion for shots, health, checkpoint respawning, mission subtitles, progress and reward notices, minimap/full map, and contextual interaction prompts.
+- **Combat and presentation:** a semi-automatic pistol with a raised firing stance, shoulder aiming, recoverable recoil, movement-dependent accuracy, brief muzzle flash, ejected brass, spatial shots/impacts, and timed reload foley. The reticle and shot share the same camera direction; a second trace from the muzzle checks buildings, vehicles, and people so nearby cover blocks shots. The HUD shows accuracy, hit feedback, obstruction, low ammunition, and reload progress. Exploration keeps only a small minimap and objective line; full mission details, balance, and controls live in the map or pause menu. Police status appears once, and brief notifications stay at the screen edge. Menus constrain keyboard focus and restore it on close. Health, checkpoint respawning, mission subtitles, rewards, maps, and contextual prompts remain available.
 - **Sound:** local engine and coastal recordings, concrete and beach footsteps, door/impact/reload foley, synthesized weapons and horns, spatial sirens, and a subdued adaptive pursuit motif. Audio starts after a user gesture.
 
 ## Implementation
