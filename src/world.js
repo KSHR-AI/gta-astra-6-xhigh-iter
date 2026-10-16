@@ -477,7 +477,7 @@ export function createWorld(scene) {
   const districtAPI = { box, panel, cylinder, line, instance, materials, canvasTexture,
     root, colliders, panelGeometry, random, range, sign, palm, shrub };
   const district = addAuthoredDistrict(districtAPI);
-  addStreetDetails(districtAPI);
+  const streetDetails = addStreetDetails(districtAPI);
 
   function streetLamp(x, z, inward) {
     lampPositions.push(new THREE.Vector3(x+inward*2.3,7.9,z));
@@ -672,8 +672,9 @@ export function createWorld(scene) {
     }
   }
 
-  // Keep dense facades in spatial cells for culling, but combine sparse props to
-  // avoid paying a separate draw call for a handful of objects in each cell.
+  // Per-instance visibility now culls individual facades and props. Opaque
+  // material batches can span the district without submitting off-screen
+  // geometry; preserve the existing transparent batches for depth sorting.
   const sharedGroups = new Map();
   for (const batch of batches.values()) {
     const key = `${batch.geometry.uuid}:${batch.material.uuid}:${batch.shadow}`;
@@ -683,7 +684,7 @@ export function createWorld(scene) {
   const renderBatches = [];
   for (const group of sharedGroups.values()) {
     const count = group.reduce((sum, batch) => sum + batch.matrices.length, 0);
-    if (count > 500) renderBatches.push(...group);
+    if (count > 500 && group[0].material.transparent) renderBatches.push(...group);
     else renderBatches.push({ ...group[0], matrices: group.flatMap(batch => batch.matrices), colors: group.flatMap(batch => batch.colors) });
   }
   for (const batch of renderBatches) {
@@ -704,6 +705,8 @@ export function createWorld(scene) {
     updateInstanceVisibility: instanceVisibility.update,
     restoreInstances: instanceVisibility.restore,
     getInstanceVisibility: instanceVisibility.getStats,
+    updateWires: streetDetails.updateWires,
+    getWireStats: streetDetails.getWireStats,
     setSky: data => ocean.setSky(data),
     landmarks: district.landmarks,
     zones: district.zones,

@@ -18,13 +18,20 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current vehicle and rendering pass
+## Current rendering pass
+
+- Merge opaque world batches without changing their geometry, materials, transforms or instance colors. Distant vehicles instance identical wheel parts while preserving steering, spin and stationary calipers; nearby models retain their original meshes.
+- Shadow refreshes retain the union of camera-visible instances and casters inside the light frustum. Reflections still restore full geometry. Missing shadow bounds retain the safe full-set fallback.
+- Overhead cables retain physical 3D tubes nearby and use filtered coverage at subpixel sizes. Coverage follows the actual viewport, including photo and reflection passes, rather than vanishing into dotted raster samples.
+- New full-game samples remain only about 4.7–4.9 fps on the software renderer. Draw calls fell substantially, but hardware performance and release frame pacing remain unproven.
+
+## Previous vehicle and combat pass
 
 - Vehicle shots and camera obstruction now query the full-detail body, glass, wheels and articulated doors. Open cockpit space is no longer filled by a generic hit box; broken glass and body deformation update the query geometry.
 - Occupant hit volumes follow the posed skull and torso. Exposed drivers slump in their seat, retain their down state when evicted, and recover; vehicle surfaces shield them from covered shots.
 - Seated characters follow suspension orientation as well as position, and palm targets follow the steering rim. Photo lens zoom restores vehicle detail as it already did for characters.
-- Camera visibility compacts offscreen instances out of existing world batches. Full instances are restored for shadow refreshes and reflections; hardware with shadows updating every frame currently retains the complete batches.
-- A valid GPU timer sample on the software renderer attributed about 172 ms to the scene, 3 ms to ambient occlusion and 8 ms to the final image pass. This identifies further scene work; it does not establish release performance.
+- Camera visibility compacts offscreen instances out of world batches; the current pass extends this to preserve off-camera shadow casters without restoring every instance.
+- The earlier GPU timer sample on the software renderer attributed about 172 ms to the scene, 3 ms to ambient occlusion and 8 ms to the final image pass. This identifies further scene work; it does not establish release performance.
 
 ## Previous asset and interaction pass
 

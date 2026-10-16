@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createUtilityWires } from './world-wires.js';
 
 // Small, authored infrastructure clusters make the street's construction readable.
 // All repeated parts enter the district's existing spatial instancing batches.
@@ -52,13 +53,14 @@ export function addStreetDetails(api) {
     }
     solid(-57, z, 0.36, 0.36, 9.3);
   }
+  const wireSegments = [];
   for (let i = 0; i < poles.length - 1; i++) {
     const start = poles[i], end = poles[i + 1];
     for (const x of [-58.1, -57, -55.9]) {
       for (let part = 0; part < 8; part++) {
         const a = part / 8, b = (part + 1) / 8;
         const sag = (t) => 9.13 - Math.sin(t * Math.PI) * (end - start) * 0.023;
-        line(m.blackMetal, [x, sag(a), start + (end - start) * a], [x, sag(b), start + (end - start) * b], 0.017, thinCylinder, false);
+        wireSegments.push([[x, sag(a), start + (end - start) * a], [x, sag(b), start + (end - start) * b]]);
       }
     }
   }
@@ -161,4 +163,7 @@ export function addStreetDetails(api) {
       instance(panelGeometry, scrap % 2 ? m.paint : m.pale, [-15.1 + range(-0.55, 0.5), 0.232, z + range(0.25, 0.85)], [range(0.1, 0.23), range(0.11, 0.3), 1], [-Math.PI / 2, 0, range(-Math.PI, Math.PI)], false);
     }
   }
+  const wires = createUtilityWires(wireSegments, m.blackMetal);
+  api.root.add(wires.root);
+  return { updateWires: wires.updateWires, getWireStats: wires.getWireStats };
 }

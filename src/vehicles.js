@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { instanceFarVehicleWheels } from './vehicle-wheel-instances.js';
 
 // A metre-scale original coupe. The chassis points along +Z; every wheel is
 // genuinely round, and the body has open wheel arches rather than black decals.
@@ -386,6 +387,7 @@ function createOriginalCar({ color = 0xe4bb67, type = 'sport', police = false } 
 
 // Keep a consistent projected-size threshold when the photo lens narrows or
 // widens. Three's built-in LOD accounts for zoom, but not camera field of view.
+const farWheelInstances = new WeakMap();
 class VehicleLOD extends THREE.LOD {
   update(camera) {
     const reference = Math.tan(THREE.MathUtils.degToRad(55) / 2);
@@ -396,6 +398,9 @@ class VehicleLOD extends THREE.LOD {
     const car = new THREE.Vector3().setFromMatrixPosition(this.matrixWorld);
     const eye = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
     this.userData.effectiveDistance = car.distanceTo(eye) / zoom;
+    // Projection precedes GPU buffer upload and shadows. Refresh only the
+    // rendered detail level, once per frame rather than each physics substep.
+    farWheelInstances.get(this.levels[this.getCurrentLevel()]?.object)?.update();
   }
 }
 
@@ -1059,9 +1064,11 @@ function enhanceVehicle(vehicle, { type, roadster }) {
   vehicle.getDriverOrientation = (target = new THREE.Quaternion()) => chassis[0].getWorldQuaternion(target);
   let fullTriangles = 0;
   if (!lod) vehicle.mesh.traverse(object => { if (object.isMesh) fullTriangles += (object.geometry.index?.count ?? object.geometry.attributes.position.count) / 3; });
+  if (lod) for (const { object } of lod.levels.slice(1)) farWheelInstances.set(object, instanceFarVehicleWheels(object));
   vehicle.getDetailInfo = () => {
     const level = lod?.getCurrentLevel() ?? 0;
-    return { level, triangles: lod ? vehicle.mesh.userData.detailLevels[level ? 'far' : 'near'] : fullTriangles,
+    const instancing = farWheelInstances.get(lod?.levels[level]?.object)?.getInfo();
+    return { level, wheelDrawsSaved: instancing?.drawsSaved ?? 0, triangles: lod ? vehicle.mesh.userData.detailLevels[level ? 'far' : 'near'] : fullTriangles,
       effectiveDistance: lod?.userData.effectiveDistance ?? null };
   };
   vehicle.setLights = enabled => { lights = Boolean(enabled); baseLights(lights); updateLamps(); };

@@ -10,6 +10,7 @@ export function createInstanceVisibility() {
   const frustum = new THREE.Frustum();
   const transform = new THREE.Matrix4();
   const sphere = new THREE.Sphere();
+  const worldSphere = new THREE.Sphere();
   let totalInstances = 0, visibleInstances = 0, totalTriangles = 0, visibleTriangles = 0;
 
   function add(mesh, { padding = 0 } = {}) {
@@ -55,8 +56,12 @@ export function createInstanceVisibility() {
     visibleInstances = totalInstances; visibleTriangles = totalTriangles;
   }
 
-  function update(camera, { preserveShadows = false } = {}) {
-    if (preserveShadows) { restore(); return; }
+  function update(camera, { preserveShadows = false, shadowFrusta } = {}) {
+    // Refresh frames need off-camera casters too. Valid light frusta permit a
+    // conservative union; callers without those bounds retain the safe full set.
+    const cullShadows = preserveShadows && Array.isArray(shadowFrusta)
+      && shadowFrusta.length > 0 && shadowFrusta.every(value => value instanceof THREE.Frustum);
+    if (preserveShadows && !cullShadows) { restore(); return; }
     camera.updateWorldMatrix(true, false);
     projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     visibleInstances = 0; visibleTriangles = 0;
@@ -70,7 +75,14 @@ export function createInstanceVisibility() {
         const offset = index * 4;
         sphere.center.set(spheres[offset], spheres[offset + 1], spheres[offset + 2]);
         sphere.radius = spheres[offset + 3];
-        if (frustum.intersectsSphere(sphere)) batch.next[count++] = index;
+        let visible = frustum.intersectsSphere(sphere);
+        if (!visible && cullShadows && mesh.castShadow) {
+          worldSphere.copy(sphere).applyMatrix4(mesh.matrixWorld);
+          for (const lightFrustum of shadowFrusta) {
+            if (lightFrustum.intersectsSphere(worldSphere)) { visible = true; break; }
+          }
+        }
+        if (visible) batch.next[count++] = index;
       }
       let changed = count !== batch.selectedCount;
       for (let i = 0; i < count && !changed; i++) changed = batch.next[i] !== batch.selected[i];
