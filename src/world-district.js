@@ -22,6 +22,51 @@ export function addAuthoredDistrict(api) {
   });
   tileMap.wrapS = tileMap.wrapT = THREE.RepeatWrapping; tileMap.repeat.set(3, 2);
   const tiles = matte('#e1dbc5', .74, { map: tileMap });
+  // The street's older buildings share the same quiet palette, but their
+  // construction differs: fabric shop canopies, glazed tile and breeze blocks.
+  const fabricMap = canvasTexture(512, 256, (c, w, h) => {
+    c.fillStyle = '#d4c5a3'; c.fillRect(0, 0, w, h);
+    for (let x = 0; x < w; x += 128) {
+      c.fillStyle = '#4b665b'; c.fillRect(x, 0, 60, h);
+      c.fillStyle = '#ac9c7c'; c.fillRect(x + 61, 0, 3, h);
+    }
+    for (let y = 0; y < h; y += 3) {
+      c.fillStyle = 'rgba(28,36,29,.045)'; c.fillRect(0, y, w, 1);
+    }
+  });
+  const fabric = matte('#fff8e3', .96, { map: fabricMap, side: THREE.DoubleSide });
+  const mosaicMap = canvasTexture(512, 256, (c, w, h) => {
+    c.fillStyle = '#887d67'; c.fillRect(0, 0, w, h);
+    const colors = ['#557368', '#718e7c', '#ccbd97', '#bd825b', '#d5c7a6'];
+    for (let row = 0; row < 8; row++) for (let col = 0; col < 16; col++) {
+      c.fillStyle = colors[(row * 7 + col * 3 + (row % 3)) % colors.length];
+      c.fillRect(col * 32 + 1, row * 32 + 1, 29.5, 29.5);
+      c.fillStyle = 'rgba(255,246,207,.12)'; c.fillRect(col * 32 + 2, row * 32 + 2, 28, 1);
+    }
+  });
+  mosaicMap.wrapS = mosaicMap.wrapT = THREE.RepeatWrapping;
+  const mosaic = matte('#e3dac1', .48, { map: mosaicMap, metalness: .04 });
+  // A shaped fabric canopy has a sloped roof, separate valance and closed
+  // returns. One shared geometry/material is instanced across all storefronts.
+  const canopy = new THREE.BufferGeometry();
+  const canopyPositions = [], canopyUVs = [], canopyIndices = [];
+  const section = [[0, 0], [-.07, .42], [-.23, .96], [-.43, 1.48], [-.49, 1.68], [-.72, 1.68]];
+  for (let i = 0; i < section.length; i++) {
+    const [y, z] = section[i];
+    canopyPositions.push(-.5, y, z, .5, y, z);
+    canopyUVs.push(0, 1 - i / (section.length - 1), 1, 1 - i / (section.length - 1));
+    if (i) canopyIndices.push(i * 2 - 2, i * 2, i * 2 - 1, i * 2 - 1, i * 2, i * 2 + 1);
+  }
+  for (const side of [-1, 1]) {
+    const start = canopyPositions.length / 3;
+    canopyPositions.push(side * .5, 0, 0, side * .5, -.49, 1.68, side * .5, -.72, 1.68, side * .5, -.72, 0);
+    canopyUVs.push(.25, 1, .25, .3, .3, 0, .3, 1);
+    canopyIndices.push(start, start + 1, start + 2, start, start + 2, start + 3);
+  }
+  canopy.setAttribute('position', new THREE.Float32BufferAttribute(canopyPositions, 3));
+  canopy.setAttribute('uv', new THREE.Float32BufferAttribute(canopyUVs, 2));
+  canopy.setIndex(canopyIndices); canopy.computeVertexNormals();
+  const awning = (x, y, z, width, yaw) => instance(canopy, fabric, [x, y, z], [width, 1, 1], [0, yaw, 0]);
   const solid = (x, z, w, d, h = 4) => colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, minY: 0, maxY: h });
   const wall = (material, x, z, w, d, h, y = h / 2) => { box(material, x, y, z, w, h, d); solid(x, z, w, d, y + h / 2); };
   const floor = (material, x, z, w, d) => box(material, x, .022, z, w, .025, d, 0, false);
@@ -122,6 +167,30 @@ export function addAuthoredDistrict(api) {
   planter(-20.6, 23.8, .8, .8, .6);
   sign('PALOMA LODGE', -39.95, 2.9, 20.3, 6.1, .65, Math.PI / 2, { background: '#d3c8ab', color: '#39544c', border: false });
   box(m.lamp, -25, 3.52, 20.2, 2.3, .035, .3, 0, false);
+  // Mid-century breeze-block screens and an open timber pergola make the
+  // motel courtyard a recognisable place without closing its arrival route.
+  for (const z of [16.1, 24.05]) {
+    panel(mosaic, -18.495, 1.55, z, 1.55, 2.7, Math.PI / 2);
+    box(m.trim, -18.38, .16, z, .28, .28, 1.7);
+  }
+  for (const z of [31.6, 32.5, 33.4, 34.3, 35.2]) {
+    for (const y of [.55, 1.18, 1.81]) {
+      // Four sides leave a real aperture in every concrete block.
+      box(m.pale, -18.4, y - .26, z, .25, .1, .8);
+      box(m.pale, -18.4, y + .26, z, .25, .1, .8);
+      for (const dz of [-.35, .35]) box(m.pale, -18.4, y, z + dz, .25, .46, .1);
+      box(m.pale, -18.4, y, z, .25, .08, .49, Math.PI / 4, false);
+    }
+  }
+  solid(-18.4, 33.4, .35, 4.6, 2.15);
+  for (const z of [39, 53]) {
+    wall(wood, -19.2, z, .14, .14, 3.15);
+    wall(wood, -24.1, z, .14, .14, 3.15);
+  }
+  for (const x of [-19.2, -24.1]) box(wood, x, 3.14, 46, .18, .22, 14.5);
+  for (let z = 39; z <= 53; z += .78) box(wood, -21.65, 3.3, z, 5.5, .16, .11);
+  for (const z of [39, 46, 53]) box(m.lamp, -21.6, 3.08, z, .3, .06, .3, 0, false);
+  sign('POOL  /  GUESTS ONLY', -28.9, .8, 38.4, 2.2, .42, Math.PI / 2, { background: '#d5c5a2', color: '#49645a', fontSize: 46 });
   // A pool is visibly bounded; paths around it remain flush with the street.
   floor(m.pale, -32.5, 47, 12.5, 20.5);
   floor(m.pool, -33.2, 46.5, 7.4, 14.2);
@@ -167,14 +236,34 @@ export function addAuthoredDistrict(api) {
   for (const y of [6.1, 9.5]) {
     for (let z = -41.8; z < -20; z += 4.5) {
       window(-17.14, y, z, 2.5, 2.0, Math.PI / 2, z % 2 ? m.glassWarm : m.glass);
-      box(m.teal, -16.98, y, z - 1.55, .16, 2.14, .4);
+      // Deep plaster returns, divided upper lights and a projecting hood make
+      // the glazing sit inside the facade instead of reading as blue stickers.
+      for (const dz of [-1.4, 1.4]) box(m.pale, -16.96, y, z + dz, .46, 2.4, .22);
+      box(m.pale, -16.9, y + 1.18, z, .58, .22, 3.0);
+      box(m.teal, -16.99, y + .57, z, .07, .055, 2.5, 0, false);
+      for (const dz of [-.42, .42]) box(m.teal, -16.99, y, z + dz, .07, 2.0, .045, 0, false);
+      box(m.pale, -16.87, y - 1.15, z, .65, .16, 3.06);
     }
-    for (let x = -46; x < -18; x += 4.5) window(x, y, -18.98, 2.3, 2.05, 0, m.glass);
+    for (let x = -46; x < -18; x += 4.5) {
+      window(x, y, -18.98, 2.3, 2.05, 0, m.glass);
+      for (const dx of [-1.28, 1.28]) box(m.pale, x + dx, y, -18.78, .18, 2.4, .44);
+      box(m.pale, x, y + 1.18, -18.7, 2.82, .2, .59);
+      box(m.teal, x, y + .56, -18.88, 2.3, .05, .08, 0, false);
+    }
   }
-  box(m.teal, -16.4, 3.2, -32, 2.6, .16, 26.6);
-  box(m.teal, -33.4, 3.2, -18.4, 32.6, .16, 1.7);
-  for (let z = -44; z < -20; z += 1.05) box(cream, -15.1, 3.08, z, .03, .34, .13, 0, false);
-  sign('ORBIT  •  TRAVEL & EXCHANGE', -15.04, 3.66, -32, 20.9, .73, Math.PI / 2, { background: '#30544e', color: '#e5d6b3', fontSize: 62 });
+  for (const z of [-44.3, -39.55, -35.05, -30.55, -26.05, -20.0]) box(m.pale, -17.04, 8.2, z, .37, 7.5, .3);
+  for (const y of [7.72, 11.1]) {
+    box(m.trim, -16.97, y, -32, .56, .14, 26.2);
+    box(m.trim, -33.4, y, -18.79, 32.5, .14, .48);
+  }
+  for (const z of [-41.8, -37.3, -32.8, -28.3, -23.8]) awning(-17.05, 3.5, z, 4.22, Math.PI / 2);
+  for (const x of [-43.4, -37.3, -31.2, -25.1]) {
+    window(x, 1.93, -18.86, 4.68, 2.58, 0, m.glassDark);
+    awning(x, 3.5, -18.83, 5.48, 0);
+    box(m.teal, x, .42, -18.82, 5.45, .67, .18);
+    panel(mosaic, x, .44, -18.71, 4.95, .42, 0);
+  }
+  sign('ORBIT  •  TRAVEL & EXCHANGE', -17.0, 3.88, -32, 20.9, .48, Math.PI / 2, { background: '#30544e', color: '#e5d6b3', fontSize: 62 });
   sign('ORBIT', -24, 3.75, -18.78, 10.7, .76, 0, { background: '#30544e', color: '#e5d6b3', fontSize: 72 });
   sign('OPEN  /  COME INSIDE', -17.06, 2.7, -22, 2.0, .31, Math.PI / 2, { background: '#d2c099', color: '#354b45', fontSize: 48 });
   wall(wood, -27.4, -25.3, 1.1, 6, 1.03);
@@ -275,16 +364,46 @@ export function addAuthoredDistrict(api) {
     box(m.teal, 17.6, 3.85, z, .35, .5, depth);
     panel(glass, 17.57, 2.15, z, depth, 2.85, -Math.PI / 2);
     solid(17.6, z, .35, depth, 4.1);
-    for (let zz = z - depth / 2; zz < z + depth / 2; zz += 3.4) box(m.metal, 17.58, 2.15, zz, .16, 3.3, .075);
+    panel(mosaic, 17.405, .39, z, depth - .12, .51, -Math.PI / 2);
+    box(m.metal, 17.37, .72, z, .17, .075, depth);
+    for (let zz = z - depth / 2; zz < z + depth / 2; zz += 3.4) {
+      box(m.metal, 17.48, 2.15, zz, .24, 3.3, .075);
+      box(m.trim, 17.47, 2.87, zz + 1.65, .13, .05, 3.22, 0, false);
+    }
   }
   box(m.teal, 17.6, 3.83, 30.5, .35, .55, 4.5);
   parapet(32.2, 29, 29.7, 27, 4.15, m.white);
-  box(m.teal, 16.9, 3.4, 29, 2.4, .18, 27.5);
-  box(m.trim, 16.9, 3.55, 29, 2.55, .12, 27.8);
+  // Streamline Moderne rolled fascia, with actual curved cross-section and
+  // stainless ribs, distinguishes this diner from the fabric-covered shops.
+  const visorSection = new THREE.Shape();
+  visorSection.moveTo(0, .1); visorSection.lineTo(-1.67, .1);
+  visorSection.quadraticCurveTo(-2.12, .1, -2.12, -.15);
+  visorSection.quadraticCurveTo(-2.12, -.43, -1.67, -.43);
+  visorSection.lineTo(0, -.43); visorSection.closePath();
+  const visorGeometry = new THREE.ExtrudeGeometry(visorSection, { depth: 1, bevelEnabled: false, curveSegments: 5 });
+  instance(visorGeometry, m.teal, [17.7, 3.53, 15.12], [1, 1, 27.76]);
+  for (const y of [3.23, 3.5]) box(m.metal, 15.57, y, 29, .055, .035, 27.5, 0, false);
   box(m.teal, 32.2, 3.4, 15, 30.2, .18, 2.2);
-  sign('SUNLINE  /  COFFEE & KITCHEN', 15.62, 3.18, 29, 22.5, .42, -Math.PI / 2, { background: '#3e6259', color: '#eed9ac', fontSize: 55 });
+  sign('COFFEE  /  KITCHEN  /  OPEN LATE', 15.555, 3.36, 29, 19.5, .18, -Math.PI / 2, { background: '#3e6259', color: '#eed9ac', fontSize: 55 });
   sign('SUNLINE', 31, 4.85, 15.375, 13.6, 1.0, Math.PI, { background: '#dfc8a4', color: '#7d4a37', fontSize: 78 });
   box(m.white, 31, 4.85, 15.55, 14.1, 1.35, .32);
+  for (const z of [20.8, 29.1]) box(m.metal, 17.9, 4.65, z, .12, 2.1, .12);
+  box(cream, 17.45, 5.25, 25, .38, 1.43, 10.8);
+  sign('SUNLINE', 17.24, 5.25, 25, 10.3, 1.1, -Math.PI / 2, { background: '#d7c6a1', color: '#7d4a37', fontSize: 78 });
+  for (const y of [4.48, 6.02]) box(m.metal, 17.44, y, 25, .42, .045, 10.9);
+  // Side windows are enclosed, whereas the central four-metre entrance stays
+  // fully open. Framed menu boards and low uplights sit against existing walls.
+  for (const x of [23, 29, 35, 41]) {
+    window(x, 1.94, 15.465, 4.65, 2.48, Math.PI, m.glassDark);
+    box(m.metal, x, .67, 15.42, 5.05, .08, .19);
+    panel(mosaic, x, .39, 15.41, 4.85, .43, Math.PI);
+  }
+  for (const z of [28.1, 32.9]) {
+    box(m.metal, 17.36, 1.7, z, .12, 3.35, .1);
+    box(cream, 17.31, 1.7, z + (z < 30 ? -.7 : .7), .13, 1.05, .84);
+  }
+  sign('BREAKFAST / ALL DAY', 17.235, 1.7, 27.4, .73, .93, -Math.PI / 2, { background: '#e0cda8', color: '#5b6958', fontSize: 40 });
+  sign('FRESH / LOCAL / COFFEE', 17.235, 1.7, 33.6, .73, .93, -Math.PI / 2, { background: '#e0cda8', color: '#5b6958', fontSize: 40 });
   // Tables, booths, service counter and a real route through the open door.
   for (const z of [20, 25, 36.5]) {
     for (const x of [22, 29]) {

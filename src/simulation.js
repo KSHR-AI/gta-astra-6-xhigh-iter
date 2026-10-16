@@ -9,6 +9,7 @@ const crossroads = [-90, 0, 90];
 export function hasSight(a, b, colliders) {
   const dx = b.x - a.x, dz = b.z - a.z;
   for (const box of colliders) {
+    if (box.occludesSight === false) continue;
     let lo = 0.025, hi = 0.975;
     for (const [p, d, min, max] of [[a.x, dx, box.minX, box.maxX], [a.z, dz, box.minZ, box.maxZ]]) {
       if (Math.abs(d) < 1e-7) { if (p < min || p > max) { lo = 1; hi = 0; break; } }

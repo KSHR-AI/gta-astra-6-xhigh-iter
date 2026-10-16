@@ -49,14 +49,22 @@ Progress uses the current browser’s `localStorage`, under `grand-theft-astra:c
 | R | Reload |
 | H | Horn while driving |
 | M | City map |
-| Escape | Pause / settings |
+| P | Enter / leave photo mode |
+| Escape | Pause / settings; leave photo mode |
 
 Touch controls provide movement, run/jump, contextual Use, firing, reload, and equip buttons. Drag the scene to look around; the contextual prompt itself can also be tapped. Settings include sound, Cinematic/Performance rendering, golden hour/night, and session restart.
+
+## Photo mode
+
+Press **P** during play, or select **Photo mode** in the pause menu. The world freezes while you compose the shot: **WASD** flies the camera, **Q/E** lowers/raises it, **Shift** moves faster, dragging looks around, and the wheel changes the lens. The toolbar controls field of view, focus distance, depth blur, roll, and exposure. **H** hides the controls; **Save photo** downloads a PNG of the actual rendered scene without HUD. **Reset camera** restores the entry view. **Escape/P** returns to the previous game or pause state, restoring rendering resolution and camera settings.
+
+Photo mode renders at native resolution (up to 1.5× device pixels) with four-sample antialiasing and optional depth blur. These still-image settings cost more than normal play, especially on software graphics.
 
 ## World and gameplay
 
 - **An authored neighborhood:** the Orbit contact office, Sunline diner, Paloma motel office/courtyard, and Astra Auto Works garage have accessible openings and modeled furnishings. Other buildings provide the surrounding streetscape. Curbs, balconies, palms, shrubs, road wear, beach, promenade, and animated water give the district its coastal setting.
-- **Animated people:** a civilian male protagonist, male and female pedestrians, Mara, visible vehicle occupants, and police officers. Retargeted idle/walk/run animation is combined with authored skeletal layers for aiming, reloading, jumping, driving, and entering/exiting cars. Taking an occupied vehicle includes a visible driver exit.
+- **Original Blender assets:** curved bus shelters, a newspaper kiosk, cafe seating/parasols, the Meridian executive sedan and police variant, and a detailed compact pistol. Editable `.blend` projects and deterministic generation scripts live in `art/blender/`; the game loads the exported GLBs locally.
+- **Animated people:** a civilian male protagonist, male and female pedestrians, Mara, visible vehicle occupants, and police officers. Retargeted idle/walk/run animation is combined with authored skeletal layers for aiming, reloading, jumping, driving, and entering/exiting cars. Taking an occupied vehicle includes a visible driver exit. Planted-foot correction, asymmetrical breathing, and articulated fingers improve standing, locomotion, weapon grips, and seated steering.
 - **Driving and damage:** imported sports convertibles and original sedans/patrol cars, visible seated drivers, opening doors, steering wheels, wheel rotation, suspension lean, braking/reverse, tire grip, handbrake slip, automatic gears, and collision impulses. Damage changes body panels, glazing, lights, and smoke; repairs restore the vehicle. The HUD displays speed, gear, RPM, and condition.
 - **Witnesses and police:** nearby civilians react to crimes, visible thefts can produce delayed witness reports, and gunfire can be heard nearby. Building collision volumes obstruct sight. Patrols pursue a last-known position, search after losing sight, and clear the alert after an uninterrupted escape. Visible officers can deploy and fire when they have line of sight.
 - **Combat and presentation:** a pistol with ammunition/reload timing, muzzle and impact effects, building occlusion for shots, health, checkpoint respawning, mission subtitles, progress and reward notices, minimap/full map, and contextual interaction prompts.
@@ -66,7 +74,7 @@ Touch controls provide movement, run/jump, contextual Use, firing, reload, and e
 
 The game is a static Vite site and needs no backend or API key. `src/main.js` connects input and gameplay. `missions.js` owns mission checkpoints and the small economy; `simulation.js` handles traffic, pedestrians, witnesses, and police. `driving.js` supplies fixed-step vehicle handling and collision responses, while `vehicles.js` constructs and animates vehicle meshes. `characters.js`, `character-animation.js`, and `character-pose.js` load and animate the population. The `world*.js` modules build the district and its materials. `ui.js`/`style.css` implement the HUD and menus; `audio.js` combines local recordings with Web Audio synthesis.
 
-Rendering combines local PBR surface maps, a photographic HDR sky, local vehicle reflections, depth-based ambient occlusion, FXAA, restrained bloom/color grading, directional shadows, and contact shadows. Night mode changes the sky and illumination and adds nearby streetlight/headlight pools. Geometry instancing, shared vehicle assets, character detail reduction, and distance culling limit rendering cost. Software-rendered WebGL uses a lower internal resolution and cached building shadows; the interface remains at native resolution. Performance depends on hardware, resolution, browser, and selected quality.
+Rendering combines local PBR surface maps, a photographic sunset HDR sky aligned to the directional sun, local vehicle reflections, depth-based ambient occlusion, FXAA, restrained bloom/color grading, directional shadows, and contact shadows. The ocean reflects the same sky over layered waves and shoreline foam. Night mode changes the sky and illumination and adds nearby streetlight/headlight pools. Geometry instancing, shared vehicle assets, character detail reduction, and distance culling limit rendering cost. Software-rendered WebGL uses a lower internal resolution and cached building shadows; the interface remains at native resolution. Performance depends on hardware, resolution, browser, and selected quality.
 
 Niteshift runs the Vite service on port 3000 using `.niteshift/`. A read-only `window.__GRAND_THEFT_ASTRA__.getState()` view exposes gameplay and renderer state for browser inspection.
 

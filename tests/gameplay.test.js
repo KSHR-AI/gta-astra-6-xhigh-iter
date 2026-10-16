@@ -200,6 +200,8 @@ test('Buildings block sight across horizontal, vertical and diagonal streets, bu
   assert.equal(hasSight(point(0, 5), point(10, 5), [box]), true);
   assert.equal(hasSight(point(0, 0), point(3, 0), [box]), true, 'A building behind the target must not block sight');
   assert.equal(hasSight(point(0, 0), point(10, 0), []), true);
+  assert.equal(hasSight(point(0, 0), point(10, 0), [{...box,occludesSight:false}]), true, 'Glass shelters and low cafe furniture must not conceal a witnessed crime');
+  assert.equal(hasSight(point(0, 0), point(10, 0), [{...box,occludesSight:false},box]), false, 'A solid wall behind transparent furniture still blocks sight');
 });
 
 test('An unseen theft stays quiet; a witness needs time to report before police are dispatched', () => {

@@ -102,11 +102,24 @@ function drawPlate() {
 }
 function policeDecal() {
   if (policeTexture || typeof document === 'undefined') return policeTexture;
-  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 192;
+  const canvas = document.createElement('canvas'); canvas.width = 1024; canvas.height = 384;
   const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, 512, 192); ctx.fillStyle = '#17252b'; ctx.textAlign = 'center';
-  ctx.font = 'bold 74px sans-serif'; ctx.fillText('POLICE', 256, 106);
-  ctx.font = '22px sans-serif'; ctx.fillText('PACIFIC COAST', 256, 145);
+  ctx.clearRect(0, 0, 1024, 384);
+  ctx.fillStyle = '#172a37'; ctx.strokeStyle = '#bc9c57'; ctx.lineWidth = 12;
+  ctx.beginPath(); ctx.moveTo(105, 67); ctx.lineTo(256, 67); ctx.lineTo(264, 191);
+  ctx.quadraticCurveTo(253, 245, 180, 286); ctx.quadraticCurveTo(106, 245, 96, 191); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#d4bb78'; ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 27 : 61;
+    const x = 180 + Math.cos(a) * r, y = 165 + Math.sin(a) * r;
+    if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.textAlign = 'center'; ctx.fillStyle = '#172a37';
+  ctx.font = 'italic bold 122px sans-serif'; ctx.fillText('POLICE', 638, 185);
+  ctx.font = 'bold 34px sans-serif'; ctx.fillText('LOS PACIFICOS', 638, 242);
+  ctx.fillStyle = '#ad8c48'; ctx.fillRect(345, 271, 582, 5);
+  ctx.font = '20px sans-serif'; ctx.fillText('PUBLIC SAFETY  •  EST. 1987', 638, 312);
   policeTexture = new THREE.CanvasTexture(canvas); policeTexture.colorSpace = THREE.SRGBColorSpace;
   return policeTexture;
 }
@@ -376,6 +389,7 @@ function createOriginalCar({ color = 0xe4bb67, type = 'sport', police = false } 
 // No decoder, remote requests, or texture downloads are needed at run time.
 let vehicleAssetsPromise;
 let importedVehicleTemplates;
+let sedanVehicleTemplates;
 const IMPORTED_SCALE = 1.006;
 
 function componentIndices(geometry) {
@@ -498,20 +512,19 @@ function prepareImportedTemplate(scene) {
   return result;
 }
 
-/** Preload once before creating sports cars; returns false if local assets fail. */
+/** Preload local sports and authored sedan LODs; each family has its own fallback. */
 export function loadVehicleAssets() {
   if (!vehicleAssetsPromise) {
     const loader = new GLTFLoader();
-    vehicleAssetsPromise = Promise.all([
-      loader.loadAsync('/models/vehicles/ferrari.glb'),
-      loader.loadAsync('/models/vehicles/ferrari-lod.glb'),
-    ]).then(models => {
-      importedVehicleTemplates = models.map(model => prepareImportedTemplate(model.scene));
-      return true;
-    }).catch(error => {
-      console.warn('Detailed vehicle assets unavailable; using the original coupe.', error);
-      return false;
-    });
+    const sports = Promise.all([
+      loader.loadAsync('/models/vehicles/ferrari.glb'), loader.loadAsync('/models/vehicles/ferrari-lod.glb'),
+    ]).then(models => { importedVehicleTemplates = models.map(model => prepareImportedTemplate(model.scene)); })
+      .catch(error => console.warn('Sports-car assets unavailable; using the original coupe.', error));
+    const sedans = Promise.all([
+      loader.loadAsync('/models/vehicles/meridian.glb'), loader.loadAsync('/models/vehicles/meridian-lod.glb'),
+    ]).then(models => { sedanVehicleTemplates = models.map(model => model.scene); })
+      .catch(error => console.warn('Meridian sedan assets unavailable; using the original coupe.', error));
+    vehicleAssetsPromise = Promise.all([sports, sedans]).then(() => Boolean(importedVehicleTemplates || sedanVehicleTemplates));
   }
   return vehicleAssetsPromise;
 }
@@ -588,10 +601,115 @@ function createImportedCar({ color }) {
   };
 }
 
-/** Full vehicle contract; original sedans keep traffic visually varied. */
+function sedanPalette(color, police) {
+  const palette = importedPalette(police ? 0xe9e7df : color);
+  palette.body.roughness = 0.25;
+  palette.body.clearcoat = 1.0;
+  palette.body.clearcoatRoughness = 0.14;
+  palette.body.envMapIntensity = 1.0;
+  palette.upper = palette.body.clone(); palette.upper.name = 'body';
+  if (police) palette.upper.color.setHex(0x14212b);
+  palette.dark = new THREE.MeshStandardMaterial({ color: 0x161d22, roughness: 0.61, metalness: 0.15 });
+  palette.brake = new THREE.MeshStandardMaterial({ color: 0x535a5c, roughness: 0.54, metalness: 0.55 });
+  palette.lamp_lens = new THREE.MeshStandardMaterial({ color: 0x537885, roughness: 0.14, metalness: 0.28 });
+  palette.screen = new THREE.MeshStandardMaterial({ color: 0x102126, emissive: 0x266474, emissiveIntensity: 0.3, roughness: 0.4 });
+  palette.glass.color.setHex(0x8caaaf); palette.glass.opacity = 0.29;
+  palette.leather.color.setHex(police ? 0x262e31 : 0x514335);
+  for (const material of new Set(Object.values(palette))) material.side = material === palette.glass ? THREE.DoubleSide : THREE.FrontSide;
+  return palette;
+}
+
+function addPatrolEquipment(level, palette, strobes) {
+  const body = level.getObjectByName('body_group'), door = level.getObjectByName('driver_door');
+  const equipment = new THREE.Group(); body.add(equipment);
+  box(equipment, palette.dark, [1.13, 0.045, 0.27], [0, 1.548, -0.13], 0.02);
+  for (const side of [-1, 1]) {
+    box(equipment, palette.dark, [0.12, 0.055, 0.23], [side * 0.39, 1.511, -0.13], 0.014);
+    const strobe = strobes[side < 0 ? 0 : 1];
+    for (let i = 0; i < 3; i++) box(equipment, strobe, [0.145, 0.067, 0.236], [side * (0.102 + i * 0.16), 1.601, -0.13], 0.02);
+    // Rubber-faced push bar, radio aerial and bumper strobes identify the patrol variant.
+    bar(equipment, [side * 0.44, 0.37, 2.36], [side * 0.44, 0.79, 2.36], 0.035, palette.dark);
+    box(equipment, strobe, [0.1, 0.028, 0.02], [side * 0.19, 0.635, 2.335], 0.006);
+  }
+  bar(equipment, [-0.5, 0.72, 2.36], [0.5, 0.72, 2.36], 0.026, palette.dark);
+  bar(equipment, [0.4, 1.447, -0.87], [0.4, 1.97, -0.98], 0.005, palette.dark);
+  batchParts(equipment);
+  const decalMaterial = new THREE.MeshStandardMaterial({ map: policeDecal(), transparent: true, depthWrite: false, roughness: 0.64, polygonOffset: true, polygonOffsetFactor: -1 });
+  for (const side of [-1, 1]) {
+    const target = side < 0 ? door : body;
+    const decal = part(target, new THREE.PlaneGeometry(1.04, 0.39), decalMaterial, side * 0.989, 0.748, 0.182);
+    if (side < 0) decal.position.sub(door.position);
+    decal.rotation.y = side * Math.PI / 2;
+    decal.castShadow = false;
+  }
+}
+
+// Original Blender-authored four-door sedan. The source GLBs contain real
+// driver-door and wheel pivots; no topology guessing or per-car remeshing.
+function createSedanCar({ color, police }) {
+  const mesh = new THREE.Group();
+  mesh.name = police ? 'Astra Meridian — Los Pacificos patrol' : 'Astra Meridian — executive sedan';
+  const lod = new THREE.LOD(); mesh.add(lod);
+  const palette = sedanPalette(color, police);
+  const strobes = police ? [0x135eff, 0xff172a].map(color => new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.5, roughness: 0.27, metalness: 0.08 })) : [];
+  const levels = sedanVehicleTemplates.map((template, index) => {
+    const level = template.clone(true);
+    level.traverse(object => {
+      if (!object.isMesh) return;
+      object.material = palette[object.material.name] || palette.dark;
+      object.castShadow = object.material !== palette.glass;
+      object.receiveShadow = true;
+    });
+    if (police) addPatrolEquipment(level, palette, strobes);
+    const wheels = [], frontWheels = [];
+    for (const name of ['wheel_fl', 'wheel_fr', 'wheel_rl', 'wheel_rr']) {
+      const pivot = level.getObjectByName(name);
+      wheels.push(level.getObjectByName(`${name}_spin`));
+      if (name.startsWith('wheel_f')) frontWheels.push(pivot);
+    }
+    lod.addLevel(level, index ? 26 : 0, index ? 0.12 : 0);
+    level.visible = index === 0;
+    return { mesh: level, wheels, frontWheels, door: level.getObjectByName('driver_door') };
+  });
+  const map = drawPlate();
+  const plateMaterial = new THREE.MeshStandardMaterial({ ...(map ? { map } : {}), color: 0xe1e2d5, roughness: 0.55 });
+  const rearPlate = part(mesh, new THREE.PlaneGeometry(0.423, 0.185), plateMaterial, 0, 0.693, -2.333); rearPlate.rotation.y = Math.PI;
+  part(mesh, new THREE.PlaneGeometry(0.34, 0.149), plateMaterial, 0, 0.519, 2.332);
+  let doorTarget = 0, doorAngle = 0, wheelAngle = 0, elapsed = 0, lightsEnabled = true;
+  mesh.userData.vehicle = true;
+  mesh.userData.originalSedan = true;
+  mesh.userData.model = 'Astra Meridian — original Blender asset';
+  mesh.userData.dimensions = { width: 2.27, length: 4.68, height: police ? 1.98 : 1.51 };
+  mesh.userData.detailLevels = { near: 0, far: 0, transitionMetres: 26 };
+  for (const [index, level] of levels.entries()) level.mesh.traverse(object => {
+    if (object.isMesh) mesh.userData.detailLevels[index ? 'far' : 'near'] += (object.geometry.index?.count ?? object.geometry.attributes.position.count) / 3;
+  });
+  return {
+    mesh, wheels: levels[0].wheels, frontWheels: levels[0].frontWheels,
+    update(dt = 0, speed = 0, steer = 0) {
+      elapsed += dt;
+      wheelAngle = (wheelAngle + speed * dt / 0.344) % (Math.PI * 2);
+      doorAngle = THREE.MathUtils.damp(doorAngle, doorTarget, 9, dt);
+      for (const level of levels) {
+        level.door.rotation.y = doorAngle;
+        for (const wheel of level.wheels) wheel.rotation.x = wheelAngle;
+        for (const pivot of level.frontWheels) pivot.rotation.y = THREE.MathUtils.clamp(steer, -0.65, 0.65);
+      }
+      strobes.forEach((material, index) => {
+        const phase = (elapsed * 3.5 + index * 0.5) % 1;
+        material.emissiveIntensity = lightsEnabled && (phase < 0.14 || phase > 0.21 && phase < 0.35) ? 5 : 0.1;
+      });
+    },
+    setLights(enabled) { lightsEnabled = Boolean(enabled); },
+    setDoor(open) { doorTarget = open ? 1.15 : 0; },
+  };
+}
+
+/** Full vehicle contract; imported sports cars and original authored sedans. */
 export function createCar({ color = 0xe4bb67, type = 'sport', police = false } = {}) {
   const imported = type === 'sport' && !police && Boolean(importedVehicleTemplates);
-  const vehicle = imported ? createImportedCar({ color }) : createOriginalCar({ color, type, police });
+  const sedan = Boolean(sedanVehicleTemplates) && (type !== 'sport' || police);
+  const vehicle = imported ? createImportedCar({ color }) : sedan ? createSedanCar({ color, police }) : createOriginalCar({ color, type, police });
   return enhanceVehicle(vehicle, { type: police ? 'police' : type, imported });
 }
 
@@ -610,11 +728,12 @@ function getSmokeMap() {
   return smokeMap;
 }
 
-function makeWindshieldCracks(imported) {
+function makeWindshieldCracks(imported, sedan = false) {
   const vertices = [];
   const point = (u, v) => imported
     ? new THREE.Vector3((u - 0.5) * (1.34 - v * 0.13), 0.85 + v * 0.331, 1.075 - v * 0.787 + 0.008)
-    : new THREE.Vector3((u - 0.5) * (1.52 - v * 0.29), 0.963 + v * 0.43, 0.918 - v * 0.565);
+    : sedan ? new THREE.Vector3((u - 0.5) * (1.762 - v * 0.27), 1.042 + v * 0.398 + 0.035 * (1 - (u * 2 - 1) ** 2), 0.953 - v * 0.578 + 0.025 * (1 - (u * 2 - 1) ** 2) * Math.sin(v * Math.PI))
+      : new THREE.Vector3((u - 0.5) * (1.52 - v * 0.29), 0.963 + v * 0.43, 0.918 - v * 0.565);
   const add = (a, b) => vertices.push(...point(...a).toArray(), ...point(...b).toArray());
   const center = [0.32, 0.48];
   for (let spoke = 0; spoke < 11; spoke++) {
@@ -677,7 +796,7 @@ function enhanceVehicle(vehicle, { type, imported }) {
   const uniqueHeadlights = [...new Set(headlights)], uniqueTaillights = [...new Set(taillights)];
   const originalPaint = new Map();
   for (const object of paintMeshes) if (!originalPaint.has(object.material)) originalPaint.set(object.material, { color: object.material.color.clone(), roughness: object.material.roughness });
-  const cracks = makeWindshieldCracks(imported); extras.add(cracks);
+  const cracks = makeWindshieldCracks(imported, vehicle.mesh.userData.originalSedan); extras.add(cracks);
   const smokeGeometry = new THREE.BufferGeometry();
   smokeGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12 * 3), 3));
   const smoke = new THREE.Points(smokeGeometry, new THREE.PointsMaterial({ color: 0x666c69, map: getSmokeMap(), size: 0.95, transparent: true, opacity: 0.6, depthWrite: false, sizeAttenuation: true }));

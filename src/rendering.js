@@ -33,17 +33,36 @@ export function createRendering(renderer, scene, camera, software) {
       image: { value: colour.texture }, occlusion: { value: occlusion.texture },
       pixel: { value: new THREE.Vector2() }, aoPixel: { value: new THREE.Vector2() },
       useAO: { value: 1 }, night: { value: 0 },
+      depthMap: { value: depth }, nearPlane: { value: camera.near }, farPlane: { value: camera.far },
+      focusDistance: { value: 8 }, aperture: { value: 0 },
     },
     vertexShader: 'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
     fragmentShader: `
       uniform sampler2D image; uniform sampler2D occlusion;
       uniform vec2 pixel; uniform vec2 aoPixel; uniform float useAO; uniform float night;
+      uniform sampler2D depthMap; uniform float nearPlane; uniform float farPlane;
+      uniform float focusDistance; uniform float aperture;
       varying vec2 vUv;
       ${fxaa}
       float sceneLuminance(vec3 colour){return dot(colour,vec3(.2126,.7152,.0722));}
+      float sceneDistance(vec2 uv){float d=texture2D(depthMap,uv).x;return nearPlane*farPlane/(farPlane-d*(farPlane-nearPlane));}
       vec3 glow(vec2 offset){vec3 c=texture2D(image,clamp(vUv+offset,vec2(0.),vec2(1.))).rgb;return c*max(0.,sceneLuminance(c)-1.5)/(sceneLuminance(c)+.001);}
       void main(){
         vec3 c=ApplyFXAA(image,pixel,vUv).rgb;
+        // Optional photographic depth of field. Reject foreground samples when
+        // blurring a background pixel so silhouettes do not acquire bright halos.
+        if(aperture>.001){
+          float distance=sceneDistance(vUv);
+          float blur=clamp(abs(distance-focusDistance)/max(distance,1.),0.,1.)*aperture*9.;
+          vec3 total=c;float weight=1.;
+          for(int i=0;i<32;i++){
+            float a=float(i)*2.399963;float r=sqrt((float(i)+.5)/32.);
+            vec2 uv=clamp(vUv+vec2(cos(a),sin(a))*r*blur*pixel,vec2(0.),vec2(1.));
+            float sd=sceneDistance(uv);float w=smoothstep(distance*.8,distance,sd)*(1.-r*.65);
+            total+=texture2D(image,uv).rgb*w;weight+=w;
+          }
+          c=total/weight;
+        }
         float ao=texture2D(occlusion,vUv).r*.4;
         ao+=texture2D(occlusion,vUv+vec2(aoPixel.x,0.)).r*.15;
         ao+=texture2D(occlusion,vUv-vec2(aoPixel.x,0.)).r*.15;
@@ -79,6 +98,8 @@ export function createRendering(renderer, scene, camera, software) {
   return {
     resize,
     setNight(value) { finish.uniforms.night.value = value ? 1 : 0; },
+    setPhotoQuality(active) { colour.samples=active?4:(software?0:2); colour.dispose(); },
+    setLens(focus, aperture) { finish.uniforms.focusDistance.value = focus; finish.uniforms.aperture.value = aperture; },
     setQuality(value) { quality = value; finish.uniforms.useAO.value = value === 'high' ? 1 : 0; resize(); },
     render() {
       renderer.info.reset();

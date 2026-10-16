@@ -49,12 +49,22 @@ export function applyCityMaterials(materials, canvasTexture, random) {
           vAlphaMapUv = cityUv;
         #endif
       `);
-      shader.fragmentShader = 'varying vec3 vCitySurface;\n' + shader.fragmentShader;
+      shader.fragmentShader = `varying vec3 vCitySurface;
+        float cityHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+        float cityWeather(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+          return mix(mix(cityHash(i),cityHash(i+vec2(1.,0.)),f.x),mix(cityHash(i+vec2(0.,1.)),cityHash(i+vec2(1.,1.)),f.x),f.y);}
+      ` + shader.fragmentShader;
       if (weather) shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
         #include <map_fragment>
         float contact = mix(.68, 1., smoothstep(.1, 4.5, vCitySurface.y));
-        float mottling = .97 + .03 * sin(vCitySurface.x * .41 + vCitySurface.z * .37) * sin(vCitySurface.y * .72);
+        float mottling = .88 + .16 * cityWeather(vec2(vCitySurface.x+vCitySurface.z,vCitySurface.y)*.23);
         diffuseColor.rgb *= contact * mottling;
+      `);
+      else shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+        #include <map_fragment>
+        // Several-metre weather patterns break the repetition of a 1K surface
+        // without stretching the photographed aggregate and cracks themselves.
+        diffuseColor.rgb *= .87 + .19 * cityWeather(vCitySurface.xz*.13);
       `);
     };
     material.customProgramCacheKey = () => `city-world-${meters}-${weather}`;
@@ -143,7 +153,7 @@ export function applyCityMaterials(materials, canvasTexture, random) {
           vec2 roomUv = clamp(vMapUv + clamp(vRoomView.xy / max(abs(vRoomView.z), .5), vec2(-2.), vec2(2.)) * .055, vec2(.015), vec2(.985));
           roomUv.x = (roomUv.x + floor(vRoomSeed * 4.)) * .25;
           diffuseColor *= texture2D(map, roomUv);
-          diffuseColor.rgb *= .86 + vRoomSeed * .2;
+          diffuseColor.rgb *= .48 + vRoomSeed * .15;
         #endif
       `);
     };

@@ -6,14 +6,16 @@ import { createUI } from './ui.js';
 import { createAudio } from './audio.js';
 import { createAtmosphere } from './atmosphere.js';
 import { createRendering } from './rendering.js';
+import { createPhotoMode } from './photo-mode.js';
 import { createCitySimulation } from './simulation.js';
 import { createMission } from './missions.js';
 import { updateVehiclePhysics } from './driving.js';
 import './style.css';
 
 const canvas = document.querySelector('#game');
+canvas.style.touchAction='none';canvas.tabIndex=0;
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0xcac9c7, 0.0025);
+scene.fog = new THREE.FogExp2(0xcdb6a7, 0.0021);
 const renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'high-performance'});
 const gl=renderer.getContext(),debugInfo=gl.getExtension('WEBGL_debug_renderer_info');
 const softwareRenderer=debugInfo&&/swiftshader|llvmpipe|software/i.test(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL));
@@ -31,12 +33,12 @@ const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.1,1400);
 camera.position.set(8,5.2,36);
 const cameraLook=new THREE.Vector3(0,2,-35);
 camera.lookAt(cameraLook);
-const hemisphere=new THREE.HemisphereLight(0xb8d7ff,0x797164,.85);
+const hemisphere=new THREE.HemisphereLight(0xb9d3ee,0x75624f,.75);
 scene.add(hemisphere);
-const sun=new THREE.DirectionalLight(0xffe1bc,3.8);
+const sun=new THREE.DirectionalLight(0xffc48b,3.1);
 sun.position.set(-70,58,-80); sun.castShadow=true;
 sun.shadow.mapSize.set(2048,2048);
-Object.assign(sun.shadow.camera,{left:-75,right:75,top:75,bottom:-75,near:1,far:250});
+Object.assign(sun.shadow.camera,{left:-75,right:75,top:75,bottom:-75,near:1,far:700});
 sun.shadow.normalBias=0.025; sun.shadow.bias=-0.00015;
 scene.add(sun,sun.target);
 const atmosphere=createAtmosphere(scene);
@@ -50,13 +52,16 @@ const streetLights=Array.from({length:4},()=>{const light=new THREE.PointLight(0
 const headlights=Array.from({length:2},()=>{const light=new THREE.SpotLight(0xe0edff,170,65,.37,.55,1.4);light.visible=false;scene.add(light,light.target);return light;});
 
 const buildingBoxes=world.colliders.map(b=>new THREE.Box3(new THREE.Vector3(b.minX,b.minY??0,b.minZ),new THREE.Vector3(b.maxX,b.maxY??70,b.maxZ)));
+const cameraBoxes=buildingBoxes.map(box=>box.clone().expandByScalar(.2));
 const sound=createAudio();
 const keys=new Set();
 const state={ready:false,started:false,paused:false,mapOpen:false,health:100,stamina:100,money:1250,wanted:0,ammo:12,reserve:96,inCar:false,speed:0,location:'VESPUCCI BOULEVARD',time:'18:42',objectiveTitle:'A favor for Mara',objective:'Meet Mara in the corner office.',objectiveDistance:0,weapon:'UNARMED',nearCar:false,fps:60,policeState:'clear',searchProgress:0,gear:'N',rpm:850,vehicleHealth:100,subtitle:'',subtitleSpeaker:''};
+let photo,photoWasPaused=false,photoShadowState=[];
 let ui,player,currentCar=null,mission=0,night=false,weapon=false,aiming=false,reloading=false,simulation,job,interaction=null,contactActor;
 let dialogueQueue=[],dialogueUntil=0,damageFlash=0;
 let vehicleDayEnvironment=null,vehicleNightEnvironment=null;
-let yaw=0,pitch=0.2,jumpVelocity=0,lastShot=-100,lastCrime=-100,wantedSince=-100,elapsed=0,lookTimer=0,doorTimer=0,respawnTimer=0,reloadRemaining=0;
+let cameraRoll=0;
+let yaw=0,pitch=0.07,jumpVelocity=0,lastShot=-100,lastCrime=-100,wantedSince=-100,elapsed=0,lookTimer=0,doorTimer=0,respawnTimer=0,reloadRemaining=0;
 let lastFrame=performance.now(),frameCount=0,fpsTimer=0,uiTimer=0,miniTimer=0,mouseDown=false;
 const aimRay=new THREE.Raycaster();
 const vehicles=[],pedestrians=[],effects=[],officers=[];
@@ -83,15 +88,32 @@ ui=createUI({
  onSound:enabled=>{sound.setEnabled(enabled);sound.start();},
  onQuality:q=>{renderer.setPixelRatio(q==='high'?(softwareRenderer?.65:Math.min(devicePixelRatio,1.5)):.5);renderer.shadowMap.enabled=q==='high';renderer.shadowMap.needsUpdate=true;rendering.setQuality(q);},
  onTime:value=>setTime(value==='night'),onMap:open=>setMap(open),
+ onPhotoMode:enterPhoto,onPhotoExit:exitPhoto,onPhotoChange:patch=>photo.change(patch),
+ onPhotoCapture:()=>photo.capture(),onPhotoReset:()=>photo.reset(),
  onMobile:(code,down)=>{if(down){if(!keys.has(code)) action(code);keys.add(code);}else keys.delete(code);},
 });
 ui.setReady(false);
+photo=createPhotoMode({camera,renderer,rendering,canvas,bounds:world.bounds,ui});
+
+function enterPhoto(){
+ if(!state.ready||!state.started||interaction)return;
+ photoWasPaused=state.paused;keys.clear();mouseDown=false;aiming=false;
+ state.paused=true;setMap(false);if(document.pointerLockElement)document.exitPointerLock();
+ photoShadowState=[];
+ for(const group of [...vehicles.map(c=>c.model.mesh),player.mesh,...pedestrians.map(p=>p.actor.mesh),...officers.map(a=>a.mesh),contactActor.mesh])group.traverse(o=>{if(o.isMesh&&!o.material?.transparent&&o.name!=='contact-shadow'){photoShadowState.push([o,o.castShadow]);o.castShadow=true;}});
+ renderer.shadowMap.needsUpdate=true;
+ photo.enter();state.photoMode=true;
+}
+function exitPhoto(){
+ if(!photo.active)return;
+ photo.exit();for(const [object,shadow] of photoShadowState)object.castShadow=shadow;photoShadowState=[];renderer.shadowMap.needsUpdate=true;state.photoMode=false;keys.clear();state.paused=photoWasPaused;ui.setPaused(state.paused);
+}
 
 function setTime(dark){
  night=dark; atmosphere.setNight(night); rendering.setNight(night);world.setNight(night);streetLights.forEach(light=>light.visible=night);headlights.forEach(light=>light.visible=night); state.time=night?'22:16':'18:42';
- sun.color.set(night?0x96baff:0xffe1bc); sun.intensity=night?0.8:3.8;
- hemisphere.intensity=night?.8:.85; hemisphere.color.set(night?0x6c86b4:0xb8d7ff);
- scene.fog.color.set(night?0x101b2a:0xcac9c7);renderer.toneMappingExposure=night?1:1.0;
+ sun.color.set(night?0x96baff:0xffc48b); sun.intensity=night?0.8:3.1;
+ hemisphere.intensity=night?.8:.75; hemisphere.color.set(night?0x6c86b4:0xb9d3ee);
+ scene.fog.color.set(night?0x101b2a:0xcdb6a7);renderer.toneMappingExposure=night?1:1.0;
  vehicles.forEach(c=>{
   c.model.setLights(night);
   c.model.mesh.traverse(o=>{const materials=Array.isArray(o.material)?o.material:[o.material];for(const m of materials)if(m?.isMeshStandardMaterial&&m.userData.dayEnvIntensity!==undefined){
@@ -112,7 +134,7 @@ function restart(fresh=false){
  weapon=false;aiming=false;mouseDown=false;reloading=false;reloadRemaining=0;respawnTimer=0;doorTimer=0;lastShot=-100;lastCrime=-100;wantedSince=-100;lookTimer=elapsed;dialogueQueue=[];dialogueUntil=0;
  state.weapon='UNARMED';
  const home=job.getState().mission>=4?world.landmarks?.safehouse:null;
- player.mesh.position.set(home?.x??1.4,0,home?.z??23);player.mesh.rotation.set(0,Math.PI,0);player.setVisible(true);player.setWeapon(false);playerVelocity.set(0,0,0);yaw=0;pitch=.2;jumpVelocity=0;
+ player.mesh.position.set(home?.x??1.4,0,home?.z??23);player.mesh.rotation.set(0,Math.PI,0);player.setVisible(true);player.setWeapon(false);playerVelocity.set(0,0,0);yaw=home?-Math.PI/2:0;pitch=.07;jumpVelocity=0;
  for(let i=pedestrians.length-1;i>=0;i--)if(pedestrians[i].isDriver)pedestrians.splice(i,1);
  for(const c of vehicles){c.model.mesh.position.copy(c.home);c.heading=c.homeHeading;c.model.mesh.rotation.set(0,c.heading,0);c.speed=0;c.steer=0;c.health=100;c.occupied=false;c.stolen=false;c.traffic=c.homeTraffic;c.routeIndex=c.homeRouteIndex;c.closeDoorAt=0;c.physics=null;c.model.setDoor(false);c.model.setDamage?.(100);c.model.update(1,0,0);c.driverActive=!!c.driver;}
  for(const p of pedestrians){p.actor.mesh.position.copy(p.home);p.direction=p.homeDirection;p.down=false;p.recoverAt=0;p.fleeUntil=0;p.actor.mesh.rotation.set(0,p.direction<0?Math.PI:0,0);p.actor.update(1,{speed:0,dead:false});}
@@ -240,6 +262,8 @@ function updateInteraction(dt){
  }
 }
 function action(code){
+ if(photo?.active){if(code==='Escape'||code==='KeyP')exitPhoto();else if(code==='KeyH')photo.change({hideUI:!photo.settings.hideUI});return;}
+ if(code==='KeyP'&&state.started){enterPhoto();return;}
  if(code==='Escape'){if(state.mapOpen)setMap(false);else pause(!state.paused);return;}
  if(!state.started||state.paused)return;
  if(code==='KeyM'){setMap(!state.mapOpen);return;}
@@ -353,10 +377,11 @@ function policeShot({origin,target,hit,damage}){
 }
 function clipCameraBoom(head,target){
  const offset=target.clone().sub(head),steps=Math.max(1,Math.ceil(offset.length()/.25));
- for(let i=1;i<=steps;i++){const point=head.clone().addScaledVector(offset,i/steps);if(collides(point.x,point.z,.2))return head.clone().addScaledVector(offset,Math.max(0,i-1)/steps);}
+ for(let i=1;i<=steps;i++){const point=head.clone().addScaledVector(offset,i/steps);if(cameraBoxes.some(box=>box.containsPoint(point)))return head.clone().addScaledVector(offset,Math.max(0,i-1)/steps);}
  return target;
 }
 function updateCamera(dt){
+ if(photo?.active)return;
  if(!state.started){
   camera.position.set(9.8+Math.sin(elapsed*.045)*.32,2.15,28.7+Math.cos(elapsed*.045)*.2);camera.fov=52;camera.updateProjectionMatrix();camera.lookAt(-3.2,2.8,-12);return;
  }
@@ -374,6 +399,11 @@ function updateCamera(dt){
  camera.position.copy(clipCameraBoom(head,camera.position));
  const look=base.clone().add(new THREE.Vector3(-Math.sin(yaw)*3,aiming?1.5:1.2,-Math.cos(yaw)*3));
  cameraLook.lerp(look,1-Math.exp(-10*dt));camera.lookAt(cameraLook);
+ // Restrained body-mounted motion: weight follows steering while the horizon
+ // settles as the vehicle straightens. Recoil stays local to an aimed shot.
+ const lean=currentCar?clamp(-currentCar.steer*Math.abs(currentCar.speed)*.004,-.035,.035):0;
+ cameraRoll=damp(cameraRoll,lean,4,dt);camera.rotateZ(cameraRoll);
+ if(aiming&&elapsed-lastShot<.18)camera.rotateX(Math.sin((elapsed-lastShot)/.18*Math.PI)*.009);
  camera.fov=damp(camera.fov,currentCar?58+Math.min(10,Math.abs(currentCar.speed)*.2):aiming?43:55,4,dt);camera.updateProjectionMatrix();
 }
 function updateNightLights(){
@@ -418,7 +448,7 @@ function updateGame(dt){
  Object.assign(state,{interactionVisible:!!context&&!interaction,interactionTitle:context?.title||'',interactionName:context?.name||'',interactionKey:'E'});
  for(let i=effects.length-1;i>=0;i--){const e=effects[i];e.life-=simDt;if(e.life<=0){scene.remove(e.mesh);e.mesh.geometry.dispose();e.mesh.material.dispose();effects.splice(i,1);}else{if(e.vel){e.vel.y-=9*simDt;e.mesh.position.addScaledVector(e.vel,simDt);}e.mesh.material.opacity=e.life/e.max;}}
  updateCamera(simDt);updateNightLights();
- if(player){const pos=player.mesh.position;if(pos.distanceTo(shadowAnchor)>28){shadowAnchor.copy(pos);sun.target.position.set(pos.x,0,pos.z);sun.position.copy(shadowAnchor).add(sunOffset);renderer.shadowMap.needsUpdate=true;}state.location=world.locationAt?.(pos.x,pos.z)||'VESPUCCI BOULEVARD';state.objectiveDistance=state.target?Math.round(pos.distanceTo(goal)):0;}
+ if(player){const pos=player.mesh.position;const shadowFocus=photo.active?camera.position:pos;if(Math.hypot(shadowFocus.x-shadowAnchor.x,shadowFocus.z-shadowAnchor.z)>28){shadowAnchor.copy(shadowFocus);shadowAnchor.y=0;sun.target.position.copy(shadowAnchor);sun.position.copy(shadowAnchor).add(sunOffset);renderer.shadowMap.needsUpdate=true;}state.location=world.locationAt?.(pos.x,pos.z)||'VESPUCCI BOULEVARD';state.objectiveDistance=state.target?Math.round(pos.distanceTo(goal)):0;}
  sound.update({speed:Math.abs(currentCar?.speed||0),inCar:active&&state.inCar,wanted:active?state.wanted:0,playerPosition:player?.mesh.position,policePosition:police.model.mesh.position,velocity:playerVelocity,footSpeed:active&&!currentCar&&!interaction?playerVelocity.length():0,sprinting:keys.has('ShiftLeft'),rpm:state.rpm,gear:state.gear,slip:state.slip||0,policeState:state.policeState,night,active,cameraForward:camera.getWorldDirection(new THREE.Vector3())});
  uiTimer+=dt;miniTimer+=dt;
  if(uiTimer>.1){ui.update({...state,aiming:weapon&&!currentCar,reloading});uiTimer=0;}
@@ -447,40 +477,48 @@ function drawMap(target,full=false){
 }
 
 window.addEventListener('keydown',e=>{
- if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Tab'].includes(e.code))e.preventDefault();
+ const control=e.target.closest?.('button,input,select,textarea,[contenteditable]');
+ if(control&&['Space','Enter','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End'].includes(e.code))return;
+ if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+ const photoMovement=photo.active&&['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','ShiftLeft','ShiftRight'].includes(e.code);
+ if((e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)&&!photoMovement&&!['Escape','KeyP','KeyH'].includes(e.code))return;
  if(!keys.has(e.code))action(e.code);keys.add(e.code);
 });
 window.addEventListener('keyup',e=>keys.delete(e.code));
-window.addEventListener('blur',()=>{keys.clear();mouseDown=false;aiming=false;if(state.started)pause(true);});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.started)pause(true);});
+window.addEventListener('blur',()=>{keys.clear();mouseDown=false;aiming=false;if(state.started&&!photo.active)pause(true);});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.started&&!photo.active)pause(true);});
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('pointerdown',e=>{
+ if(photo.active){canvas.focus({preventScroll:true});canvas.setPointerCapture(e.pointerId);return;}
  if(!state.started||state.paused||state.mapOpen||interaction)return;
  if(e.button===2){aiming=weapon;canvas.setPointerCapture(e.pointerId);}
  if(e.button===0){mouseDown=true;if(weapon)shoot();else canvas.setPointerCapture(e.pointerId);}
 });
 window.addEventListener('pointerup',e=>{if(e.button===0)mouseDown=false;if(e.button===2)aiming=false;});
 window.addEventListener('pointermove',e=>{
+ if(photo.active){if(e.buttons&&e.target===canvas)photo.look(e.movementX,e.movementY);return;}
  if(!state.started||state.paused||state.mapOpen||interaction)return;
  if(e.buttons||document.pointerLockElement===canvas){yaw-=e.movementX*.004;pitch=clamp(pitch+e.movementY*.003,-.28,1);lookTimer=elapsed;}
 });
-canvas.addEventListener('dblclick',()=>{if(state.started&&!state.paused)canvas.requestPointerLock?.();});
+canvas.addEventListener('dblclick',()=>{if(state.started&&!state.paused&&!photo.active)canvas.requestPointerLock?.();});
+canvas.addEventListener('wheel',e=>{if(photo.active){e.preventDefault();photo.change({fov:photo.settings.fov+e.deltaY*.025});}},{passive:false});
 window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);rendering.resize();});
 
 // A read-only diagnostic view keeps real browser verification reproducible.
-Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,position:player?.mesh.position.toArray(),carPosition:currentCar?.model.mesh.position.toArray(),carHeading:currentCar?.heading,carSpeed:currentCar?.speed,mission,interaction:interaction?{phase:interaction.phase,progress:interaction.elapsed/interaction.duration}:null,animation:player?.mesh.userData.animationState,pose:player?.getPoseInfo?.(),landmarks:world.landmarks,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,driverVisible:!!currentCar&&player?.mesh.visible,driverPosition:currentCar?player.mesh.position.toArray():null,jobCarHealth:heroCar.health,jobCarPosition:heroCar.model.mesh.position.toArray(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray()})}});
+Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,position:player?.mesh.position.toArray(),carPosition:currentCar?.model.mesh.position.toArray(),carHeading:currentCar?.heading,carSpeed:currentCar?.speed,mission,interaction:interaction?{phase:interaction.phase,progress:interaction.elapsed/interaction.duration}:null,animation:player?.mesh.userData.animationState,pose:player?.getPoseInfo?.(),landmarks:world.landmarks,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,driverVisible:!!currentCar&&player?.mesh.visible,driverPosition:currentCar?player.mesh.position.toArray():null,jobCarHealth:heroCar.health,jobCarPosition:heroCar.model.mesh.position.toArray(),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray(),photo:photo.active?photo.settings:null,renderSize:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()})}});
 
 async function boot(){
  try{
   const [skyData]=await Promise.all([atmosphere.ready,world.ready,loadCharacterAssets()]);
   if(skyData?.texture){
+   world.setSky(skyData);
    const pmrem=new THREE.PMREMGenerator(renderer);
    const dayEnvironment=pmrem.fromEquirectangular(skyData.texture).texture;
    const nightEnvironment=skyData.nightTexture?pmrem.fromEquirectangular(skyData.nightTexture).texture:dayEnvironment;
    vehicleNightEnvironment=nightEnvironment;
    atmosphere.setEnvironment(dayEnvironment,nightEnvironment);
    scene.environmentRotation.copy(skyData.rotation);
-   sunOffset.copy(skyData.sunDirection).multiplyScalar(140);
+   sunOffset.copy(skyData.sunDirection).multiplyScalar(350);
    sun.target.position.copy(shadowAnchor);sun.position.copy(shadowAnchor).add(sunOffset);
    pmrem.dispose();
   }
@@ -510,7 +548,7 @@ async function boot(){
   simulation=createCitySimulation({vehicles,pedestrians,police,officers,world,moveBody,carsOverlap,onPoliceShot:policeShot,onToast:(a,b)=>ui.toast(a,b)});
   job=createMission({landmarks:world.landmarks,getHeroPosition:()=>heroCar.model.mesh.position,onDialogue:dialogue,onToast:(a,b)=>ui.toast(a,b),onComplete:info=>{ui.missionComplete?.(info);sound.notify();}});
   const saved=job.getState();Object.assign(state,saved);mission=saved.mission;
-  if(mission>=4){player.mesh.position.set(world.landmarks.safehouse.x,0,world.landmarks.safehouse.z);heroCar.isJobCar=false;}
+  if(mission>=4){player.mesh.position.set(world.landmarks.safehouse.x,0,world.landmarks.safehouse.z);player.mesh.rotation.y=Math.PI/2;yaw=-Math.PI/2;heroCar.isJobCar=false;}
   updateDrivers(0);ui.update(state);
   state.ready=true;ui.setReady(true);
  }catch(error){console.error('Unable to initialize city',error);ui.toast('COULD NOT LOAD THE CITY','Please refresh to try again.');}
@@ -519,6 +557,6 @@ async function boot(){
 function frame(now){
  const wallDt=Math.max(0,(now-lastFrame)/1000),dt=Math.min(wallDt,.25);lastFrame=now;frameCount++;fpsTimer+=wallDt;
  if(fpsTimer>1){state.fps=Math.round(frameCount/fpsTimer);frameCount=0;fpsTimer=0;}
- const steps=Math.max(1,Math.ceil(dt/.033));for(let i=0;i<steps;i++)updateGame(dt/steps);rendering.render();requestAnimationFrame(frame);
+ const steps=Math.max(1,Math.ceil(dt/.033));for(let i=0;i<steps;i++)updateGame(dt/steps);photo.update(dt,keys);rendering.render();photo.afterRender();requestAnimationFrame(frame);
 }
 boot();

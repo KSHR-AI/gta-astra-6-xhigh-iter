@@ -4,6 +4,8 @@ import { addAuthoredDistrict } from './world-district.js';
 import { addStreetDetails } from './world-streets.js';
 import { createPalmAssets } from './world-palms.js';
 import { createShrubBuilder } from './world-shrubs.js';
+import { createOcean } from './world-ocean.js';
+import { createCityProps } from './world-props.js';
 
 // Everything in the district is real geometry. Repeated architectural details
 // share instanced meshes, so the dense streetscape stays inexpensive to render.
@@ -102,7 +104,7 @@ export function createWorld(scene) {
     texture.anisotropy = 4;
     return texture;
   }
-  const { ready } = applyCityMaterials(materials, canvasTexture, random);
+  const { ready: materialReady } = applyCityMaterials(materials, canvasTexture, random);
   const shrub = createShrubBuilder({ instance, materials, canvasTexture, random, range });
   const breeze = { value: 0 };
   materials.leaves.onBeforeCompile = shader => {
@@ -121,7 +123,9 @@ export function createWorld(scene) {
   };
 
   // Terrain and street grid. Pavements sit above the roads, with actual curbs.
-  box(materials.sand, -310, -0.24, -25, 900, 0.35, 1200, 0, false);
+  // End the land at the beach; a flat slab under the waves would cut through
+  // their troughs and expose large triangular patches of sand offshore.
+  box(materials.sand, -7.5, -0.24, -25, 295, 0.35, 1200, 0, false);
   box(materials.sidewalk, 51, -0.10, -25, 324, 0.25, 540, 0, false);
   const roads = [
     { x: 0, z: -20, width: 22, length: 440, axis: 'z' },
@@ -375,11 +379,11 @@ export function createWorld(scene) {
   // A hand-composed main street keeps the first view legible and varied.
   const mainBuildings = [
     [-33, -208, 32, 25, 8, 4], [-32, -178, 30, 27, 6, 1], [-35, -144, 36, 31, 10, 0], [-31, -115, 28, 20, 5, 2],
-    [-32, -63, 30, 27, 7, 0], [-34, -32, 34, 26, 5, 3],
+    [-32, -63, 30, 27, 5, 3], [-34, -32, 34, 26, 5, 3],
     [-33, 31, 32, 26, 6, 1], [-31, 62, 28, 27, 4, 2],
     [-32, 122, 30, 30, 7, 4], [-34, 158, 34, 31, 5, 0],
     [33, -209, 32, 26, 7, 3], [32, -177, 30, 27, 11, 4], [33, -143, 32, 29, 6, 2], [31, -115, 28, 20, 4, 1],
-    [34, -63, 34, 27, 5, 2], [32, -32, 30, 26, 8, 0],
+    [34, -63, 34, 27, 5, 2], [32, -32, 30, 26, 6, 1],
     [32, 31, 30, 26, 5, 3], [34, 62, 34, 27, 7, 1],
     [33, 122, 32, 30, 9, 0], [32, 158, 30, 31, 6, 4],
     [-76, -55, 27, 36, 3, 0],
@@ -409,8 +413,8 @@ export function createWorld(scene) {
   const distantFrondGeometry = palmAssets.far;
   materials.leaves.map = palmAssets.map;
   materials.leaves.color.set('#e8e9d8');
-  materials.leaves.alphaTest = .42;
-  materials.leaves.alphaToCoverage = true;
+  materials.leaves.alphaTest = 0;
+  materials.leaves.alphaToCoverage = false;
   materials.leaves.roughness = .82;
   materials.leaves.needsUpdate = true;
   function palm(x, z, height = 10, size = 1) {
@@ -423,7 +427,7 @@ export function createWorld(scene) {
       line(i % 3 === 0 ? materials.trunkLight : materials.trunk,
         [x + lean * a * a, a * height + 0.2, z + leanZ * a * a],
         [x + lean * b * b, b * height + 0.2, z + leanZ * b * b],
-        (0.29 - a * 0.09) * size, detailed ? trunkGeometry : distantTrunkGeometry);
+        (0.29 - a * 0.09) * size, detailed ? palmAssets.trunkNear : palmAssets.trunkFar);
       // The fine horizontal bands give the trunk its characteristic ring texture.
       if (detailed && i < 9) cylinder(materials.trunkLight, x + lean * a * a, a * height + 0.25, z + leanZ * a * a, (0.295 - a * 0.09) * size, 0.04, false);
     }
@@ -562,24 +566,15 @@ export function createWorld(scene) {
     box(materials.red, 11.8, 0.8, z + 8, 0.55, 0.15, 0.15);
     for (const side of [-1, 1]) {
       const px = side * 15.7;
+      if(side===1&&z===23)continue; // The news kiosk occupies this planter bay.
       box(materials.concrete, px, 0.54, z - 8, 1.1, 0.7, 2.7);
       box(materials.soil, px, 0.91, z - 8, 0.9, 0.06, 2.5, 0, false);
       for (let i = 0; i < 3; i++) shrub(px, 1.31 + i % 2 * .07, z - 8.8 + i * .8, 1.15, .94, 1.2);
     }
   }
-  // Café tables at the corner, with striped parasols and chairs.
-  for (const z of [-43, -49, -55]) {
-    const x = -14.7;
-    cylinder(materials.blackMetal, x, 0.8, z, 0.055, 1.1);
-    cylinder(materials.limestone, x, 1.38, z, 0.7, 0.09);
-    for (const dz of [-1, 1]) {
-      box(materials.trunkLight, x, 0.75, z + dz, 0.55, 0.08, 0.55);
-      box(materials.trunkLight, x, 1.12, z + dz * 1.2, 0.55, 0.7, 0.06);
-      for (const dx of [-0.22, 0.22]) box(materials.blackMetal, x + dx, 0.48, z + dz, 0.05, 0.52, 0.5);
-    }
-    cylinder(materials.trunkLight, x, 1.9, z, 0.035, 3.3);
-    instance(coneGeometry, materials.limestone, [x, 3.45, z], [1.8, 0.65, 1.8]);
-  }
+  const cityProps = createCityProps(root);
+  colliders.push(...cityProps.colliders);
+  const ready = Promise.all([materialReady, cityProps.ready]);
 
   // Billboard is part of the city, with a real support structure and floodlights.
   const billboardTexture = canvasTexture(1024, 512, (ctx, w, h) => {
@@ -627,34 +622,8 @@ export function createWorld(scene) {
       instance(coneGeometry, i % 2 ? materials.white : materials.blush, [x + 1.1, 2.4, z], [1.5, 0.6, 1.5]);
     }
   }
-  const waterMaterial = new THREE.ShaderMaterial({
-    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { time: { value: 0 }, deepColor: { value: new THREE.Color('#426e79') }, shallowColor: { value: new THREE.Color('#89b6aa') } }]),
-    fog: true,
-    vertexShader: `varying vec3 vWorld; uniform float time;
-      #include <fog_pars_vertex>
-      void main(){ vec3 p=position; p.z += sin(p.x*.14+time*.6)*.08 + sin(p.y*.19+time*.42)*.06;
-        vec4 wp=modelMatrix*vec4(p,1.);vWorld=wp.xyz; vec4 mvPosition=viewMatrix*wp;gl_Position=projectionMatrix*mvPosition;
-        #include <fog_vertex>
-      }`,
-    fragmentShader: `varying vec3 vWorld; uniform float time; uniform vec3 deepColor; uniform vec3 shallowColor;
-      #include <fog_pars_fragment>
-      void main(){ float wave=sin(vWorld.x*.53+vWorld.z*.25+time*.8)*sin(vWorld.z*.65-time*.6);
-        float small=sin(vWorld.x*2.5+vWorld.z*1.7+time)*.5+.5;
-        float shore=smoothstep(-175.,-150.,vWorld.x);
-        vec3 c=mix(deepColor,shallowColor,shore*.8);
-        c+=wave*.025+pow(small,28.)*.08;
-        float foam=pow(max(0.,sin(vWorld.x*1.8+sin(vWorld.z*.25)-time*.7)),14.)*shore;
-        c=mix(c,vec3(.79,.83,.73),foam*.6);
-        float glow=pow(max(0.,sin(vWorld.z*.095+vWorld.x*.011)),22.);
-        c+=vec3(.12,.07,.025)*glow;
-        gl_FragColor=vec4(c,1.);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-        #include <fog_fragment>
-      }`,
-  });
-  const ocean = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1600, 32, 24), waterMaterial);
-  ocean.rotation.x = -Math.PI / 2; ocean.position.set(-1050, -0.04, -80); root.add(ocean);
+  const ocean = createOcean();
+  root.add(ocean.mesh);
 
   // Distant metropolitan silhouettes wrap the drivable district without walls.
   // Conventional repeated interior atlas here gives each long strip a bank of
@@ -729,6 +698,7 @@ export function createWorld(scene) {
   }
   return {
     root, colliders, roads, ready, lampPositions,
+    setSky: data => ocean.setSky(data),
     landmarks: district.landmarks,
     zones: district.zones,
     locationAt(x, z) {
@@ -736,6 +706,7 @@ export function createWorld(scene) {
         || (x < -100 ? 'Pacific Oceanfront' : z < -95 ? 'Palm Avenue' : z > 95 ? 'Marina Way' : 'Ocean Drive');
     },
     setNight(value) {
+      ocean.setNight(value);
       materials.lamp.emissiveIntensity=value?4.5:1.3;
       materials.glassWarm.emissiveMap=value?materials.glassWarm.map:null;
       materials.glassWarm.emissiveIntensity=value?.8:.035;
@@ -743,6 +714,6 @@ export function createWorld(scene) {
       illuminatedSigns.forEach(({material,intensity})=>material.emissiveIntensity=intensity*(value?3:1));
     },
     bounds: { minX: -148, maxX: 143, minZ: -238, maxZ: 194 },
-    update(dt, time) { waterMaterial.uniforms.time.value = time; breeze.value = time; updateTrafficSignals(time); },
+    update(dt, time) { ocean.update(time); breeze.value = time; updateTrafficSignals(time); },
   };
 }

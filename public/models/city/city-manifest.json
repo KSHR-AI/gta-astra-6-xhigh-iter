@@ -1,0 +1,21 @@
+{
+  "generator": "art/blender/city_streetscape.py",
+  "blender": "4.5.14 LTS",
+  "assets": {
+    "BusShelter": {
+      "triangles": 2318,
+      "meshes": 7,
+      "materials": 7
+    },
+    "NewsKiosk": {
+      "triangles": 1476,
+      "meshes": 7,
+      "materials": 7
+    },
+    "CafeSet": {
+      "triangles": 2812,
+      "meshes": 7,
+      "materials": 7
+    }
+  }
+}

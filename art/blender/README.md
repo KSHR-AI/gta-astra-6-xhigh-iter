@@ -25,3 +25,15 @@ DISPLAY=:100 xdotool search --onlyvisible --class Blender
 ```
 
 The browser desktop does not install a native computer-use connector or Unreal Engine. It provides remote desktop input and the Blender Python API for our asset workflow.
+
+## Game asset sources
+
+The game now uses these original Blender exports:
+
+```sh
+blender --background --factory-startup --threads 2 --python art/blender/vehicle_meridian.py
+blender --background --factory-startup --threads 2 --python art/blender/city_streetscape.py
+blender --background --factory-startup --threads 2 --python art/blender/character_sidearm.py
+```
+
+Each generator saves its editable `.blend` beside the script and its GLB under `public/models/`. The city generator also creates its original sign/newspaper/fabric atlas through `city_textures.py`. The vehicle generator exports both near and simplified far meshes. Runtime integration lives in `src/vehicles.js`, `src/world-props.js`, and `src/characters.js`. Keep the named wheel, door, grip, and muzzle attachment conventions when editing assets. Preview changes in-game, including door/steering motion and the seated driver, before committing exports.

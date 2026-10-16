@@ -34,7 +34,8 @@ export function createPoseTools(root, bones) {
 
   function pointWorld(bone, child, direction, weight) {
     if (!bone || !child || !bone.parent || weight <= 0 || direction.lengthSq() < 1e-12) return false;
-    bone.updateWorldMatrix(true, true);
+    // The getters refresh only the ancestor chains we need. Updating every
+    // descendant here repeats the whole hand/finger rig for each IK joint.
     bone.getWorldPosition(bonePosition);
     child.getWorldPosition(childPosition);
     currentDirection.subVectors(childPosition, bonePosition);
@@ -47,7 +48,6 @@ export function createPoseTools(root, bones) {
     bone.parent.getWorldQuaternion(parentRotation).invert();
     localRotation.copy(parentRotation).multiply(worldRotation);
     bone.quaternion.slerp(localRotation, THREE.MathUtils.clamp(weight, 0, 1));
-    bone.updateWorldMatrix(false, true);
     return true;
   }
 
@@ -122,6 +122,5 @@ export function createPoseTools(root, bones) {
     return root.worldToLocal(out);
   }
 
-  // Finger axes vary between these source rigs; preserve their authored poses.
   return { point, reach, position };
 }

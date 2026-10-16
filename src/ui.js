@@ -15,6 +15,9 @@ const icons = {
   fist: '<svg viewBox="0 0 100 47" fill="none" aria-hidden="true"><path d="M35 22V10c0-6 8-6 8 0v10-14c0-6 8-6 8 0v14-11c0-6 8-6 8 0v12-6c0-6 8-6 8 0v16c0 7-5 12-7 14H41c-2-5-5-7-8-10l-7-9c-3-4 2-9 6-5l6 6" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   car: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 9 2-5h10l2 5m-15 1h16v8H4v-8Zm2 8v3m12-3v3M6 13h3m6 0h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   sound: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4V9Zm12-2a7 7 0 0 1 0 10m3-13a11 11 0 0 1 0 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5.5 9.5 3h5L16 5.5h4a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1h4Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="12.5" r="4" stroke="currentColor" stroke-width="1.4"/><circle cx="18" cy="8.5" r=".8" fill="currentColor"/></svg>',
+  eye: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.4"/></svg>',
+  reset: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10a8 8 0 1 1 .8 6M4 4v6h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3v14H7zm7 0h3v14h-3z" fill="currentColor"/></svg>',
 };
 
@@ -49,18 +52,48 @@ export function createUI(callbacks = {}) {
       <aside class="minimap-panel"><div class="minimap-topline"><span class="district-name" id="location-name">VESPUCCI BOULEVARD</span><button class="map-button" id="map-button" type="button" aria-label="Open city map"><kbd>M</kbd>${icons.map}</button></div><button class="minimap-frame" id="minimap-open" type="button" aria-label="Open city map"><canvas id="minimap" width="440" height="300"></canvas><span class="minimap-north">N</span><span class="minimap-scale">100 m <i></i></span></button><div class="vitals"><div class="vital health">${icons.health}<div class="vital-track"><span id="health-fill"></span></div><span id="health-value">100</span></div><div class="vital stamina">${icons.stamina}<div class="vital-track"><span id="stamina-fill"></span></div></div></aside>
       <button class="interaction-prompt" id="interaction-prompt" type="button" hidden><kbd id="interaction-key">E</kbd><span class="interaction-copy"><span id="interaction-title">ENTER VEHICLE</span><strong id="interaction-name">Take it for a spin</strong></span><span class="interaction-icon" id="interaction-icon">${icons.arrow}</span></button>
       <aside class="equipment-panel"><div id="weapon-panel"><span class="equipment-label" id="weapon-name">9MM PISTOL</span><div class="weapon-row"><span class="weapon-silhouette" id="weapon-silhouette">${icons.weapon}</span><span class="ammo-count" id="ammo-value">12</span><span class="ammo-divider" id="ammo-divider">/</span><span class="ammo-reserve" id="reserve-value">96</span></div><div class="equipment-hint" id="weapon-hints"><span><kbd>R</kbd> RELOAD</span><span><kbd>LMB</kbd> FIRE</span></div></div><div class="speedometer" id="speed-panel" hidden><span class="equipment-label">ON THE STREETS</span><div class="speed-row"><span id="speed-value">000</span><div><b>KM/H</b><span id="gear-value">N</span></div></div><div class="vehicle-telemetry"><div class="rpm-label"><span>ENGINE</span><span id="rpm-value">— RPM</span></div><div class="speed-track"><span id="speed-fill"></span></div><div class="vehicle-condition" id="vehicle-condition"><span>CONDITION</span><div class="condition-track"><span id="vehicle-health-fill"></span></div><strong id="vehicle-health-value">100%</strong></div></div><div class="equipment-hint"><span><kbd>SPACE</kbd> HANDBRAKE</span><span><kbd>E</kbd> EXIT</span></div></div></aside>
-      <div class="game-bottom-hint"><span><kbd>ESC</kbd> MENU &amp; CONTROLS</span></div><div class="dialogue-panel" id="dialogue-panel" hidden role="status" aria-live="polite"><span class="dialogue-speaker" id="dialogue-speaker"></span><p id="dialogue-text"></p></div><div class="mission-complete" id="mission-complete" role="status" aria-live="polite" hidden><span class="complete-symbol">${icons.logo}</span><div><span class="complete-eyebrow">JOB COMPLETE</span><h2 id="complete-title"></h2><p id="complete-reward"></p></div></div>
+      <div class="game-bottom-hint"><span><kbd>ESC</kbd> MENU &amp; CONTROLS</span><span><kbd>P</kbd> PHOTO MODE</span></div><div class="dialogue-panel" id="dialogue-panel" hidden role="status" aria-live="polite"><span class="dialogue-speaker" id="dialogue-speaker"></span><p id="dialogue-text"></p></div><div class="mission-complete" id="mission-complete" role="status" aria-live="polite" hidden><span class="complete-symbol">${icons.logo}</span><div><span class="complete-eyebrow">JOB COMPLETE</span><h2 id="complete-title"></h2><p id="complete-reward"></p></div></div>
       <div class="toast" id="game-toast" role="status" aria-live="polite"><span class="toast-icon">${icons.pin}</span><div><strong id="toast-title"></strong><p id="toast-detail"></p></div></div>
       <div class="mobile-controls"><div class="mobile-dpad"><button class="touch-key up" data-code="KeyW" aria-label="Move forward">${icons.chevron}</button><button class="touch-key left" data-code="KeyA" aria-label="Move left">${icons.chevron}</button><button class="touch-key down" data-code="KeyS" aria-label="Move backward">${icons.chevron}</button><button class="touch-key right" data-code="KeyD" aria-label="Move right">${icons.chevron}</button></div><div class="mobile-actions"><button class="touch-key" data-code="ShiftLeft" aria-label="Sprint">RUN</button><button class="touch-key" data-code="Space" aria-label="Jump or handbrake">JUMP</button><button class="touch-key touch-interact" data-code="KeyE" id="mobile-interact" aria-label="Interact or enter vehicle">USE</button><button class="touch-key touch-fire" data-code="Mouse0" aria-label="Fire weapon">${icons.target}</button><button class="touch-key touch-utility" data-code="KeyR" aria-label="Reload weapon">RELOAD</button><button class="touch-key touch-utility" data-code="Digit1" aria-label="Equip or holster weapon">EQUIP</button></div></div>
     </div>
-    <div class="modal-backdrop" id="pause-overlay" hidden><section class="pause-menu" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="modal-topline"><span class="small-eyebrow" id="pause-eyebrow">YOUR EXPERIENCE</span><button class="icon-button" id="close-pause" type="button" aria-label="Close pause menu">${icons.close}</button></div><h2 id="pause-title">Settings<span>.</span></h2><p class="pause-subtitle" id="pause-subtitle">Set the tone for your time in Los Pacificos.</p><button class="enter-button resume-button" id="resume-button" type="button"><span id="resume-label">Back to main menu</span>${icons.arrow}</button><div class="settings-list"><div class="setting-row"><span>${icons.sound}Sound</span><button class="setting-toggle is-on" id="sound-button" type="button" aria-pressed="true"><span class="setting-value">On</span><i></i></button></div><div class="setting-row"><span>${icons.settings}Graphics</span><div class="segmented" aria-label="Graphics quality"><button type="button" data-quality="high" class="is-selected">Cinematic</button><button type="button" data-quality="performance">Performance</button></div></div><div class="setting-row"><span>${icons.sun}Time of day</span><div class="segmented" aria-label="Time of day"><button type="button" data-time="golden" class="is-selected">Golden hour</button><button type="button" data-time="night">Night</button></div></div></div><details class="controls-details"><summary>Controls<span>VIEW ALL ${icons.chevron}</span></summary><div class="controls-grid"><span>Move / drive</span><kbd>W A S D</kbd><span>Look around</span><kbd>MOUSE / DRAG</kbd><span>Sprint</span><kbd>SHIFT</kbd><span>Jump / handbrake</span><kbd>SPACE</kbd><span>Interact / enter / exit</span><kbd>E</kbd><span>Equip weapon</span><kbd>1</kbd><span>Fire / aim</span><kbd>LMB / RMB</kbd><span>Horn</span><kbd>H</kbd><span>Reload</span><kbd>R</kbd><span>City map / pause</span><kbd>M / ESC</kbd></div></details><button class="restart-button" id="restart-button" type="button">Start a fresh session<span>↗</span></button><div class="session-summary" id="session-summary" hidden><span id="session-save">PROGRESS SAVED</span><span id="session-jobs">0 JOBS COMPLETED</span></div><div class="pause-footer">GRAND THEFT ASTRA <span>LOS PACIFICOS AWAITS</span></div></section></div>
+    <div class="modal-backdrop" id="pause-overlay" hidden><section class="pause-menu" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="modal-topline"><span class="small-eyebrow" id="pause-eyebrow">YOUR EXPERIENCE</span><button class="icon-button" id="close-pause" type="button" aria-label="Close pause menu">${icons.close}</button></div><h2 id="pause-title">Settings<span>.</span></h2><p class="pause-subtitle" id="pause-subtitle">Set the tone for your time in Los Pacificos.</p><button class="enter-button resume-button" id="resume-button" type="button"><span id="resume-label">Back to main menu</span>${icons.arrow}</button><button class="photo-entry" id="photo-mode-button" type="button" hidden><span class="photo-entry-icon">${icons.camera}</span><span><strong>Photo mode</strong><small>Find your angle. Save the moment.</small></span><kbd>P</kbd></button><div class="settings-list"><div class="setting-row"><span>${icons.sound}Sound</span><button class="setting-toggle is-on" id="sound-button" type="button" aria-pressed="true"><span class="setting-value">On</span><i></i></button></div><div class="setting-row"><span>${icons.settings}Graphics</span><div class="segmented" aria-label="Graphics quality"><button type="button" data-quality="high" class="is-selected">Cinematic</button><button type="button" data-quality="performance">Performance</button></div></div><div class="setting-row"><span>${icons.sun}Time of day</span><div class="segmented" aria-label="Time of day"><button type="button" data-time="golden" class="is-selected">Golden hour</button><button type="button" data-time="night">Night</button></div></div></div><details class="controls-details"><summary>Controls<span>VIEW ALL ${icons.chevron}</span></summary><div class="controls-grid"><span>Move / drive</span><kbd>W A S D</kbd><span>Look around</span><kbd>MOUSE / DRAG</kbd><span>Sprint</span><kbd>SHIFT</kbd><span>Jump / handbrake</span><kbd>SPACE</kbd><span>Interact / enter / exit</span><kbd>E</kbd><span>Equip weapon</span><kbd>1</kbd><span>Fire / aim</span><kbd>LMB / RMB</kbd><span>Horn</span><kbd>H</kbd><span>Reload</span><kbd>R</kbd><span>City map / pause</span><kbd>M / ESC</kbd><span>Photo mode</span><kbd>P</kbd></div></details><button class="restart-button" id="restart-button" type="button">Start a fresh session<span>↗</span></button><div class="session-summary" id="session-summary" hidden><span id="session-save">PROGRESS SAVED</span><span id="session-jobs">0 JOBS COMPLETED</span></div><div class="pause-footer">GRAND THEFT ASTRA <span>LOS PACIFICOS AWAITS</span></div></section></div>
     <div class="modal-backdrop map-backdrop" id="map-overlay" hidden><section class="city-map-dialog" role="dialog" aria-modal="true" aria-labelledby="city-map-title"><div class="city-map-heading"><div><span class="small-eyebrow">KNOW YOUR NEIGHBORHOOD</span><h2 id="city-map-title">Los Pacificos<span>.</span></h2></div><button class="icon-button" id="close-map" type="button" aria-label="Close city map">${icons.close}</button></div><div class="city-map-surface"><canvas id="city-map" width="1000" height="800"></canvas><span class="map-compass">N <i></i></span></div><div class="map-legend"><span><i class="legend-player"></i> You</span><span><i class="legend-car"></i> Vehicles</span><span><i class="legend-objective"></i> Objective</span><span class="map-legend-caption">YOUR NEXT MOVE IS UP TO YOU.</span></div></section></div>
+    <section class="photo-mode" id="photo-mode" aria-label="Photo mode" hidden>
+      <div class="photo-chrome" id="photo-chrome">
+        <header class="photo-header">
+          <div class="photo-heading"><span class="photo-heading-icon">${icons.camera}</span><div><span class="photo-eyebrow">GRAND THEFT ASTRA</span><h2>Photo mode</h2></div></div>
+          <div class="photo-actions"><button class="photo-action photo-hide" id="photo-hide" type="button" aria-label="Hide photo controls; press H to show them again">${icons.eye}<span>Hide controls</span><kbd>H</kbd></button><button class="photo-action photo-capture" id="photo-capture" type="button">${icons.camera}<span>Save photo</span></button><button class="photo-action photo-exit" id="photo-exit" type="button" aria-label="Exit photo mode">${icons.close}<span>Exit</span><kbd>ESC</kbd></button></div>
+        </header>
+        <div class="photo-frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div class="photo-status" id="photo-status" role="status" aria-live="polite" hidden></div>
+        <div class="photo-touch-nav" aria-label="Move photo camera">
+          <div class="photo-dpad"><button class="touch-key photo-touch-key up" data-code="KeyW" type="button" aria-label="Move camera forward">${icons.chevron}</button><button class="touch-key photo-touch-key left" data-code="KeyA" type="button" aria-label="Move camera left">${icons.chevron}</button><button class="touch-key photo-touch-key down" data-code="KeyS" type="button" aria-label="Move camera backward">${icons.chevron}</button><button class="touch-key photo-touch-key right" data-code="KeyD" type="button" aria-label="Move camera right">${icons.chevron}</button></div>
+          <div class="photo-height"><span>HEIGHT</span><button class="touch-key photo-touch-key" data-code="KeyE" type="button" aria-label="Raise photo camera">${icons.chevron}</button><button class="touch-key photo-touch-key" data-code="KeyQ" type="button" aria-label="Lower photo camera">${icons.chevron}</button></div>
+        </div>
+        <section class="photo-controls" aria-labelledby="photo-controls-title">
+          <div class="photo-controls-heading"><span id="photo-controls-title">CAMERA &amp; LENS</span><span id="photo-location">LOS PACIFICOS</span><button class="photo-reset" id="photo-reset" type="button" aria-label="Reset camera position and lens settings">${icons.reset}<span>Reset camera</span></button></div>
+          <div class="photo-adjustments">
+            <label class="photo-range" for="photo-fov"><span>Field of view<output id="photo-fov-value" for="photo-fov">50°</output></span><input id="photo-fov" data-photo="fov" type="range" min="20" max="90" step="1" value="50" aria-valuetext="50 degrees"><span class="photo-range-limits"><span>TELEPHOTO</span><span>WIDE</span></span></label>
+            <label class="photo-range" for="photo-focus"><span>Focus distance<output id="photo-focus-value" for="photo-focus">8.0 m</output></span><input id="photo-focus" data-photo="focus" type="range" min="1" max="80" step="0.5" value="8" aria-valuetext="8 meters" aria-describedby="photo-focus-hint"><span class="photo-range-limits" id="photo-focus-hint">WITH DEPTH BLUR ENABLED</span></label>
+            <label class="photo-range" for="photo-aperture"><span>Depth blur<output id="photo-aperture-value" for="photo-aperture">Off</output></span><input id="photo-aperture" data-photo="aperture" type="range" min="0" max="1" step="0.05" value="0" aria-valuetext="Off"><span class="photo-range-limits"><span>SHARP</span><span>SOFT</span></span></label>
+            <label class="photo-range" for="photo-roll"><span>Camera roll<output id="photo-roll-value" for="photo-roll">0°</output></span><input id="photo-roll" data-photo="roll" type="range" min="-20" max="20" step="1" value="0" aria-valuetext="0 degrees"><span class="photo-range-limits"><span>−20°</span><span>+20°</span></span></label>
+            <label class="photo-range photo-range-exposure" for="photo-exposure"><span>Exposure<output id="photo-exposure-value" for="photo-exposure">1.00×</output></span><input id="photo-exposure" data-photo="exposure" type="range" min="0.5" max="1.8" step="0.05" value="1" aria-valuetext="1 times"><span class="photo-range-limits"><span>LOW</span><span>HIGH</span></span></label>
+          </div>
+          <div class="photo-help"><span class="photo-keyboard-help"><kbd>WASD</kbd> Move</span><span class="photo-keyboard-help"><kbd>Q E</kbd> Height</span><span><kbd class="photo-drag-label">DRAG</kbd> Look around</span><span class="photo-keyboard-help"><kbd>SCROLL</kbd> Lens</span><span class="photo-touch-help">Use arrows to move &amp; rise</span><span class="photo-save-note">PNG · HUD FREE</span></div>
+        </section>
+      </div>
+      <button class="photo-reveal" id="photo-reveal" type="button" aria-label="Show photo controls" hidden><span>Show controls <kbd>H</kbd></span></button>
+    </section>
   `;
   document.body.append(root);
   const find = (id) => root.querySelector(`#${id}`);
-  const elements = Object.fromEntries(['welcome-screen', 'start-button', 'start-label', 'ready-label', 'world-time', 'money-value', 'objective-title', 'objective-description', 'objective-distance', 'wanted-caption', 'location-name', 'health-fill', 'health-value', 'stamina-fill', 'weapon-name', 'weapon-panel', 'weapon-silhouette', 'weapon-hints', 'ammo-divider', 'ammo-value', 'reserve-value', 'speed-panel', 'speed-value', 'speed-fill', 'gear-value', 'interaction-prompt', 'interaction-title', 'interaction-name', 'crosshair', 'pause-overlay', 'pause-title', 'pause-eyebrow', 'pause-subtitle', 'resume-label', 'map-overlay', 'sound-button', 'game-toast', 'toast-title', 'toast-detail', 'save-label', 'mission-chapter', 'mission-progress', 'mission-progress-fill', 'police-panel', 'police-instruction', 'police-search', 'search-progress', 'search-progress-fill', 'interaction-key', 'interaction-icon', 'mobile-interact', 'rpm-value', 'vehicle-condition', 'vehicle-health-fill', 'vehicle-health-value', 'dialogue-panel', 'dialogue-speaker', 'dialogue-text', 'mission-complete', 'complete-title', 'complete-reward', 'session-summary', 'session-save', 'session-jobs'].map((id) => [id, find(id)]));
+  const elements = Object.fromEntries(['welcome-screen', 'start-button', 'start-label', 'ready-label', 'world-time', 'money-value', 'objective-title', 'objective-description', 'objective-distance', 'wanted-caption', 'location-name', 'health-fill', 'health-value', 'stamina-fill', 'weapon-name', 'weapon-panel', 'weapon-silhouette', 'weapon-hints', 'ammo-divider', 'ammo-value', 'reserve-value', 'speed-panel', 'speed-value', 'speed-fill', 'gear-value', 'interaction-prompt', 'interaction-title', 'interaction-name', 'crosshair', 'pause-overlay', 'pause-title', 'pause-eyebrow', 'pause-subtitle', 'resume-label', 'map-overlay', 'sound-button', 'game-toast', 'toast-title', 'toast-detail', 'save-label', 'mission-chapter', 'mission-progress', 'mission-progress-fill', 'police-panel', 'police-instruction', 'police-search', 'search-progress', 'search-progress-fill', 'interaction-key', 'interaction-icon', 'mobile-interact', 'rpm-value', 'vehicle-condition', 'vehicle-health-fill', 'vehicle-health-value', 'dialogue-panel', 'dialogue-speaker', 'dialogue-text', 'mission-complete', 'complete-title', 'complete-reward', 'session-summary', 'session-save', 'session-jobs', 'photo-mode-button', 'photo-mode', 'photo-chrome', 'photo-reveal', 'photo-status', 'photo-location', 'photo-fov-value', 'photo-focus-value', 'photo-aperture-value', 'photo-roll-value', 'photo-exposure-value'].map((id) => [id, find(id)]));
   let started = false;
   let paused = false;
+  let photoMode = false;
+  let photoReturnFocus;
+  const photoSettings = { fov: 50, focus: 8, aperture: 0, roll: 0, exposure: 1, hideUI: false };
+  const photoBounds = { fov: [20, 90], focus: [1, 80], aperture: [0, 1], roll: [-20, 20], exposure: [.5, 1.8] };
   let mapOpen = false;
   let sound = true;
   let toastTimer;
@@ -93,24 +126,95 @@ export function createUI(callbacks = {}) {
   };
   const setPaused = (value) => {
     paused = Boolean(value);
-    elements['pause-overlay'].hidden = !paused;
+    elements['pause-overlay'].hidden = !paused || photoMode;
     text('pause-title', started ? 'Game paused.' : 'Settings.');
     text('pause-eyebrow', started ? 'THE CITY CAN WAIT' : 'YOUR EXPERIENCE');
     text('pause-subtitle', started ? 'Take a moment. Your story continues when you return.' : 'Set the tone for your time in Los Pacificos.');
     text('resume-label', started ? 'Resume session' : 'Back to main menu');
     find('restart-button').hidden = !started;
+    elements['photo-mode-button'].hidden = !started || typeof callbacks.onPhotoMode !== 'function';
     root.classList.toggle('is-paused', paused);
-    if (paused) { returnFocus = document.activeElement; find('resume-button').focus({ preventScroll: true }); }
-    else if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+    if (!photoMode && paused) { returnFocus = document.activeElement; find('resume-button').focus({ preventScroll: true }); }
+    else if (!photoMode && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
   };
   const pause = () => { setPaused(true); call('onPause'); };
   const resume = () => { setPaused(false); call('onResume'); };
   const showMap = (value) => {
     mapOpen = Boolean(value);
-    elements['map-overlay'].hidden = !mapOpen;
+    elements['map-overlay'].hidden = !mapOpen || photoMode;
     root.classList.toggle('is-map-open', mapOpen);
-    if (mapOpen) find('close-map').focus({ preventScroll: true });
+    if (mapOpen && !photoMode) find('close-map').focus({ preventScroll: true });
   };
+  const photoStatus = (message = '') => {
+    text('photo-status', message);
+    elements['photo-status'].hidden = !message;
+  };
+  const updatePhoto = (settings = {}) => {
+    for (const [name, bounds] of Object.entries(photoBounds)) {
+      if (settings[name] === undefined || !Number.isFinite(Number(settings[name]))) continue;
+      photoSettings[name] = clamp(settings[name], ...bounds);
+      const input = find(`photo-${name}`);
+      if (Number(input.value) !== photoSettings[name]) input.value = photoSettings[name];
+      const fill = `${(photoSettings[name] - bounds[0]) / (bounds[1] - bounds[0]) * 100}%`;
+      if (input.style.getPropertyValue('--range-fill') !== fill) input.style.setProperty('--range-fill', fill);
+    }
+    const { fov, focus, aperture, roll, exposure } = photoSettings;
+    const values = { fov: `${Math.round(fov)}°`, focus: `${focus.toFixed(1)} m`, aperture: aperture ? `${Math.round(aperture * 100)}%` : 'Off', roll: `${roll > 0 ? '+' : ''}${Math.round(roll)}°`, exposure: `${exposure.toFixed(2)}×` };
+    for (const [name, value] of Object.entries(values)) {
+      text(`photo-${name}-value`, value);
+      const input = find(`photo-${name}`);
+      const description = value.replace('°', ' degrees').replace('×', ' times').replace(' m', ' meters');
+      if (input.getAttribute('aria-valuetext') !== description) input.setAttribute('aria-valuetext', description);
+    }
+    if (settings.hideUI !== undefined) photoSettings.hideUI = Boolean(settings.hideUI);
+    elements['photo-chrome'].hidden = photoSettings.hideUI;
+    elements['photo-reveal'].hidden = !photoSettings.hideUI;
+    root.classList.toggle('is-photo-clean', photoMode && photoSettings.hideUI);
+  };
+  const setPhotoMode = (value) => {
+    const active = Boolean(value);
+    if (active === photoMode) return;
+    photoMode = active;
+    root.classList.toggle('is-photo', photoMode);
+    elements['photo-mode'].hidden = !photoMode;
+    elements['pause-overlay'].hidden = !paused || photoMode;
+    elements['map-overlay'].hidden = !mapOpen || photoMode;
+    updatePhoto({ hideUI: false });
+    photoStatus('');
+    if (photoMode) {
+      photoReturnFocus = document.activeElement;
+      find('photo-capture').focus({ preventScroll: true });
+    } else if (paused) find('resume-button').focus({ preventScroll: true });
+    else if (photoReturnFocus?.isConnected && !photoReturnFocus.closest('.modal-backdrop')) photoReturnFocus.focus({ preventScroll: true });
+  };
+  const togglePhotoControls = () => {
+    const hideUI = !photoSettings.hideUI;
+    updatePhoto({ hideUI });
+    call('onPhotoChange', { hideUI });
+    if (!hideUI) find('photo-hide').focus({ preventScroll: true });
+  };
+  find('photo-mode-button').addEventListener('click', () => call('onPhotoMode'));
+  find('photo-hide').addEventListener('click', togglePhotoControls);
+  find('photo-reveal').addEventListener('click', togglePhotoControls);
+  find('photo-exit').addEventListener('click', () => call('onPhotoExit'));
+  find('photo-reset').addEventListener('click', () => call('onPhotoReset'));
+  find('photo-capture').addEventListener('click', () => call('onPhotoCapture'));
+  root.querySelectorAll('[data-photo]').forEach((input) => input.addEventListener('input', () => {
+    const patch = { [input.dataset.photo]: Number(input.value) };
+    updatePhoto(patch);
+    call('onPhotoChange', patch);
+  }));
+  root.addEventListener('keydown', (event) => {
+    if (!photoMode) return;
+    const rangeNavigation = event.target.matches('input[type="range"]') && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Space'].includes(event.code);
+    const buttonActivation = event.target.closest('button') && ['Space', 'Enter'].includes(event.code);
+    if (event.code === 'Tab' || rangeNavigation || buttonActivation) event.stopPropagation();
+  });
+  root.querySelectorAll('.photo-header, .photo-controls, .photo-touch-nav').forEach((element) => {
+    element.addEventListener('pointermove', (event) => event.stopPropagation());
+    element.addEventListener('wheel', (event) => event.stopPropagation());
+  });
+  updatePhoto(photoSettings);
   const toggleMap = (value) => { showMap(value ?? !mapOpen); call('onMap', mapOpen); };
   find('start-button').addEventListener('click', start);
   find('pause-button').addEventListener('click', pause);
@@ -145,7 +249,7 @@ export function createUI(callbacks = {}) {
     button.addEventListener('lostpointercapture', () => { button.classList.remove('is-held'); if (button.heldCode) call('onMobile', button.heldCode, false); button.heldCode = null; });
   });
   // Keep pointer input on menus from becoming a shot or a camera drag.
-  root.querySelectorAll('button, .pause-menu, .city-map-dialog').forEach((element) => {
+  root.querySelectorAll('button, .pause-menu, .city-map-dialog, .photo-header, .photo-controls, .photo-touch-nav').forEach((element) => {
     element.addEventListener('pointerdown', (event) => event.stopPropagation());
     element.addEventListener('mousedown', (event) => event.stopPropagation());
   });
@@ -154,6 +258,8 @@ export function createUI(callbacks = {}) {
     const s = lastState;
     if (s.started !== undefined && s.started !== started) { started = s.started; root.classList.toggle('is-welcome', !started); root.classList.toggle('is-playing', started); }
     if (s.paused !== undefined && s.paused !== paused) setPaused(s.paused);
+    if (s.photoMode !== undefined && s.photoMode !== photoMode) setPhotoMode(s.photoMode);
+    if (s.location) text('photo-location', s.location.toUpperCase());
     if (s.time !== undefined) text('world-time', s.time);
     if (s.money !== undefined) text('money-value', moneyFormat.format(s.money));
     if (s.health !== undefined) { elements['health-fill'].style.width = `${clamp(s.health)}%`; text('health-value', Math.round(clamp(s.health))); root.classList.toggle('low-health', s.health < 25); }
@@ -266,5 +372,5 @@ export function createUI(callbacks = {}) {
     text('ready-label', ready ? 'READY TO PLAY' : 'PREPARING YOUR SESSION');
     root.classList.toggle('is-ready', Boolean(ready));
   };
-  return { update, toast, missionComplete, setPaused, setReady, showMap, root, get started() { return started; }, get paused() { return paused; }, get mapOpen() { return mapOpen; } };
+  return { update, toast, missionComplete, setPaused, setReady, showMap, setPhotoMode, updatePhoto, photoStatus, root, get photoMode() { return photoMode; }, get started() { return started; }, get paused() { return paused; }, get mapOpen() { return mapOpen; } };
 }

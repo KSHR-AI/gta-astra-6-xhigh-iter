@@ -7,6 +7,7 @@ let characterAsset;
 let pedestrianAsset;
 let crowdAsset;
 let civilianMaleAsset;
+let sidearmAsset;
 let pedestrianCount = 0;
 let loadingPromise;
 const white = new THREE.Color(0xffffff);
@@ -44,9 +45,9 @@ function prepareCharacterMaterial(original, { civilian, male, npc, color, police
     shader.uniforms.wardrobeColor = { value: wardrobe };
     shader.fragmentShader = `uniform vec3 wardrobeColor;\n${shader.fragmentShader}`;
     if (male) {
-      shader.vertexShader = `attribute float clothDye;\nvarying float vClothDye;\n${shader.vertexShader}`;
-      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvClothDye = clothDye;');
-      shader.fragmentShader = `varying float vClothDye;\n${shader.fragmentShader}`;
+      shader.vertexShader = `attribute float clothDye;\nattribute float trouserRegion;\nvarying float vClothDye;\nvarying float vTrouserRegion;\n${shader.vertexShader}`;
+      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvClothDye = clothDye;\nvTrouserRegion = trouserRegion;');
+      shader.fragmentShader = `varying float vClothDye;\nvarying float vTrouserRegion;\n${shader.fragmentShader}`;
     }
     shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
       #include <map_fragment>
@@ -56,10 +57,22 @@ function prepareCharacterMaterial(original, { civilian, male, npc, color, police
         ? 'smoothstep(0.18, 0.42, diffuseColor.g) * smoothstep(0.16, 0.38, diffuseColor.r - diffuseColor.b) * smoothstep(0.12, 0.30, diffuseColor.g - diffuseColor.b)'
         : 'smoothstep(0.10, 0.24, diffuseColor.r - diffuseColor.b) * smoothstep(0.035, 0.12, diffuseColor.g - diffuseColor.b)'};
       float sourceLuminance = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+      float skinMask = smoothstep(0.018, 0.075, diffuseColor.r - diffuseColor.b)
+        * smoothstep(0.006, 0.035, diffuseColor.r - diffuseColor.g)
+        * smoothstep(0.025, 0.13, sourceLuminance) * (1.0 - wardrobeMask);
       vec3 dyedSurface = wardrobeColor * (${male ? '0.65 + sourceLuminance * 2.25' : civilian ? '0.45 + sourceLuminance' : '0.45 + sourceLuminance * 1.75'});
       diffuseColor.rgb = mix(diffuseColor.rgb, dyedSurface, wardrobeMask * ${civilian ? '0.94' : '0.88'});
+      ${male ? `// Dark fabric still reflects light; preserve texture contrast in shade.
+      float trouserMask = vTrouserRegion * (1.0 - smoothstep(0.05, 0.14, sourceLuminance));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.011, 0.013, 0.016) + diffuseColor.rgb * 0.90, trouserMask);` : ''}
     `);
-    if (!civilian) {
+    if (civilian) {
+      shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
+        #include <roughnessmap_fragment>
+        // Skin has a broad soft highlight; woven clothing remains matte.
+        roughnessFactor = mix(${male ? '0.86' : '0.90'}, 0.56, skinMask);
+      `);
+    } else {
       shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
         #include <roughnessmap_fragment>
         roughnessFactor = mix(0.94, 0.53, wardrobeMask);
@@ -69,7 +82,7 @@ function prepareCharacterMaterial(original, { civilian, male, npc, color, police
       `);
     }
   };
-  material.customProgramCacheKey = () => male ? 'civilian-male-fabric-v1' : civilian ? 'civilian-fabric-v1' : 'player-armor-v1';
+  material.customProgramCacheKey = () => male ? 'civilian-male-skin-cloth-v2' : civilian ? 'civilian-skin-cloth-v2' : 'player-armor-v1';
   return material;
 }
 
@@ -77,16 +90,19 @@ function prepareMaleClothMask(object) {
   // A bind-space mask excludes the face and shoes even when a texture pixel is
   // neutral gray. It deforms with the skin and is shared by all male instances.
   const geometry = object.geometry;
-  if (geometry.hasAttribute('clothDye')) return;
+  if (geometry.hasAttribute('clothDye') && geometry.hasAttribute('trouserRegion')) return;
   geometry.computeBoundingBox();
   const { min, max } = geometry.boundingBox;
   const positions = geometry.attributes.position;
   const mask = new Float32Array(positions.count);
+  const trousers = new Float32Array(positions.count);
   for (let i = 0; i < mask.length; i++) {
     const height = (positions.getY(i) - min.y) / (max.y - min.y);
     mask[i] = THREE.MathUtils.smoothstep(height, 0.46, 0.51) * (1 - THREE.MathUtils.smoothstep(height, 0.81, 0.84));
+    trousers[i] = THREE.MathUtils.smoothstep(height, 0.07, 0.14) * (1 - THREE.MathUtils.smoothstep(height, 0.49, 0.55));
   }
   geometry.setAttribute('clothDye', new THREE.BufferAttribute(mask, 1));
+  geometry.setAttribute('trouserRegion', new THREE.BufferAttribute(trousers, 1));
 }
 
 function parseLocomotion(clips) {
@@ -150,7 +166,8 @@ export async function loadCharacterAssets() {
         loader.loadAsync('/models/CivilianMale.glb'),
         loadLocomotion('/models/civilian-male-motion.json'),
       ]),
-    ]).then(([main, pedestrian, crowd, male]) => {
+      loader.loadAsync('/models/character_sidearm.glb'),
+    ]).then(([main, pedestrian, crowd, male, sidearm]) => {
         if (main.status === 'fulfilled') characterAsset = main.value;
         if (pedestrian.status === 'fulfilled') {
           pedestrianAsset = pedestrian.value[0];
@@ -164,6 +181,7 @@ export async function loadCharacterAssets() {
           civilianMaleAsset = male.value[0];
           civilianMaleAsset.animations = male.value[1];
         }
+        if (sidearm.status === 'fulfilled') sidearmAsset = sidearm.value;
         if (!civilianMaleAsset && !pedestrianAsset && !characterAsset) throw main.reason;
         return { loaded: true, animations: (civilianMaleAsset ?? pedestrianAsset ?? characterAsset).animations.map((clip) => clip.name), variants: civilianMaleAsset && pedestrianAsset ? 12 : pedestrianAsset ? 6 : 1, crowdOptimized: Boolean(crowdAsset), civilianMale: Boolean(civilianMaleAsset) };
       })
@@ -178,6 +196,22 @@ export async function loadCharacterAssets() {
 function handgun() {
   const group = new THREE.Group();
   group.name = 'Service pistol';
+  if (sidearmAsset) {
+    // Center of the contoured grip cross-section at the palm's height.
+    group.userData.gripCenter = [0, -0.046, -0.037];
+    const model = sidearmAsset.scene.clone(true);
+    model.traverse((object) => {
+      if (!object.isMesh) return;
+      object.castShadow = true;
+      object.receiveShadow = true;
+    });
+    group.add(model);
+    const muzzle = new THREE.Object3D();
+    muzzle.name = 'Muzzle';
+    muzzle.position.set(0, 0.024, 0.202);
+    group.add(muzzle);
+    return { group, muzzle };
+  }
   const steel = new THREE.MeshStandardMaterial({ color: 0x25282b, metalness: 0.8, roughness: 0.34 });
   const grip = new THREE.MeshStandardMaterial({ color: 0x101214, roughness: 0.92 });
   const part = (geometry, material, x, y, z) => {
@@ -247,6 +281,12 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
     object.material = Array.isArray(object.material) ? object.material.map(recolor) : recolor(object.material);
   });
 
+  // Head-tip bones are not anatomically vertical on every imported rig. Keep
+  // the authored bind orientation before mocap changes the neck/head chain.
+  const bindHeadOrientation = bones.Head
+    ? mesh.getWorldQuaternion(new THREE.Quaternion()).invert()
+      .multiply(bones.Head.getWorldQuaternion(new THREE.Quaternion()))
+    : null;
   const mixer = new THREE.AnimationMixer(model);
   const actions = {};
   for (const clip of asset.animations) {
@@ -287,7 +327,7 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
   magazine.visible = false;
   mesh.add(magazine);
   const animator = createHumanoidAnimator({
-    mesh, visual, bones, actions, mixer, weapon, magazine, soleProbes, restPose, npc,
+    mesh, visual, bones, actions, mixer, weapon, magazine, soleProbes, restPose, bindHeadOrientation, npc,
     phaseOffset: npc ? ((variant + 1) * 0.381966) % 1 : 0,
   });
   animator.update(0);

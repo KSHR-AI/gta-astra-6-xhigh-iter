@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 
 // Poly Haven / Greg Zaal + Jarod Guest, CC0. A photographic, terrain-free sky.
-const SKY_URL = '/textures/sky/rustig_koppie_puresky_2k.hdr';
-export const SKY_ROTATION = 2.83;
+const SKY_URL = '/textures/sky/qwantani_sunset_puresky_2k.hdr';
+export const SKY_ROTATION = -1.25;
 // Measured from the brightest source pixel, then rotated with the visible sky.
-export const SUN_DIRECTION = new THREE.Vector3(-0.53128378, 0.47274903, -0.70302624);
+export const SUN_DIRECTION = new THREE.Vector3(-0.3000497, 0.1056472, 0.9480547);
 
 function configureTexture(texture) {
   texture.mapping = THREE.EquirectangularReflectionMapping;
@@ -56,7 +56,7 @@ function makeNightTexture(source) {
     data[offset + 3] = toHalf(1);
   }
   const texture = configureTexture(new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.HalfFloatType));
-  texture.name = 'Rustig Koppie · derived moonlit sky';
+  texture.name = 'Qwantani Sunset · derived moonlit sky';
   return texture;
 }
 
@@ -81,8 +81,8 @@ export function createAtmosphere(scene) {
 
   function applyMode() {
     if (dayTexture) scene.background = night ? nightTexture : dayTexture;
-    scene.backgroundIntensity = night ? 1 : 0.7;
-    scene.environmentIntensity = 0.55;
+    scene.backgroundIntensity = night ? 1 : 0.65;
+    scene.environmentIntensity = night ? .55 : .85;
     if (dayEnvironment) scene.environment = night ? (nightEnvironment || dayEnvironment) : dayEnvironment;
     // A caller providing only the day PMREM still gets subdued reflections.
     if (night && !nightEnvironment) scene.environmentIntensity = 0.035;
@@ -95,7 +95,7 @@ export function createAtmosphere(scene) {
     })
     .then(texture => {
       dayTexture = configureTexture(texture);
-      dayTexture.name = 'Rustig Koppie Pure Sky · Poly Haven CC0';
+      dayTexture.name = 'Qwantani Sunset Pure Sky · Poly Haven CC0';
       nightTexture = makeNightTexture(dayTexture);
       applyMode();
       return { texture: dayTexture, nightTexture, sunDirection, rotation };

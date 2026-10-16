@@ -56,23 +56,36 @@ Stored locally under public/textures/city. Distant room-window atlases, street d
 - **Changes:** decoded the upstream Draco asset offline; removed duplicated reverse-facing polygons; propagated consistent triangle winding; removed unused UV attributes; welded duplicate positions; reduced geometry with meshoptimizer into 69,096-triangle and 16,572-triangle models; regenerated smooth normals; assigned new paint, glass, leather, rubber, metallic and emissive materials; normalized orientation and size; extracted actual door panel, mirror, handle and interior parts into an articulated door assembly; added steering, wheel rotation and detail-level switching.
 - **Runtime dependencies:** the bundled GLB files load locally through the installed Three.js GLTFLoader. No external asset requests or runtime decoder are required.
 
-The original procedural sedan and patrol coupe remain original project geometry. Their paint finish now uses clearcoat. Vehicle license plates display ASTRA 01.
+The original procedural sedan remains an offline fallback; the runtime sedan and patrol car use the original Blender Meridian library below. Their paint finish now uses clearcoat. Vehicle license plates display ASTRA 01.
 
-### Photographic sky and environment
+### Photographic sunset sky and environment
 
-- **Asset:** Rustig Koppie (Pure Sky), 2K Radiance HDR, 2048 × 1024.
-- **Creators:** Greg Zaal (original photography); Jarod Guest (sky edits).
-- **Source:** https://polyhaven.com/a/rustig_koppie_puresky
-- **License:** CC0 1.0 Universal, https://polyhaven.com/license and https://creativecommons.org/publicdomain/zero/1.0/
-- **Download:** https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/rustig_koppie_puresky_2k.hdr
-- **Local asset:** `public/textures/sky/rustig_koppie_puresky_2k.hdr`
-- **Size:** 4,047,254 bytes (3.86 MiB).
-- **SHA-256:** `e70bf97a44982db07fb952b1f74c07e818649c2bbdfeb6ad4f98af7b4431a38f`
-- **Poly Haven API MD5:** `08c11a244add6ef1c3e027234c1fdd22`; local file matches.
-- **Changes:** Original HDR is redistributed unchanged. Runtime creates a separate, reduced-resolution cool night variant with compressed sun radiance. No photographic terrain, buildings, or vegetation is included in this pure-sky panorama.
-- **Source and license verified:** October 15, 2026.
+- **Asset:** Qwantani Sunset (Pure Sky), unchanged 2K Radiance HDR, 2048 × 1024.
+- **Creators:** Greg Zaal (photography); Jarod Guest (processing).
+- **Source:** https://polyhaven.com/a/qwantani_sunset_puresky
+- **License:** CC0 1.0 Universal, https://polyhaven.com/license
+- **Download:** https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/qwantani_sunset_puresky_2k.hdr
+- **Local asset:** `public/textures/sky/qwantani_sunset_puresky_2k.hdr`
+- **Size:** 4,171,959 bytes.
+- **SHA-256:** `d66e08231e9c09ca40c6d035214ae8efb638782745c82addbb2a063fa32cabef`
+- **Poly Haven API MD5:** `b918af5fefb341535961ffdad5fab7bc`.
+- **Runtime:** creates a separate cool night variant with compressed sun radiance. The photographed sun is approximately 6.06° above the horizon. Background, reflections, and directional lighting share the -1.25-radian sky rotation. No terrain/buildings are part of the panorama.
+- **Source and license inspected:** October 16, 2026.
 
-The HDR's brightest source pixel is (1223, 351), corresponding to sun elevation 28.212890625°. With both scene background and environment rotated 2.83 radians about Y, the world-space sun direction is `(-0.53128378, 0.47274903, -0.70302624)`.
+The previous `rustig_koppie_puresky_2k.hdr` remains in the repository as an unused reference, credited to Greg Zaal and Jarod Guest under the same Poly Haven CC0 terms: https://polyhaven.com/a/rustig_koppie_puresky.
+
+### Original Blender asset library
+
+All assets below are original project-authored geometry and artwork. They use no additional third-party models, textures, or brand-specific designs. Source projects are editable; the Python scripts reproduce the exports using Blender 4.5 LTS.
+
+| Asset | Editable source / generator | Runtime export |
+| --- | --- | --- |
+| Meridian sedan and patrol variant | `art/blender/vehicle_meridian.blend`, `vehicle_meridian.py` | `public/models/vehicles/meridian.glb`, `meridian-lod.glb` |
+| Bus shelter, news kiosk, cafe furniture and parasol | `art/blender/city_streetscape.blend`, `city_streetscape.py`, `city_textures.py` | `public/models/city/city-streetscape.glb`, original `city-atlas.png` |
+| Compact sidearm | `art/blender/character_sidearm.blend`, `character_sidearm.py` | `public/models/character_sidearm.glb` |
+
+The Meridian includes a curved body with open wheel arches, cabin, articulated driver door, wheels/brakes, lamps, and original police livery/equipment. Sedan geometry is 34,184 triangles near / 11,806 far; the police variant adds 1,096 triangles. The streetscape library uses 6,606 source triangles and 21 shared material batches across eight placements. The sidearm uses 3,732 triangles and four PBR materials; its grip and muzzle anchors drive hand articulation and effects. The existing Ferrari hero car and its licensing caveat above are unchanged.
+
 
 
 ## Local recorded audio
