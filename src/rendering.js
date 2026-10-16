@@ -11,7 +11,11 @@ export function createRendering(renderer, scene, camera, software) {
     type: THREE.HalfFloatType, depthTexture: depth,
     samples: software ? 0 : 2,
   });
-  const occlusion = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
+  // GTAO only stores a scalar visibility value. R8 retains the same 8-bit
+  // precision as RGBA8 while using one quarter of its attachment bandwidth.
+  const occlusion = new THREE.WebGLRenderTarget(1, 1, {
+    format: THREE.RedFormat, depthBuffer: false,
+  });
   const noise = generateMagicSquareNoise();
   const aoUniforms = THREE.UniformsUtils.clone(GTAOShader.uniforms);
   Object.assign(aoUniforms, {
@@ -85,9 +89,10 @@ export function createRendering(renderer, scene, camera, software) {
   });
   const quad = new FullScreenQuad(aoMaterial);
   const clear = new THREE.Color();
+  const drawingSize = new THREE.Vector2();
   let quality = 'high';
   function resize() {
-    const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+    const size = renderer.getDrawingBufferSize(drawingSize);
     colour.setSize(size.x, size.y);
     occlusion.setSize(Math.max(1, Math.ceil(size.x / 2)), Math.max(1, Math.ceil(size.y / 2)));
     aoUniforms.resolution.value.set(occlusion.width, occlusion.height);
@@ -98,7 +103,10 @@ export function createRendering(renderer, scene, camera, software) {
   return {
     resize,
     setNight(value) { finish.uniforms.night.value = value ? 1 : 0; },
-    setPhotoQuality(active) { colour.samples=active?4:(software?0:2); colour.dispose(); },
+    setPhotoQuality(active) {
+      const samples = active ? 4 : (software ? 0 : 2);
+      if (colour.samples !== samples) { colour.samples = samples; colour.dispose(); }
+    },
     setLens(focus, aperture) { finish.uniforms.focusDistance.value = focus; finish.uniforms.aperture.value = aperture; },
     setQuality(value) { quality = value; finish.uniforms.useAO.value = value === 'high' ? 1 : 0; resize(); },
     render() {
@@ -113,14 +121,20 @@ export function createRendering(renderer, scene, camera, software) {
         const alpha = renderer.getClearAlpha();
         renderer.setRenderTarget(occlusion);
         renderer.setClearColor(0xffffff, 1);
-        renderer.clear();
+        // The renderer clears this pass once. GTAO discards background pixels,
+        // so its white clear remains necessary; an additional explicit clear is not.
         quad.material = aoMaterial;
         quad.render(renderer);
         renderer.setClearColor(clear, alpha);
       }
       renderer.setRenderTarget(null);
       quad.material = finish;
-      quad.render(renderer);
+      // This opaque full-screen triangle writes every output pixel and never
+      // tests depth. Clearing the canvas first only repeats a full-buffer write.
+      const autoClear = renderer.autoClear;
+      renderer.autoClear = false;
+      try { quad.render(renderer); }
+      finally { renderer.autoClear = autoClear; }
     },
   };
 }

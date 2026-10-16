@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createHumanoidAnimator } from './character-animation.js';
+import { createCharacterLOD, registerCharacterLODs } from './character-lod.js';
 
 let characterAsset;
 let pedestrianAsset;
@@ -192,7 +193,14 @@ export async function loadCharacterAssets() {
   if (!loadingPromise) {
     const loader = new GLTFLoader();
     const naturalOrLegacy = (natural, legacy) => loader.loadAsync(natural)
-      .then((asset) => Object.assign(asset, { naturalHuman: true }))
+      .then(async (asset) => {
+        asset.naturalHuman = true;
+        try {
+          const response = await fetch(natural.replace('.glb', '.lod.json'));
+          if (response.ok) registerCharacterLODs(asset, await response.json());
+        } catch { /* The original quality model remains fully usable offline. */ }
+        return asset;
+      })
       .catch(() => loader.loadAsync(legacy));
     loadingPromise = Promise.allSettled([
       loader.loadAsync('/models/Soldier.glb'),
@@ -376,8 +384,11 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
     phaseOffset: npc ? ((variant + 1) * 0.381966) % 1 : 0,
   });
   animator.update(0);
+  const lod = createCharacterLOD(model, mesh, { enabled: npc });
   return {
     mesh, mixer, weapon, muzzle,
+    updateLOD: lod.update,
+    getLODInfo: lod.getInfo,
     update: animator.update,
     seatOffset: animator.seatOffset,
     seatAnchor: animator.seatAnchor,
