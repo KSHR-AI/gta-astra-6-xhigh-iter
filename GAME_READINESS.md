@@ -18,7 +18,17 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current shooting and aim pass
+## Current camera, aiming cost and road pass
+
+- Prevent the camera from showing the protagonist's interior surfaces when the boom retracts into the body. Private player material write masks hide color and depth below 0.55 m and restore beyond 0.75 m, preserving logical visibility, bones, the muzzle and shadow casters. Contact shadows remain separate. Photo mode restores the whole character and retains gameplay hysteresis for its return; vehicle and interaction contexts restore drawing.
+- Live wall checks cover clear visibility, a physical muzzle shot hitting the solid frame at 2.22 m, hidden reload, stepping away, three repeated approach/recovery cycles, restart and a paused photo round trip, including a preserved 0.567 m hysteresis-band position. All eight player materials restore; repeated crossings hold at 50 warmed shader programs. This is a binary proximity mask, not a production camera blend.
+- Stop repeated pistol correction only after the original target, weapon transform and support wrist converge. Close targets, raising, reload, recoil and anatomically limited requests retain the five-pass cap. A paired 2,124-pose audit found no readiness changes and less than 49 nm of joint displacement difference.
+- An isolated nine-round Node comparison of the complete animation update at a settled 90 m target measured 24.1% lower CPU time for the male rig and 27.5% for the female rig (five passes reduced to three). Close 2 m cases retained five passes with overlapping timing variation. This measures animation CPU cost, not browser frame rate or input latency.
+- Author original low-contrast asphalt and cast-iron surface maps, with broad world-space weather and subtle wheel-path polish. Give manholes bevelled frames and recessed seats. New texture requests total 1.16 MB instead of the old asphalt's 2.52 MB; the eleven covers add 4,356 triangles and one dedicated instanced batch. Sources and rebuild instructions are in ASSETS.md.
+- Final browser samples measured 6.04 fps exploring and 6.21 fps aiming at 1039 × 491 on llvmpipe. Aimed callback CPU averaged 30.10 ms (p95 32.39 ms), versus the previous sample's 32.23 ms (p95 39.30 ms); traffic, road materials and sampling windows differ. These are full-scene observations, not an isolated speedup or evidence of hardware frame pacing.
+- Playtesting found a separate authored paving gap beside Sunline: the sidewalk ends at x=16.95 while the storefront begins at x=17.425. The accessible gap drops from 0.22 m to the 0.025 m base surface. The terrain query matches the authored surfaces; a local apron and doorway transition need a subsequent geometry pass.
+
+## Previous shooting and aim pass
 
 - Resolve movement and camera direction before the character pose. Turn the upper body within bounded yaw and reach; converge the visible pistol on the current reticle target, including close targets. Accept a buffered click only when the raised barrel is aligned, then apply one immediate recoil event without advancing animation twice.
 - Preserve a confirmed hit until the HUD displays it. Freeze the feedback while paused and clear queued clicks when opening menus, holstering, reloading or entering a vehicle. Keep shot identifiers monotonic across restarts.
@@ -28,7 +38,7 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 - Final normal-input browser checks cover first raise, immediate 90/180-degree turns, upward/downward aim, hip-fire follow-up, cancelled clicks, frozen armed poses, close occupant fire, reload and theft. The first raise accepted after 262.5 ms; sampled rapid turns accepted after about 29–75 ms, with the visible barrel within 1.25 degrees of the final ray. These are simulation-time observations on the software renderer, not measured hardware input latency. An induced 250 ms browser stall retained a full-strength hit marker on its first displayed frame.
 - The final full-city samples measured 6.45 fps exploring and 6.30 fps aiming at 1039 × 491 on llvmpipe, with 421/415 draw calls and 347,039/372,444 triangles. Scene timing and traffic differ from the previous 6.29 fps sample, so this is not an isolated improvement benchmark. Hardware frame pacing remains unproven.
 - Blocking all primary/legacy character downloads exercised the articulated fallback: it still raises, turns, fires once per press and kicks immediately. Restoring requests reloads the natural rigs. The fallback is deliberately simple and is not the intended visual presentation.
-- Wall movement correctly reports zero speed and stationary spread. The same playtest exposes a remaining camera defect: at the storefront near x=17.075, z=23, boom retraction places the camera inside the protagonist. This is a known release blocker, documented in the PR report for the next iteration.
+- Wall movement correctly reports zero speed and stationary spread. The same playtest exposes a remaining camera defect: at the storefront near x=17.075, z=23, boom retraction places the camera inside the protagonist. The camera mask in the current pass resolves the interior-surface obstruction; the paving gap remains separate.
 
 ## Previous character proportions and apparel pass
 
@@ -43,11 +53,11 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 
 ### Next iteration priorities
 
-- **Camera obstruction:** prevent the protagonist’s interior surfaces from filling the view when the camera retracts at a wall, while preserving photo close-ups, vehicle occupants and collision queries. Reproduce the storefront case above and check recovery on moving away.
-- **Animation cost:** profile an early exit from repeated pistol target convergence once the barrel and shared grip are stable, retaining the iteration cap for close/extreme targets. Preserve current readiness, elbow and exact-grip bounds.
+- **Camera and thresholds:** refine the binary proximity transition and extend obstruction coverage around doors, low roofs, moving vehicles and extreme pitch. Preserve photo close-ups, shadows and physical shot queries.
+- **Performance:** profile the complete city on hardware; investigate geometry/fragment cost and precise actor-pose demand during combat. Preserve the proven close-target and recoil behavior.
 - **Combat depth:** extend movement/cover playtests, improve hit reactions and adversary tactics, and evaluate weapon sound and input latency on hardware. The current pistol and bounded procedural grip remain a small combat slice.
-- **Character finish:** compare faces in sun and shade before changing exposure or albedo; current direct sunlight washes out cheek/nose definition. Improve collar and sleeve shapes and structural trouser folds rather than adding more weave texture. Hair still lacks convincing strands and facial acting remains absent.
-- **World surfaces:** reduce the road's uniformly speckled fine detail and improve broader wear variation and manhole rim/contact shading. These are visual review findings, not yet implemented changes.
+- **Character finish:** replace the original speckled shoe artwork and preserve the authored hair roughness/specular response through the atlas export. Compare faces in sun and shade before changing exposure or albedo; source/current face albedo agrees, while direct sunlight washes out cheek/nose definition. Inspect the shared orange edge flecks with controlled presentation-pass comparisons before attributing them to hair. Improve foot-aligned contact shadows, garment structure and facial acting. The sidearm's physical bore and muzzle anchor already agree with its local +Z firing axis.
+- **World geometry:** fill the café sidewalk gap with a rendered and registered apron, and review its doorway transition. Extend street wear and repair variation without adding uniform noise or excessive geometry.
 
 ## Previous grounding and distant-character pass
 

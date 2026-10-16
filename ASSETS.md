@@ -73,11 +73,18 @@ The service pistol, articulated offline fallback, sedans/patrol vehicles, and au
 
 No Grand Theft Auto game files, characters, logos, or Rockstar assets are included.
 
+## Original road and cast-iron surfaces
+
+- **Author/source:** original deterministic texture artwork and runtime geometry for this project. No photographs, downloaded texture inputs or external model files are used.
+- **Rebuild:** `python3 art/blender/road_surfaces.py` with NumPy and Pillow; add `--preview /tmp/road-surfaces.png` for a color/normal/roughness contact sheet. Cast lettering uses the installed Liberation Sans font.
+- **Files:** `public/textures/city/asphalt-fine-{color,normal,rough}.jpg` (1024 × 1024) and `manhole-{color,normal,rough}.jpg` (512 × 512). Normal maps use the OpenGL tangent convention. The asphalt maps represent a seamless 2.4 m square; independent world-space weather and mild wheel-path polishing avoid repeating large cracks or baked lighting.
+- **Geometry and appearance:** an original 0.954 m iron cover with cast diamond tread, two recessed lifting pockets, a maker's plaque and rings. Tread/pockets/lettering are surface-map relief, not open holes. A separate bevelled frame and recessed annular seat are instanced with the covers. They sit 5–7 mm above the asphalt and add no collision obstacles.
+
 ## City PBR textures
 
 All assets below are from Poly Haven, released under CC0: https://polyhaven.com/license
 
-- Asphalt 02: https://polyhaven.com/a/asphalt_02 — 1K diffuse, OpenGL normal, roughness.
+- Asphalt 02: https://polyhaven.com/a/asphalt_02 — 1K diffuse, OpenGL normal, roughness. Retained as the original reference files `asphalt-{color,normal,rough}.jpg`; gameplay now uses the original fine asphalt above.
 - Concrete Wall 001: https://polyhaven.com/a/concrete_wall_001 — 1K diffuse, OpenGL normal, roughness.
 - Brown Brick 02: https://polyhaven.com/a/brown_brick_02 — 1K diffuse, OpenGL normal, roughness.
 - White Stucco: https://polyhaven.com/a/white_stucco — 1K diffuse, OpenGL normal, roughness.

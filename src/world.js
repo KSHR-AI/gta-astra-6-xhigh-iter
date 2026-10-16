@@ -28,8 +28,12 @@ export function createWorld(scene) {
   const panelGeometry = new THREE.PlaneGeometry(1, 1);
   const cylinderGeometry = new THREE.CylinderGeometry(1, 1, 1, 10);
   const bayGeometry = new THREE.CylinderGeometry(1, 1, 1, 24);
-  const manholeGeometry = new THREE.CylinderGeometry(1, 1, 1, 32);
-  const manholeRimGeometry = new THREE.TorusGeometry(0.495, 0.009, 4, 32);
+  const manholeGeometry = new THREE.CylinderGeometry(1, 1, 1, 48);
+  const manholeRimGeometry = new THREE.LatheGeometry([
+    [.534, .0335], [.534, .0375], [.529, .0415], [.486, .0415],
+    [.482, .0385], [.482, .0335], [.534, .0335],
+  ].map(([radius, y]) => new THREE.Vector2(radius, y)), 48);
+  const manholeSeatGeometry = new THREE.RingGeometry(.476, .486, 48);
   const trunkGeometry = new THREE.CylinderGeometry(0.86, 1, 1, 9);
   const distantTrunkGeometry = new THREE.CylinderGeometry(0.84, 1, 1, 5);
   const sphereGeometry = new THREE.SphereGeometry(1, 8, 5);
@@ -188,11 +192,11 @@ export function createWorld(scene) {
     box(materials.paint, x + 0.35, 0.055, z + dir * 0.9, 0.16, 0.014, 1, -dir * 0.78, false);
   }
   for (let z = -210; z < 190; z += 39) {
-    instance(manholeGeometry, materials.iron, [1.8, 0.037, z], [0.52, 0.008, 0.52], [0, 0, 0], false);
-    instance(manholeRimGeometry, materials.dark, [1.8, 0.042, z], [1, 1, 0.2], [-Math.PI / 2, 0, 0], false);
-    for (let offset = -0.3; offset <= 0.3; offset += 0.1) {
-      box(materials.dark, 1.8, 0.043, z + offset, Math.sqrt(0.17 - offset * offset) * 2, 0.002, 0.012, 0, false);
-    }
+    // A recessed seat and bevelled frame meet the .0345 m road surface.
+    // Cast tread, lifting pockets and lettering use the original PBR atlas.
+    instance(manholeGeometry, materials.iron, [1.8, .0365, z], [.477, .006, .477], [0, 0, 0], false);
+    instance(manholeRimGeometry, materials.manholeFrame, [1.8, 0, z], [1, 1, 1], [0, 0, 0], false);
+    instance(manholeSeatGeometry, materials.dark, [1.8, .0355, z], [1, 1, 1], [-Math.PI / 2, 0, 0], false);
   }
   // Surface wear stays flat and instanced: tyre arcs, oil staining and repaired
   // asphalt sit on the actual drivable road instead of adding collision bumps.

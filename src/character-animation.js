@@ -45,13 +45,15 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   const gripOrigin = new THREE.Vector3(), wristOffset = new THREE.Vector3();
   const shoulder = new THREE.Vector3(), sphereOffset = new THREE.Vector3();
   const aimPole = new THREE.Vector3(), wristTarget = new THREE.Vector3();
+  const iterationPosition = new THREE.Vector3(), iterationSupport = new THREE.Vector3();
+  const iterationRotation = new THREE.Quaternion();
   const muzzle = weapon.getObjectByName('Muzzle');
   const muzzleOffset = muzzle?.position.clone() ?? new THREE.Vector3(0, .024, .202);
   const armLengths = Object.fromEntries(['Right', 'Left'].map(side => [side,
     pose.position(`${side}Arm`).distanceTo(pose.position(`${side}ForeArm`))
       + pose.position(`${side}ForeArm`).distanceTo(pose.position(`${side}Hand`))]));
   const aimState = { ready: false, raised: 0, angleError: Math.PI, yaw: 0, pitch: 0,
-    yawClamped: false, reachLimited: false, recoil: 0 };
+    yawClamped: false, reachLimited: false, recoil: 0, iterations: 0 };
   let presentedAim = null;
   let lastAppliedShotId = -Infinity;
   let headInitialized = false;
@@ -764,8 +766,19 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     context.reachLimited = false;
     // Target convergence uses the final muzzle, not the camera origin. This
     // removes shoulder-camera parallax at close targets without changing time.
-    for (let iteration = 0; iteration < (context.target && weapon.visible ? 5 : 1); iteration++) {
-      resolveAim(context, iteration > 0);
+    const limit = context.target && weapon.visible ? 5 : 1;
+    // Partial arm/wrist blends still change on zero-time passes. Preserve those
+    // transitions and only shorten a fully supported, settled aiming solve.
+    const canConverge = limit > 1 && aimWeight >= .9999 && supportWeight >= .9999
+      && !reloading && wheelHold < .001;
+    let iterations = 0;
+    resolveAim(context, false);
+    for (let iteration = 0; iteration < limit; iteration++) {
+      iterations++;
+      if (canConverge) {
+        iterationPosition.copy(weapon.position);
+        iterationRotation.copy(weapon.quaternion);
+      }
       weaponEuler.set(
         THREE.MathUtils.lerp((1 - aimWeight) * (.58 + lowRun * .35) - context.pitch * aimWeight - recoil, -.48, reloadWeight),
         THREE.MathUtils.lerp(context.yaw * aimWeight + (1 - aimWeight) * -.035, -.12, reloadWeight),
@@ -795,6 +808,19 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
         }
         weapon.position.copy(hands.getWeaponPosition(hand));
       }
+      resolveAim(context, true);
+      if (canConverge && !context.reachLimited && iteration < limit - 1) {
+        // Check the original target from the final muzzle, not its clamped
+        // yaw/pitch. Recoil and unreachable requests retain the full pass cap.
+        barrelDirection.set(0, 0, 1).applyQuaternion(weapon.quaternion).normalize();
+        if (barrelDirection.angleTo(aimDirection) <= 1e-5
+          && iterationPosition.distanceToSquared(weapon.position) <= 1e-12
+          && iterationRotation.angleTo(weapon.quaternion) <= 1e-5) {
+          hands.getSupportTarget(iterationSupport);
+          pose.position('LeftHand', hand);
+          if (iterationSupport.distanceToSquared(hand) <= 1e-14) break;
+        }
+      }
     }
     magazine.visible = Boolean(reloading && carrying && reloadT > .16 && reloadT < .61);
     if (magazine.visible) {
@@ -803,7 +829,6 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       temp.set(0, -.037, 0).applyQuaternion(magazine.quaternion);
       magazine.position.add(temp);
     }
-    resolveAim(context, true);
     barrelDirection.set(0, 0, 1).applyQuaternion(weapon.quaternion).normalize();
     const angleError = barrelDirection.angleTo(aimDirection);
     // The error is measured against the original requested direction, before
@@ -812,7 +837,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       && !context.dead && !context.interaction && seatedWeight < .001 && aimWeight >= .94
       && angleError <= Math.PI / 60 && !context.reachLimited), raised: aimWeight,
     angleError, yaw: context.yaw, pitch: context.pitch, yawClamped: context.yawClamped,
-    reachLimited: context.reachLimited, recoil });
+    reachLimited: context.reachLimited, recoil, iterations });
   }
 
   function getAimState() { flushPose(); return { ...aimState, ready: aimState.ready && weaponVisible }; }

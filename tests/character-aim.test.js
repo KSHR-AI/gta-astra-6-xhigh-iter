@@ -157,3 +157,46 @@ for (const rig of rigs) {
     }
   });
 }
+
+for (const rig of rigs) {
+  test(`${rig.model}: settled distant targets converge before the cap while close aim stays precise`, async () => {
+    const a = await actor(rig); a.frame({}, 60); a.animation.setWeapon(true);
+    const options = { armed: true, aiming: true, aimYaw: .12, aimPitch: .05, shotId: 0 };
+    const target = distance => new THREE.Vector3(Math.sin(.12) * Math.cos(.05), Math.sin(.05), Math.cos(.12) * Math.cos(.05))
+      .multiplyScalar(distance).add(new THREE.Vector3(0, 1.4, 0));
+    a.frame({ ...options, aimTarget: target(90) }, 120);
+    const distant = a.animation.getAimState();
+    assert.ok(distant.iterations >= 1 && distant.iterations < 5, `distant pose uses ${distant.iterations} passes`);
+    assert.ok(distant.angleError <= 1e-5, 'early exit has a tighter residual than firing readiness');
+    verifyGrip(a);
+    for (const dt of [1 / 30, 1 / 5]) for (const distance of [2, 4, 15, 40, 90]) {
+      const aimTarget = target(distance);
+      a.frame({ ...options, aimTarget }, 3, dt);
+      const aim = a.animation.getAimState();
+      assert.ok(aim.iterations >= 1 && aim.iterations <= 5);
+      assert.ok(barrel(a).angleTo(aimTarget.sub(muzzle(a)).normalize()) < .003);
+      assert.equal(aim.ready, true);
+      verifyGrip(a);
+    }
+  });
+
+  test(`${rig.model}: raise, reload, recoil and outside-range requests retain the full target solve`, async () => {
+    const a = await actor(rig); a.frame({}, 60); a.animation.setWeapon(true);
+    const aimTarget = new THREE.Vector3(0, 1.4, 90);
+    const options = { armed: true, aiming: true, aimTarget, shotId: 0 };
+    a.frame(options);
+    assert.equal(a.animation.getAimState().iterations, 5);
+    assert.equal(a.animation.getAimState().ready, false);
+    a.frame(options, 120);
+    assert.ok(a.animation.getAimState().iterations < 5);
+    assert.equal(a.animation.applyShot(1), true);
+    assert.equal(a.animation.getAimState().iterations, 5, 'the accepted recoil refresh is not shortened');
+    a.frame({ ...options, shotId: 1, reloading: true, reloadProgress: .25 });
+    assert.equal(a.animation.getAimState().iterations, 5);
+    assert.equal(a.animation.getAimState().ready, false);
+    a.frame({ ...options, shotId: 1 }, 120);
+    a.frame({ ...options, shotId: 1, aimYaw: Math.PI, aimTarget: new THREE.Vector3(0, 1.4, -90) });
+    assert.equal(a.animation.getAimState().iterations, 5);
+    assert.equal(a.animation.getAimState().ready, false);
+  });
+}

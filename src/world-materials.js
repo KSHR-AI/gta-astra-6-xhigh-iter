@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
-// Photographed, CC0 Poly Haven surfaces. World-space UVs retain a consistent
-// physical scale even when a single instanced cube becomes an entire building.
+// Original road/iron maps and CC0 Poly Haven building surfaces. World-space
+// UVs retain physical scale when an instanced cube becomes an entire building.
 export function applyCityMaterials(materials, canvasTexture, random) {
   const loader = new THREE.TextureLoader();
   const pending = [];
@@ -18,11 +18,12 @@ export function applyCityMaterials(materials, canvasTexture, random) {
     return texture;
   };
   const sets = {};
-  for (const name of ['asphalt', 'concrete', 'brick', 'stucco']) {
-    sets[name] = { map: load(`${name}-color`, true), normalMap: load(`${name}-normal`), roughnessMap: load(`${name}-rough`) };
+  for (const name of ['asphalt', 'concrete', 'brick', 'stucco', 'manhole']) {
+    const source = name === 'asphalt' ? 'asphalt-fine' : name;
+    sets[name] = { map: load(`${source}-color`, true), normalMap: load(`${source}-normal`), roughnessMap: load(`${source}-rough`) };
   }
 
-  function worldMapping(material, meters, weather = false) {
+  function worldMapping(material, meters, weather = false, road = false) {
     material.onBeforeCompile = shader => {
       shader.vertexShader = 'varying vec3 vCitySurface;\n' + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', `
@@ -54,7 +55,31 @@ export function applyCityMaterials(materials, canvasTexture, random) {
         float cityWeather(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
           return mix(mix(cityHash(i),cityHash(i+vec2(1.,0.)),f.x),mix(cityHash(i+vec2(0.,1.)),cityHash(i+vec2(1.,1.)),f.x),f.y);}
       ` + shader.fragmentShader;
-      if (weather) shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+      if (road) {
+        shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+          #include <map_fragment>
+          // Broad binder/weather variation has no texture-tile repetition.
+          diffuseColor.rgb *= .88 + .18 * cityWeather(vCitySurface.xz * .075)
+            + .05 * cityWeather(vCitySurface.xz * .28 + vec2(17.3, 9.1));
+          // Faint polished wheel paths follow the two boulevards and three
+          // cross streets. They dissolve at junctions rather than crossing
+          // each other as repeated stripes in the underlying surface tile.
+          float cityNorth = min(abs(vCitySurface.x), abs(vCitySurface.x - 80.));
+          float cityCross = min(abs(vCitySurface.z), min(abs(vCitySurface.z + 90.), abs(vCitySurface.z - 90.)));
+          float cityAlongNorth = step(cityNorth, cityCross);
+          float cityAcross = mix(cityCross, cityNorth, cityAlongNorth);
+          float cityAlong = mix(vCitySurface.x, vCitySurface.z, cityAlongNorth);
+          float cityJunction = smoothstep(9., 16., mix(cityNorth, cityCross, cityAlongNorth));
+          float cityLane = min(abs(cityAcross - 2.65), abs(cityAcross - 7.85));
+          float cityWheelWear = (1. - smoothstep(.18, .65, abs(cityLane - .82))) * cityJunction;
+          cityWheelWear *= .6 + .4 * cityWeather(vec2(cityAcross * .7, cityAlong * .04));
+          diffuseColor.rgb *= 1. - .045 * cityWheelWear;
+        `);
+        shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
+          #include <roughnessmap_fragment>
+          roughnessFactor *= 1. - .055 * cityWheelWear;
+        `);
+      } else if (weather) shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
         #include <map_fragment>
         float contact = mix(.68, 1., smoothstep(.1, 4.5, vCitySurface.y));
         float mottling = .88 + .16 * cityWeather(vec2(vCitySurface.x+vCitySurface.z,vCitySurface.y)*.23);
@@ -67,7 +92,7 @@ export function applyCityMaterials(materials, canvasTexture, random) {
         diffuseColor.rgb *= .87 + .19 * cityWeather(vCitySurface.xz*.13);
       `);
     };
-    material.customProgramCacheKey = () => `city-world-${meters}-${weather}`;
+    material.customProgramCacheKey = () => `city-world-${meters}-${weather}-${road}`;
     material.needsUpdate = true;
   }
   for (const key of ['limestone', 'white', 'pale', 'blush', 'peach', 'sage']) {
@@ -85,15 +110,25 @@ export function applyCityMaterials(materials, canvasTexture, random) {
   materials.brick = new THREE.MeshStandardMaterial({ color: '#a38d77', ...sets.brick, normalScale: new THREE.Vector2(.55, .55), roughness: .96 });
   worldMapping(materials.brick, 1.8, true);
   Object.assign(materials.asphalt, sets.asphalt);
-  materials.asphalt.color.set('#c0c2bf');
+  materials.asphalt.color.set('#c9cbc7');
   materials.asphalt.bumpMap = null;
-  materials.asphalt.normalScale = new THREE.Vector2(.4, .4);
-  materials.asphalt.roughness = .92;
+  materials.asphalt.normalScale = new THREE.Vector2(.28, .28);
+  materials.asphalt.roughness = 1;
   materials.asphalt.envMapIntensity = .35;
-  worldMapping(materials.asphalt, 5.8);
+  worldMapping(materials.asphalt, 2.4, false, true);
   materials.patch = materials.asphalt.clone();
   materials.patch.color.set('#868b88');
-  worldMapping(materials.patch, 4.8);
+  worldMapping(materials.patch, 2.4, false, true);
+
+  Object.assign(materials.iron, sets.manhole);
+  materials.iron.color.set('#ffffff');
+  materials.iron.normalScale = new THREE.Vector2(.65, .65);
+  materials.iron.roughness = 1;
+  materials.iron.metalness = .45;
+  materials.iron.envMapIntensity = .65;
+  materials.manholeFrame = new THREE.MeshStandardMaterial({
+    color: '#777a77', roughness: .68, metalness: .55, envMapIntensity: .65,
+  });
 
   // A tiny four-room atlas supplies actual ceiling, wall, curtain and furniture
   // cues behind the glazing. Parallax offsets the room as the camera passes it.
