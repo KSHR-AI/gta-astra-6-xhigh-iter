@@ -10,6 +10,7 @@ import { createPhotoMode } from './photo-mode.js';
 import { createCitySimulation } from './simulation.js';
 import { createMission } from './missions.js';
 import { updateVehiclePhysics } from './driving.js';
+import { createVehicleApproach } from './vehicle-approach.js';
 import { traceShot } from './combat.js';
 import { createWeaponHandling, PISTOL } from './weapon-handling.js';
 import './style.css';
@@ -200,7 +201,7 @@ function contextAction(){
   if(ms.mission===3&&currentCar.isJobCar&&state.wanted===0&&state.policeState==='clear')return{kind:'garage',title:'MARA’S WORKSHOP',name:'Deliver the convertible · +$1,500'};
   if(ms.mission>=4&&currentCar.health<100)return{kind:'garage',title:'MARA’S WORKSHOP',name:'Repair vehicle · $100'};
  }
- if(currentCar)return{kind:'vehicle',title:currentCar.model.type==='sport'?'ASTRA GT':'CITY SEDAN',name:Math.abs(currentCar.speed)<3?'Exit vehicle':'Slow down to exit'};
+ if(currentCar)return{kind:'vehicle',title:currentCar.model.type==='sport'?'ASTRA AURORA':'CITY SEDAN',name:Math.abs(currentCar.speed)<3?'Exit vehicle':'Slow down to exit'};
  const car=nearestCar();if(car)return{kind:'vehicle',title:car.isJobCar?'THE COASTAL JOB':'VEHICLE',name:car.driverActive?'Take occupied vehicle':'Enter vehicle'};
  return null;
 }
@@ -219,17 +220,19 @@ function enterExit(){
  const c=currentCar||nearestCar();if(!c)return;
  if(currentCar&&Math.abs(c.speed)>3){ui.toast('SLOW DOWN','Stop before leaving your vehicle.');return;}
  const door=anchor(c,false);door.y=0;
- if(collides(door.x,door.z,.4)){ui.toast('DOOR BLOCKED','Move the vehicle away from the wall.');return;}
+ if(collides(door.x,door.z,.4)||hitsVehicle(door.x,door.z,.35,c)){ui.toast('DOOR BLOCKED','Move the vehicle away from the wall.');return;}
  const phase=currentCar?'exit':'enter';
  const route=[player.mesh.position.clone()];
  if(phase==='enter'){
   const local=c.model.mesh.worldToLocal(player.mesh.position.clone());
   if(local.x>-.9){const end=local.z>=0?3.2:-3.2;route.push(c.model.mesh.localToWorld(new THREE.Vector3(local.x,0,end)),c.model.mesh.localToWorld(new THREE.Vector3(-1.65,0,end)));}
   route.push(door.clone());
-  for(let i=1;i<route.length;i++){const n=Math.ceil(route[i-1].distanceTo(route[i])/.3);for(let j=0;j<=n;j++){const p=route[i-1].clone().lerp(route[i],j/Math.max(1,n));if(collides(p.x,p.z,.34)){ui.toast('NO CLEAR APPROACH','Walk around to the driver’s door.');return;}}}
  }
- const lengths=route.slice(1).map((p,i)=>p.distanceTo(route[i]));const approachDuration=lengths.reduce((a,b)=>a+b,0)/3.2;
- interaction={phase,car:c,elapsed:0,duration:phase==='enter'?approachDuration+1.7:1.4,approachDuration,route,lengths,from:player.mesh.position.clone(),door,seat:anchor(c,true),opened:phase==='exit'};
+ const clearApproach=path=>{const samples=Math.max(1,Math.ceil(path.duration*30));for(let i=0;i<=samples;i++){const p=path.sample(path.duration*i/samples).position;if(collides(p.x,p.z,.34)||hitsVehicle(p.x,p.z,.34))return false;}return true;};
+ let approach=createVehicleApproach(route);
+ if(phase==='enter'&&!clearApproach(approach)){approach=createVehicleApproach(route,{rounding:0});if(!clearApproach(approach)){ui.toast('NO CLEAR APPROACH','Walk around to the driver’s door.');return;}}
+ const approachDuration=approach.duration;
+ interaction={phase,car:c,elapsed:0,duration:phase==='enter'?approachDuration+1.7:1.4,approachDuration,approach,from:player.mesh.position.clone(),door,seat:anchor(c,true),opened:phase==='exit'};
  c.speed=0;c.traffic=false;c.occupied=true;c.model.setDoor(phase==='exit');c.closeDoorAt=0;
  weapon=false;aiming=false;mouseDown=false;reloading=false;reloadRemaining=0;handling.cancel();sound.cancelReload?.();player.setWeapon(false);state.weapon='UNARMED';playerVelocity.set(0,0,0);jumpVelocity=0;if(phase==='exit')sound.door?.(true);
 }
@@ -238,11 +241,9 @@ function updateInteraction(dt){
  const smooth=x=>x*x*(3-2*x);
  if(it.phase==='enter'){
   if(it.elapsed<it.approachDuration){
-   let distance=it.elapsed*3.2,index=0;
-   while(index<it.lengths.length-1&&distance>it.lengths[index]){distance-=it.lengths[index];index++;}
-   const from=it.route[index],to=it.route[index+1];player.mesh.position.lerpVectors(from,to,clamp(distance/Math.max(.001,it.lengths[index]),0,1));
-   const heading=Math.atan2(to.x-from.x,to.z-from.z);player.mesh.rotation.y+=angleDiff(player.mesh.rotation.y,heading)*Math.min(1,dt*10);
-   player.update(dt,{speed:3.2});setActorShadow(player,true);return;
+   const sample=it.approach.sample(it.elapsed);player.mesh.position.copy(sample.position);
+   if(sample.direction.lengthSq()>.001){const heading=Math.atan2(sample.direction.x,sample.direction.z);player.mesh.rotation.y+=angleDiff(player.mesh.rotation.y,heading)*(1-Math.exp(-10*dt));}
+   player.update(dt,{speed:sample.speed});setActorShadow(player,true);return;
   }
   if(!it.opened){it.opened=true;c.model.setDoor(true);sound.door?.(true);
    if(c.isJobCar&&job.getState().mission===1){c.stolen=true;crime(2,'theft',true);job.onVehicleTaken(c);}
@@ -355,8 +356,8 @@ function carsOverlap(a,ah,b,bh){
  return [af,ar,bf,br].every(axis=>Math.abs(delta.dot(axis))<2.25*(Math.abs(af.dot(axis))+Math.abs(bf.dot(axis)))+1.02*(Math.abs(ar.dot(axis))+Math.abs(br.dot(axis))));
 }
 function moveBody(pos,dx,dz,r){let hit=false;if(!collides(pos.x+dx,pos.z,r))pos.x+=dx;else hit=true;if(!collides(pos.x,pos.z+dz,r))pos.z+=dz;else hit=true;return hit;}
-function hitsVehicle(x,z,r=.35){
- return vehicles.some(c=>{const dx=x-c.model.mesh.position.x,dz=z-c.model.mesh.position.z;const side=dx*Math.cos(c.heading)-dz*Math.sin(c.heading),front=dx*Math.sin(c.heading)+dz*Math.cos(c.heading);return Math.abs(side)<1.08+r&&Math.abs(front)<2.2+r;});
+function hitsVehicle(x,z,r=.35,ignore=null){
+ return vehicles.some(c=>{if(c===ignore)return false;const dx=x-c.model.mesh.position.x,dz=z-c.model.mesh.position.z;const side=dx*Math.cos(c.heading)-dz*Math.sin(c.heading),front=dx*Math.sin(c.heading)+dz*Math.cos(c.heading);return Math.abs(side)<1.08+r&&Math.abs(front)<2.2+r;});
 }
 function updatePlayer(dt){
  if(interaction){updateInteraction(dt);return;}
@@ -561,7 +562,7 @@ canvas.addEventListener('wheel',e=>{if(photo.active){e.preventDefault();photo.ch
 window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);rendering.resize();});
 
 // A read-only diagnostic view keeps real browser verification reproducible.
-Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,shotsFired:handling.shots,shotQueued:handling.queued,lastImpact,recoilPitch:handling.recoilPitch,aimPoint:aimSolution?.point.toArray(),position:player?.mesh.position.toArray(),carPosition:currentCar?.model.mesh.position.toArray(),carHeading:currentCar?.heading,carSpeed:currentCar?.speed,mission,interaction:interaction?{phase:interaction.phase,progress:interaction.elapsed/interaction.duration}:null,animation:player?.mesh.userData.animationState,pose:player?.getPoseInfo?.(),landmarks:world.landmarks,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,driverVisible:!!currentCar&&player?.mesh.visible,driverPosition:currentCar?player.mesh.position.toArray():null,jobCarHealth:heroCar.health,jobCarPosition:heroCar.model.mesh.position.toArray(),characterLODs:[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(c=>c.driver)].filter(Boolean).map(actor=>({...actor.getLODInfo?.(),position:actor.mesh.position.toArray(),visible:actor.mesh.visible})),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray(),photo:photo.active?photo.settings:null,renderSize:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()})}});
+Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,shotsFired:handling.shots,shotQueued:handling.queued,lastImpact,recoilPitch:handling.recoilPitch,aimPoint:aimSolution?.point.toArray(),position:player?.mesh.position.toArray(),carPosition:currentCar?.model.mesh.position.toArray(),carHeading:currentCar?.heading,carSpeed:currentCar?.speed,mission,interaction:interaction?{phase:interaction.phase,progress:interaction.elapsed/interaction.duration}:null,animation:player?.mesh.userData.animationState,pose:player?.getPoseInfo?.(),landmarks:world.landmarks,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,driverVisible:!!currentCar&&player?.mesh.visible,driverPosition:currentCar?player.mesh.position.toArray():null,city:simulation?.getDiagnostics?.(),heroVehicle:{model:heroCar.model.mesh.userData.model,detailLevels:heroCar.model.mesh.userData.detailLevels,driverSeat:heroCar.model.getDriverSeat?.().toArray(),doorEntry:heroCar.model.getDoorPosition?.().toArray(),doorAngle:heroCar.model.mesh.getObjectByName('driver_door')?.rotation.y},jobCarHealth:heroCar.health,jobCarPosition:heroCar.model.mesh.position.toArray(),characterLODs:[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(c=>c.driver)].filter(Boolean).map(actor=>({...actor.getLODInfo?.(),position:actor.mesh.position.toArray(),visible:actor.mesh.visible})),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray(),photo:photo.active?photo.settings:null,renderSize:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()})}});
 
 async function boot(){
  try{

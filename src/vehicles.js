@@ -384,152 +384,51 @@ function createOriginalCar({ color = 0xe4bb67, type = 'sport', police = false } 
   };
 }
 
-// Ferrari 458 Italia by vicent091036, via the Three.js examples. Locally
-// optimized into two geometric detail levels, with real movable door panels.
-// No decoder, remote requests, or texture downloads are needed at run time.
+// Authored models keep wheel and door pivots in their exported hierarchy.
+// The procedural coupe remains available if local asset loading fails.
 let vehicleAssetsPromise;
-let importedVehicleTemplates;
+let auroraVehicleTemplates;
 let sedanVehicleTemplates;
-const IMPORTED_SCALE = 1.006;
 
-function componentIndices(geometry) {
-  const position = geometry.attributes.position;
-  const index = geometry.index;
-  const parents = new Int32Array(position.count);
-  for (let i = 0; i < parents.length; i++) parents[i] = i;
-  const find = value => {
-    while (parents[value] !== value) { parents[value] = parents[parents[value]]; value = parents[value]; }
-    return value;
-  };
-  for (let i = 0; i < index.count; i += 3) {
-    const first = find(index.getX(i));
-    parents[find(index.getX(i + 1))] = first;
-    parents[find(index.getX(i + 2))] = first;
-  }
-  const components = new Map();
-  const point = new THREE.Vector3();
-  for (let i = 0; i < index.count; i += 3) {
-    const id = find(index.getX(i));
-    if (!components.has(id)) components.set(id, { indices: [], bounds: new THREE.Box3() });
-    const component = components.get(id);
-    for (let k = 0; k < 3; k++) {
-      const vertex = index.getX(i + k);
-      component.indices.push(vertex);
-      component.bounds.expandByPoint(point.fromBufferAttribute(position, vertex));
-    }
-  }
-  return components.values();
-}
-
-function modelMaterialName(name) {
-  if (name === 'body') return 'body';
-  if (name.startsWith('rim_')) return 'rim';
-  if (name.startsWith('tire')) return 'rubber';
-  if (name === 'glass') return 'glass';
-  if (name === 'lights') return 'headlight';
-  if (name === 'lights_red' || name === 'brakes') return 'taillight';
-  if (name === 'leds') return 'indicator';
-  if (name === 'chrome') return 'chrome';
-  if (name === 'yellow_trim' || name.startsWith('centre')) return 'badge';
-  if (name === 'leather' || name === 'trim') return 'leather';
-  if (name === 'metal' || /^(wheel|brake|nuts)/.test(name)) return 'metal';
-  return 'interior';
-}
-
-function addImportedPart(parent, geometry, category, getMaterial) {
-  if (category !== 'headlight' && category !== 'taillight') return part(parent, geometry, getMaterial(category));
-  const left = [], right = [], index = geometry.index, positions = geometry.attributes.position;
-  for (let i = 0; i < index.count; i += 3) {
-    const a = index.getX(i), b = index.getX(i + 1), c = index.getX(i + 2);
-    (positions.getX(a) + positions.getX(b) + positions.getX(c) < 0 ? left : right).push(a, b, c);
-  }
-  for (const [side, indices] of [['left', left], ['right', right]]) {
-    if (!indices.length) continue;
-    const half = geometry.clone(); half.setIndex(indices);
-    part(parent, half, getMaterial(`${category}_${side}`));
-  }
-  geometry.dispose();
-}
-
-function prepareImportedTemplate(scene) {
-  scene.rotation.y = Math.PI;
-  scene.scale.set(-IMPORTED_SCALE, IMPORTED_SCALE, IMPORTED_SCALE);
+function prepareAuroraTemplate(scene) {
   scene.updateMatrixWorld(true);
-  const result = new THREE.Group();
-  const bodyGroup = new THREE.Group(); bodyGroup.name = 'body_group'; result.add(bodyGroup);
-  const door = new THREE.Group(); door.name = 'driver_door';
-  door.position.set(-0.82 * IMPORTED_SCALE, 0.55, 0.7 * IMPORTED_SCALE); result.add(door);
-  const wheelPivots = new Map();
-  const placeholders = new Map();
-  const material = name => {
-    if (!placeholders.has(name)) { const m = new THREE.MeshStandardMaterial(); m.name = name; placeholders.set(name, m); }
-    return placeholders.get(name);
-  };
-  scene.traverse(object => {
-    if (!object.isMesh) return;
-    const geometry = object.geometry.clone().applyMatrix4(object.matrixWorld);
-    geometry.computeVertexNormals();
-    const category = modelMaterialName(object.name);
-    let wheelAncestor = object.parent;
-    while (wheelAncestor && !/^wheel_[fr][lr]$/.test(wheelAncestor.name)) wheelAncestor = wheelAncestor.parent;
-    if (wheelAncestor) {
-      if (!wheelPivots.has(wheelAncestor.name)) {
-        const pivot = new THREE.Group();
-        pivot.name = wheelAncestor.name;
-        pivot.position.copy(wheelAncestor.getWorldPosition(new THREE.Vector3()));
-        const spin = new THREE.Group(); spin.name = `${wheelAncestor.name}_spin`; pivot.add(spin);
-        result.add(pivot); wheelPivots.set(wheelAncestor.name, pivot);
-      }
-      const pivot = wheelPivots.get(wheelAncestor.name);
-      geometry.translate(-pivot.position.x, -pivot.position.y, -pivot.position.z);
-      part(pivot.children[0], geometry, material(category));
-      return;
-    }
-    // The original model contains separate topological islands for its door
-    // skin, mirror, handle and interior trim. Keep their real edge contours.
-    const movingIndices = [], fixedIndices = [];
-    for (const component of componentIndices(geometry)) {
-      const b = component.bounds;
-      const belongsToDoor = b.max.x < -0.66 && b.min.z > -0.63 * IMPORTED_SCALE
-        && b.max.z < 0.76 * IMPORTED_SCALE && b.min.y > 0.2 && b.max.y < 1.05;
-      (belongsToDoor ? movingIndices : fixedIndices).push(...component.indices);
-    }
-    if (fixedIndices.length) {
-      const fixed = geometry.clone(); fixed.setIndex(fixedIndices);
-      addImportedPart(bodyGroup, fixed, category, material);
-    }
-    if (movingIndices.length) {
-      const moving = geometry.clone(); moving.setIndex(movingIndices);
-      moving.translate(-door.position.x, -door.position.y, -door.position.z);
-      addImportedPart(door, moving, category, material);
-    }
-    geometry.dispose();
-  });
-  batchParts(bodyGroup);
-  batchParts(door);
-  for (const pivot of wheelPivots.values()) batchParts(pivot.children[0]);
-  result.userData.optimizedModel = true;
+  const body = scene.getObjectByName('body_group');
+  const door = scene.getObjectByName('driver_door');
+  const names = ['wheel_fl', 'wheel_fr', 'wheel_rl', 'wheel_rr'];
+  if (!body || !door || names.some(name => !scene.getObjectByName(name) || !scene.getObjectByName(`${name}_spin`))) {
+    throw new Error('Aurora model is missing its body, door, or wheel pivots.');
+  }
+  // Blender's scene wrapper is not part of the gameplay coordinate system.
+  // Preserve its world transforms while giving suspension direct root pivots.
+  const result = new THREE.Group(); result.name = 'AstraAurora';
+  for (const child of [...body.parent.children]) result.attach(child);
   return result;
 }
 
-/** Preload local sports and authored sedan LODs; each family has its own fallback. */
-export function loadVehicleAssets() {
+/** Preload the original sports car and sedan; absent optional LODs keep near detail. */
+export function loadVehicleAssets(loader = new GLTFLoader()) {
   if (!vehicleAssetsPromise) {
-    const loader = new GLTFLoader();
-    const sports = Promise.all([
-      loader.loadAsync('/models/vehicles/ferrari.glb'), loader.loadAsync('/models/vehicles/ferrari-lod.glb'),
-    ]).then(models => { importedVehicleTemplates = models.map(model => prepareImportedTemplate(model.scene)); })
-      .catch(error => console.warn('Sports-car assets unavailable; using the original coupe.', error));
+    const sports = Promise.allSettled([
+      loader.loadAsync('/models/AstraAurora.glb'), loader.loadAsync('/models/AstraAurora-lod.glb'),
+    ]).then(results => {
+      if (results[0].status !== 'fulfilled') throw results[0].reason;
+      const near = prepareAuroraTemplate(results[0].value.scene);
+      auroraVehicleTemplates = [near];
+      if (results[1].status === 'fulfilled') {
+        try { auroraVehicleTemplates.push(prepareAuroraTemplate(results[1].value.scene)); }
+        catch (error) { console.warn('Aurora distance model unavailable; retaining full detail.', error); }
+      }
+    }).catch(error => console.warn('Aurora sports-car assets unavailable; using the original coupe.', error));
     const sedans = Promise.all([
       loader.loadAsync('/models/vehicles/meridian.glb'), loader.loadAsync('/models/vehicles/meridian-lod.glb'),
     ]).then(models => { sedanVehicleTemplates = models.map(model => model.scene); })
       .catch(error => console.warn('Meridian sedan assets unavailable; using the original coupe.', error));
-    vehicleAssetsPromise = Promise.all([sports, sedans]).then(() => Boolean(importedVehicleTemplates || sedanVehicleTemplates));
+    vehicleAssetsPromise = Promise.all([sports, sedans]).then(() => Boolean(auroraVehicleTemplates || sedanVehicleTemplates));
   }
   return vehicleAssetsPromise;
 }
 
-function importedPalette(color) {
+function vehiclePalette(color) {
   const palette = {
     body: new THREE.MeshPhysicalMaterial({ color, metalness: 0.2, roughness: 0.33, clearcoat: 0.55, clearcoatRoughness: 0.23, envMapIntensity: 0.72 }),
     rim: new THREE.MeshStandardMaterial({ color: 0xadb5b2, metalness: 0.87, roughness: 0.29, envMapIntensity: 0.9 }),
@@ -551,58 +450,83 @@ function importedPalette(color) {
   return palette;
 }
 
-function createImportedCar({ color }) {
-  const mesh = new THREE.Group(); mesh.name = 'Astra 458 — Italian grand tourer';
+function createAuroraCar({ color }) {
+  const mesh = new THREE.Group(); mesh.name = 'Astra Aurora — coastal roadster';
   const lod = new THREE.LOD(); mesh.add(lod);
-  const palette = importedPalette(color);
-  const levels = importedVehicleTemplates.map(template => {
+  const palette = new Map();
+  const materialFor = source => {
+    if (!palette.has(source.name)) {
+      let material = source.clone();
+      if (source.name === 'body' || source.name === 'upper') {
+        material = new THREE.MeshPhysicalMaterial({ color, metalness: 0.32, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.13, envMapIntensity: 1 });
+        material.name = 'body';
+      }
+      if (source.name === 'glass') {
+        material.transparent = true; material.opacity = 0.27;
+        material.depthWrite = false; material.side = THREE.DoubleSide;
+        material.forceSinglePass = true;
+      } else material.side = THREE.FrontSide;
+      palette.set(source.name, material);
+    }
+    return palette.get(source.name);
+  };
+  const levels = auroraVehicleTemplates.map((template, index) => {
     const level = template.clone(true);
     level.traverse(object => {
       if (!object.isMesh) return;
-      object.material = palette[object.material.name] || palette.interior;
-      object.castShadow = object.material !== palette.glass;
+      object.material = Array.isArray(object.material) ? object.material.map(materialFor) : materialFor(object.material);
+      object.castShadow = ![].concat(object.material).some(material => material.name === 'glass');
       object.receiveShadow = true;
     });
     const wheels = [], frontWheels = [];
     for (const name of ['wheel_fl', 'wheel_fr', 'wheel_rl', 'wheel_rr']) {
-      const pivot = level.getObjectByName(name);
-      wheels.push(pivot.children[0]);
-      if (name.startsWith('wheel_f')) frontWheels.push(pivot);
+      wheels.push(level.getObjectByName(`${name}_spin`));
+      if (name.startsWith('wheel_f')) frontWheels.push(level.getObjectByName(name));
     }
-    return { mesh: level, wheels, frontWheels, door: level.getObjectByName('driver_door') };
+    lod.addLevel(level, index ? 32 : 0, index ? 0.12 : 0);
+    level.visible = index === 0;
+    return { mesh: level, wheels, frontWheels, door: level.getObjectByName('driver_door'), steering: level.getObjectByName('steering_wheel') };
   });
-  lod.addLevel(levels[0].mesh, 0);
-  lod.addLevel(levels[1].mesh, 28, 0.12);
+  mesh.updateMatrixWorld(true);
+  const anchorPosition = (name, fallback) => levels[0].mesh.getObjectByName(name)?.getWorldPosition(new THREE.Vector3()) ?? new THREE.Vector3(...fallback);
+  mesh.userData.driverSeat = anchorPosition('driver_seat', [-0.43, 0.50, -0.34]);
+  mesh.userData.doorEntry = anchorPosition('door_entry', [-1.65, 0, -0.15]);
+  mesh.userData.doorEntry.x = Math.min(-1.65, mesh.userData.doorEntry.x);
+  mesh.userData.enginePosition = anchorPosition('engine_anchor', [0, 0.63, 1.25]);
   const plateMap = drawPlate();
   const plateMaterial = new THREE.MeshStandardMaterial({ ...(plateMap ? { map: plateMap } : {}), color: 0xe1e2d5, roughness: 0.52 });
-  const plate = part(mesh, new THREE.PlaneGeometry(0.36, 0.155), plateMaterial, 0, 0.565, -2.265); plate.rotation.y = Math.PI;
+  const plate = part(mesh, new THREE.PlaneGeometry(0.36, 0.155), plateMaterial, 0, 0.52, -2.265); plate.rotation.y = Math.PI;
   let doorTarget = 0, doorAngle = 0, wheelAngle = 0;
   mesh.userData.vehicle = true;
-  mesh.userData.model = 'Ferrari 458 Italia by vicent091036';
-  mesh.userData.dimensions = { width: 2.27, length: 4.56, height: 1.245 };
-  mesh.userData.detailLevels = { near: 69096, far: 16572, transitionMetres: 28 };
+  mesh.userData.originalAurora = true;
+  mesh.userData.model = 'Astra Aurora — original Blender asset';
+  const dimensions = new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3());
+  mesh.userData.dimensions = { width: dimensions.x, length: dimensions.z, height: dimensions.y };
+  mesh.userData.detailLevels = { near: 0, far: 0, transitionMetres: 32 };
+  for (const [index, level] of levels.entries()) level.mesh.traverse(object => {
+    if (object.isMesh) mesh.userData.detailLevels[index ? 'far' : 'near'] += (object.geometry.index?.count ?? object.geometry.attributes.position.count) / 3;
+  });
+  if (levels.length === 1) mesh.userData.detailLevels.far = mesh.userData.detailLevels.near;
   return {
     mesh, wheels: levels[0].wheels, frontWheels: levels[0].frontWheels,
     update(dt = 0, speed = 0, steer = 0) {
-      wheelAngle = (wheelAngle + speed * dt / 0.36) % (Math.PI * 2);
+      wheelAngle = (wheelAngle + speed * dt / 0.352) % (Math.PI * 2);
       doorAngle = THREE.MathUtils.damp(doorAngle, doorTarget, 9, dt);
       for (const level of levels) {
         level.door.rotation.y = doorAngle;
+        if (level.steering) level.steering.rotation.z = THREE.MathUtils.clamp(steer, -1, 1) * 0.8;
         for (const wheel of level.wheels) wheel.rotation.x = wheelAngle;
         for (const pivot of level.frontWheels) pivot.rotation.y = THREE.MathUtils.clamp(steer, -0.65, 0.65);
       }
     },
-    setLights(enabled) {
-      palette.headlight.emissiveIntensity = enabled ? 3 : 0.3;
-      palette.taillight.emissiveIntensity = enabled ? 2 : 0.4;
-      palette.indicator.emissiveIntensity = enabled ? 0.8 : 0.15;
-    },
+    // The shared enhancement owns running, brake and damaged-lamp intensities.
+    setLights() {},
     setDoor(open) { doorTarget = open ? 1.12 : 0; },
   };
 }
 
 function sedanPalette(color, police) {
-  const palette = importedPalette(police ? 0xe9e7df : color);
+  const palette = vehiclePalette(police ? 0xe9e7df : color);
   palette.body.roughness = 0.25;
   palette.body.clearcoat = 1.0;
   palette.body.clearcoatRoughness = 0.14;
@@ -705,12 +629,12 @@ function createSedanCar({ color, police }) {
   };
 }
 
-/** Full vehicle contract; imported sports cars and original authored sedans. */
+/** Full vehicle contract with original authored sports and sedan models. */
 export function createCar({ color = 0xe4bb67, type = 'sport', police = false } = {}) {
-  const imported = type === 'sport' && !police && Boolean(importedVehicleTemplates);
+  const roadster = type === 'sport' && !police && Boolean(auroraVehicleTemplates);
   const sedan = Boolean(sedanVehicleTemplates) && (type !== 'sport' || police);
-  const vehicle = imported ? createImportedCar({ color }) : sedan ? createSedanCar({ color, police }) : createOriginalCar({ color, type, police });
-  return enhanceVehicle(vehicle, { type: police ? 'police' : type, imported });
+  const vehicle = roadster ? createAuroraCar({ color }) : sedan ? createSedanCar({ color, police }) : createOriginalCar({ color, type, police });
+  return enhanceVehicle(vehicle, { type: police ? 'police' : type, roadster });
 }
 
 let smokeMap;
@@ -728,10 +652,10 @@ function getSmokeMap() {
   return smokeMap;
 }
 
-function makeWindshieldCracks(imported, sedan = false) {
+function makeWindshieldCracks(roadster, sedan = false) {
   const vertices = [];
-  const point = (u, v) => imported
-    ? new THREE.Vector3((u - 0.5) * (1.34 - v * 0.13), 0.85 + v * 0.331, 1.075 - v * 0.787 + 0.008)
+  const point = (u, v) => roadster
+    ? new THREE.Vector3((u - 0.5) * (1.64 - v * 0.18), 0.88 + v * 0.41 + 0.025 * (1 - (u * 2 - 1) ** 2), 0.72 - v * 0.57 + 0.04 * (1 - (u * 2 - 1) ** 2) + 0.008)
     : sedan ? new THREE.Vector3((u - 0.5) * (1.762 - v * 0.27), 1.042 + v * 0.398 + 0.035 * (1 - (u * 2 - 1) ** 2), 0.953 - v * 0.578 + 0.025 * (1 - (u * 2 - 1) ** 2) * Math.sin(v * Math.PI))
       : new THREE.Vector3((u - 0.5) * (1.52 - v * 0.29), 0.963 + v * 0.43, 0.918 - v * 0.565);
   const add = (a, b) => vertices.push(...point(...a).toArray(), ...point(...b).toArray());
@@ -756,7 +680,7 @@ function makeWindshieldCracks(imported, sedan = false) {
 }
 
 /** Adds suspension, staged damage, and consistent local interaction anchors. */
-function enhanceVehicle(vehicle, { type, imported }) {
+function enhanceVehicle(vehicle, { type, roadster }) {
   vehicle.type = type;
   vehicle.mesh.userData.vehicleType = type;
   vehicle.mesh.userData.damageHealth = 100;
@@ -796,7 +720,7 @@ function enhanceVehicle(vehicle, { type, imported }) {
   const uniqueHeadlights = [...new Set(headlights)], uniqueTaillights = [...new Set(taillights)];
   const originalPaint = new Map();
   for (const object of paintMeshes) if (!originalPaint.has(object.material)) originalPaint.set(object.material, { color: object.material.color.clone(), roughness: object.material.roughness });
-  const cracks = makeWindshieldCracks(imported, vehicle.mesh.userData.originalSedan); extras.add(cracks);
+  const cracks = makeWindshieldCracks(roadster, vehicle.mesh.userData.originalSedan); extras.add(cracks);
   const smokeGeometry = new THREE.BufferGeometry();
   smokeGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12 * 3), 3));
   const smoke = new THREE.Points(smokeGeometry, new THREE.PointsMaterial({ color: 0x666c69, map: getSmokeMap(), size: 0.95, transparent: true, opacity: 0.6, depthWrite: false, sizeAttenuation: true }));
@@ -870,8 +794,8 @@ function enhanceVehicle(vehicle, { type, imported }) {
       a.fromBufferAttribute(attribute, ia); b.fromBufferAttribute(attribute, ib); c.fromBufferAttribute(attribute, ic);
       ab.subVectors(b, a); ac.subVectors(c, a); ab.cross(ac);
       a.fromArray(data.normals, ia * 3); b.fromArray(data.normals, ib * 3); c.fromArray(data.normals, ic * 3);
-      // The left-hand-drive source is mirrored before batching, which reverses
-      // triangle winding. Retain its existing outward normal orientation.
+      // Authored smoothing and any reflected node transforms must retain
+      // their existing outward normal orientation after a dent.
       if (ab.dot(a.add(b).add(c)) < 0) ab.negate();
       for (const vertex of [ia, ib, ic]) {
         const offset = data.groups[vertex] * 3;
@@ -898,12 +822,16 @@ function enhanceVehicle(vehicle, { type, imported }) {
     const original = brokenGlassData.get(object);
     if (health > 28) { object.geometry.setIndex(original); return; }
     const indices = [], position = object.geometry.attributes.position;
+    vehicle.mesh.updateMatrixWorld(true);
+    const intoCar = new THREE.Matrix4().multiplyMatrices(vehicle.mesh.matrixWorld.clone().invert(), object.matrixWorld);
+    const center = new THREE.Vector3();
     for (let i = 0; i < original.length; i += 3) {
       const a = original[i], b = original[i + 1], c = original[i + 2];
-      const x = (position.getX(a) + position.getX(b) + position.getX(c)) / 3;
-      const y = (position.getY(a) + position.getY(b) + position.getY(c)) / 3;
-      const z = (position.getZ(a) + position.getZ(b) + position.getZ(c)) / 3;
-      const windshieldHole = y > 0.9 && z > 0.25 && z < 1.14 && Math.abs(x + 0.19) < 0.42;
+      center.set((position.getX(a) + position.getX(b) + position.getX(c)) / 3,
+        (position.getY(a) + position.getY(b) + position.getY(c)) / 3,
+        (position.getZ(a) + position.getZ(b) + position.getZ(c)) / 3).applyMatrix4(intoCar);
+      const { x, y, z } = center;
+      const windshieldHole = y > 0.9 && z > (roadster ? 0.1 : 0.25) && z < 1.14 && Math.abs(x + 0.19) < 0.42;
       if (!windshieldHole) indices.push(a, b, c);
     }
     object.geometry.setIndex(indices);
@@ -927,11 +855,13 @@ function enhanceVehicle(vehicle, { type, imported }) {
     externalDynamics = true;
     for (const key of ['roll', 'pitch', 'heave', 'brake', 'slip', 'speed']) if (Number.isFinite(values[key])) dynamics[key] = values[key];
   };
+  const driverSeat = vehicle.mesh.userData.driverSeat ?? new THREE.Vector3(-0.4, 0.65, -0.15);
+  const doorEntry = vehicle.mesh.userData.doorEntry ?? new THREE.Vector3(-1.48, 0, -0.05);
   vehicle.getDriverSeat = (target = new THREE.Vector3()) => {
-    target.set(imported ? -0.35 : -0.4, imported ? 0.44 : 0.65, imported ? -0.05 : -0.15);
+    target.copy(driverSeat);
     chassis[0].updateMatrix(); return target.applyMatrix4(chassis[0].matrix);
   };
-  vehicle.getDoorPosition = (target = new THREE.Vector3()) => target.set(-1.48, 0, -0.05);
+  vehicle.getDoorPosition = (target = new THREE.Vector3()) => target.copy(doorEntry);
   vehicle.setLights = enabled => { lights = Boolean(enabled); baseLights(lights); updateLamps(); };
   vehicle.update = (dt = 0, speed = 0, steer = 0) => {
     const delta = THREE.MathUtils.clamp(Number.isFinite(dt) ? dt : 0, 0, 0.3);
@@ -959,7 +889,8 @@ function enhanceVehicle(vehicle, { type, imported }) {
       const position = smokeGeometry.attributes.position;
       for (let i = 0; i < position.count; i++) {
         const life = (time * 0.37 + i / position.count) % 1;
-        position.setXYZ(i, Math.sin(i * 2.41 + time * 0.8) * life * 0.38, 0.82 + life * 1.9, (imported ? -1.4 : 1.5) - life * Math.min(0.9, Math.abs(speed) * 0.06));
+        const source = vehicle.mesh.userData.enginePosition;
+        position.setXYZ(i, (source?.x ?? 0) + Math.sin(i * 2.41 + time * 0.8) * life * 0.38, (source?.y ?? 0.82) + life * 1.9, (source?.z ?? 1.5) - life * Math.min(0.9, Math.abs(speed) * 0.06));
       }
       position.needsUpdate = true;
     }

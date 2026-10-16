@@ -15,7 +15,10 @@ export default defineConfig({
       let path;
       try { path = decodeURIComponent((req.url ?? '').split('?')[0]); }
       catch { res.statusCode = 400; res.end('Invalid asset URL.'); return; }
-      const roots = path.startsWith('/models/')
+      // Keep the historical workload URL stable without shipping the fixture in the game.
+      const roots = path === '/models/vehicles/ferrari-lod.glb'
+        ? [resolve(repository, 'benchmarks/fixtures'), 'ferrari-lod.glb']
+        : path.startsWith('/models/')
         ? [resolve(repository, 'public/models'), path.slice(8)]
         : path.startsWith('/godot/') ? [resolve(repository, 'benchmarks/godot/web'), path.slice(7)] : null;
       if (!roots) return next();

@@ -24,5 +24,5 @@ web=bench/'engines'
 web_inputs=list((web/'src').glob('*.js'))+[web/'package-lock.json',web/'index.html',web/'vite.config.js',bench/'scene.json']
 build_if_changed('web',web_inputs,[web/'dist/index.html'],['npm','--prefix','benchmarks/engines','run','build'])
 godot=bench/'godot'
-godot_inputs=[godot/p for p in ['main.gd','main.tscn','project.godot','export_presets.cfg','shell.html','build.py','import-settings.json']]+[bench/'scene.json',root/'public/models/Soldier.glb',root/'public/models/vehicles/ferrari-lod.glb',root/'.niteshift/install-godot']
+godot_inputs=[godot/p for p in ['main.gd','main.tscn','project.godot','export_presets.cfg','shell.html','build.py','import-settings.json']]+[bench/'scene.json',root/'public/models/Soldier.glb',root/'benchmarks/fixtures/ferrari-lod.glb',root/'.niteshift/install-godot']
 build_if_changed('godot',godot_inputs,[godot/'web/index.html',godot/'web/index.wasm',godot/'web/index.pck'],['python3','benchmarks/godot/build.py'])

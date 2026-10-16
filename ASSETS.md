@@ -56,17 +56,17 @@ All assets below are from Poly Haven, released under CC0: https://polyhaven.com/
 
 Stored locally under public/textures/city. Distant room-window atlases, street decals, vegetation atlases, and signage are original code-generated textures. The accessible district interiors use modeled original geometry.
 
-## Imported vehicle model
+## Historical engine-benchmark vehicle fixture
 
 - **Asset:** Ferrari 458 Italia by **vicent091036**.
-- **Files:** `public/models/vehicles/ferrari.glb` and `public/models/vehicles/ferrari-lod.glb`.
+- **File:** `benchmarks/fixtures/ferrari-lod.glb`. This fixture is retained only to reproduce the historical engine comparison; it is not included in the game build or loaded by gameplay. The full-resolution Ferrari file was removed.
 - **Upstream download:** https://raw.githubusercontent.com/mrdoob/three.js/r180/examples/models/gltf/ferrari.glb
 - **Official attribution:** https://threejs.org/examples/webgl_materials_car.html
 - **Original model:** https://sketchfab.com/models/57bf6cc56931426e87494f554df1dab6
 - **Original Three.js integration:** https://github.com/mrdoob/three.js/pull/14843
 - **Reported model license:** Creative Commons Attribution 4.0, https://creativecommons.org/licenses/by/4.0/ . Author, title, and original source are confirmed by the official Three.js example. The original Sketchfab listing now returns 404/403, so its original license declaration could not be independently retrieved during this task. CC BY 4.0 is corroborated by current downstream attribution at https://www.optimumwrap.com/3d-visualizer/ and https://www.joyride.com/play/drag . The upstream license declaration remains unverified.
 - **Changes:** decoded the upstream Draco asset offline; removed duplicated reverse-facing polygons; propagated consistent triangle winding; removed unused UV attributes; welded duplicate positions; reduced geometry with meshoptimizer into 69,096-triangle and 16,572-triangle models; regenerated smooth normals; assigned new paint, glass, leather, rubber, metallic and emissive materials; normalized orientation and size; extracted actual door panel, mirror, handle and interior parts into an articulated door assembly; added steering, wheel rotation and detail-level switching.
-- **Runtime dependencies:** the bundled GLB files load locally through the installed Three.js GLTFLoader. No external asset requests or runtime decoder are required.
+- **Benchmark dependencies:** the engine lab serves the preserved LOD fixture at its historical URL so recorded comparisons remain reproducible. The original license caveat above still applies to redistribution of the benchmark fixture.
 
 The original procedural sedan remains an offline fallback; the runtime sedan and patrol car use the original Blender Meridian library below. Their paint finish now uses clearcoat. Vehicle license plates display ASTRA 01.
 
@@ -96,7 +96,7 @@ All assets below are original project-authored geometry and artwork. They use no
 | Bus shelter, news kiosk, cafe furniture and parasol | `art/blender/city_streetscape.blend`, `city_streetscape.py`, `city_textures.py` | `public/models/city/city-streetscape.glb`, original `city-atlas.png` |
 | Compact sidearm | `art/blender/character_sidearm.blend`, `character_sidearm.py` | `public/models/character_sidearm.glb` |
 
-The Meridian includes a curved body with open wheel arches, cabin, articulated driver door, wheels/brakes, lamps, and original police livery/equipment. Sedan geometry is 34,184 triangles near / 11,806 far; the police variant adds 1,096 triangles. The streetscape library uses 6,606 source triangles and 21 shared material batches across eight placements. The sidearm uses 3,732 triangles and four PBR materials; its grip and muzzle anchors drive hand articulation and effects. The existing Ferrari hero car and its licensing caveat above are unchanged.
+The Meridian includes a curved body with open wheel arches, cabin, articulated driver door, wheels/brakes, lamps, and original police livery/equipment. Sedan geometry is 34,184 triangles near / 11,806 far; the police variant adds 1,096 triangles. The streetscape library uses 6,606 source triangles and 21 shared material batches across eight placements. The sidearm uses 3,732 triangles and four PBR materials; its grip and muzzle anchors drive hand articulation and effects. The gameplay sports car now uses the original Astra Aurora asset; the Ferrari licensing caveat applies only to the historical benchmark fixture above.
 
 
 
@@ -146,3 +146,13 @@ All shipped recordings are CC0 1.0 / public domain and are served locally from `
 CC0 license: https://creativecommons.org/publicdomain/zero/1.0/
 
 Gunfire, horns, police sirens, sea/wind beds, engine enhancement, UI cues, and the subdued adaptive D-minor pursuit pulses are original Web Audio synthesis in `src/audio.js`. The short pursuit motif does not reproduce any commercial-game soundtrack.
+
+## Original Astra Aurora sports car
+
+- **Author/source:** original project-authored model and procedural materials, created in Blender 4.5 LTS. It contains no external car meshes, brand marks, photography, or textures.
+- **Editable source:** `art/blender/vehicle_astra_aurora.blend` and reproducible generator `art/blender/vehicle_astra_aurora.py`. The generator reuses the project's original Meridian mesh utility functions.
+- **Game exports:** `public/models/AstraAurora.glb` and `public/models/AstraAurora-lod.glb`, replacing the third-party Ferrari in gameplay.
+- **Design:** an original two-seat grand touring roadster with sculpted body panels, open wheel arches, a glass windshield, saddle leather cockpit, stitched bucket seats, rollover hoops, swept split-spoke wheels, fixed brake calipers, modeled cooling intakes and LED light guides. Driver door, steering wheel, wheel pivots and attachment anchors are articulated separately.
+- **Budgets:** 80,800 source triangles, 39,438 near / 12,758 far exported triangles, and 47 material batches per LOD. All geometry and materials are locally served; there are no remote asset requests.
+
+These Aurora assets are original repository work and introduce no third-party attribution or licensing dependency. The historical Ferrari benchmark fixture retains its separate provenance caveat above.

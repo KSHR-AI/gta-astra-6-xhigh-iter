@@ -17,6 +17,11 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   const worldPosition = new THREE.Vector3();
   const movement = new THREE.Vector3();
   const direction = new THREE.Vector3();
+  const legHip = new THREE.Vector3();
+  const legKnee = new THREE.Vector3();
+  const legFoot = new THREE.Vector3();
+  const legToe = new THREE.Vector3();
+  const footDirection = new THREE.Vector3();
   const temp = new THREE.Vector3();
   const hand = new THREE.Vector3();
   const pelvis = new THREE.Vector3();
@@ -31,6 +36,11 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   const previousHeading = { value: mesh.rotation.y };
   let gaitPhase = phaseOffset;
   let motionSpeed = 0;
+  let movementAngle = 0;
+  let legYaw = 0;
+  let gaitDirection = 1;
+  let strideScale = 1;
+  let runningWeight = 0;
   let locomotionWeight = 0;
   let hipCenter = initialHipHeight;
   let aimWeight = 0;
@@ -129,10 +139,20 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     movement.copy(worldPosition).sub(previousPosition).applyQuaternion(inverseRotation);
     movement.y = 0;
     previousPosition.copy(worldPosition);
-    const movementAngle = movement.lengthSq() > 0.000002 && !interaction && !seated
-      ? Math.atan2(movement.x, movement.z) : 0;
+    if (movement.lengthSq() > 0.000002 && !interaction && !seated) {
+      const measuredAngle = Math.atan2(movement.x, movement.z);
+      const angleDelta = Math.atan2(Math.sin(measuredAngle - movementAngle), Math.cos(measuredAngle - movementAngle));
+      movementAngle += angleDelta * (1 - Math.exp(-18 * step));
+      movementAngle = Math.atan2(Math.sin(movementAngle), Math.cos(movementAngle));
+    }
     const backwards = Math.abs(movementAngle) > Math.PI * 0.65;
     const strafeAngle = backwards ? movementAngle - Math.sign(movementAngle) * Math.PI : movementAngle;
+    // Crossing from a side step to a backward step reverses the source cycle.
+    // Limit the accompanying leg turn so its new basis cannot flip the ankle
+    // across the body in one frame while the torso remains aimed forward.
+    const wantedLegYaw = THREE.MathUtils.damp(legYaw, clamp(strafeAngle, -1.35, 1.35), 16, step);
+    legYaw += clamp(wantedLegYaw - legYaw, -6 * step, 6 * step);
+    gaitDirection = THREE.MathUtils.damp(gaitDirection, backwards ? -1 : 1, 16, step);
     const headingDelta = Math.atan2(Math.sin(mesh.rotation.y - previousHeading.value), Math.cos(mesh.rotation.y - previousHeading.value));
     previousHeading.value = mesh.rotation.y;
     turnLean = THREE.MathUtils.damp(turnLean, clamp(headingDelta / Math.max(step, 0.016), -3, 3), 9, step);
@@ -141,13 +161,19 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     motionSpeed = THREE.MathUtils.damp(motionSpeed, targetSpeed, 12, step);
     locomotionWeight = THREE.MathUtils.damp(locomotionWeight, smooth(motionSpeed, 0.06, 0.95), targetSpeed > 0.1 ? 10 : 14, step);
     const movingWeight = locomotionWeight * (1 - airWeight * 0.8) * (1 - deathWeight);
-    const runningWeight = smooth(motionSpeed, 2.1, 3.8);
+    // Brisk walking is still a walk. Blending the rifle-run clip at 2.1 m/s
+    // gave the normal 2.35 m/s walk a high-knee jog, particularly near cars.
+    runningWeight = THREE.MathUtils.damp(runningWeight, smooth(motionSpeed, 2.65, 4.6), 8, step);
+    // A slow pedestrian takes shorter steps, not the player's full metre-long
+    // arc played in slow motion. Preserve the source's contact timing while
+    // scaling its distance and the corresponding phase speed together.
+    strideScale = THREE.MathUtils.lerp(clamp(Math.sqrt(motionSpeed / 2.35), 0.36, 1), 1, runningWeight);
     const strideDuration = THREE.MathUtils.lerp(actions.walk?.getClip().duration ?? 1, actions.run?.getClip().duration ?? 0.7, runningWeight);
     const referenceSpeed = THREE.MathUtils.lerp(1.85, 4.9, runningWeight);
     const travelled = movement.length();
     const measuredTravel = targetSpeed > 0.1 && travelled > 0.0001 && travelled < targetSpeed * step * 2 + 0.08;
     const strideTravel = measuredTravel ? travelled : step * motionSpeed;
-    gaitPhase = (gaitPhase + strideTravel / (referenceSpeed * strideDuration) * (backwards ? -1 : 1) + 1) % 1;
+    gaitPhase = (gaitPhase + strideTravel / (referenceSpeed * strideDuration * strideScale) * gaitDirection + 1) % 1;
     actions.idle?.setEffectiveWeight(1 - movingWeight);
     actions.walk?.setEffectiveWeight(movingWeight * (1 - runningWeight));
     actions.run?.setEffectiveWeight(movingWeight * runningWeight);
@@ -167,7 +193,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     visual.rotation.set(0, interaction ? -Math.sin(progress * Math.PI) * 0.35 : 0, -turnLean * movingWeight * 0.025);
     mesh.updateWorldMatrix(false, true);
     pose.position('Hips', pelvis);
-    // Retargeted mocap contains roughly9cm of walking pelvis bounce. Preserve
+    // Retargeted mocap contains roughly 9 cm of walking pelvis bounce. Preserve
     // each gait's moving mean while reducing its vertical oscillation; using a
     // fixed idle height instead would overextend the shorter civilian legs.
     if (movingWeight < 0.01 || seatedWeight > 0 || airWeight > 0.05) hipCenter = pelvis.y;
@@ -187,6 +213,36 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     point('Spine', 'Spine1', -weightShift * idleLife, 1, bodyLean - seatedWeight * 0.13 + breathing * idleLife * 0.012, Math.max(neutralWeight * 0.55, airWeight, landing, hitReaction));
     point('Spine2', 'Neck', -turnLean * 0.025 + weightShift * idleLife * 0.6, 1, bodyLean * 0.25 + breathing * idleLife * 0.009, Math.max(neutralWeight * 0.4, hitReaction));
 
+    // Warp the authored ankle trajectory, retaining its alternating contact and
+    // swing timing. Shorten low-speed steps and reduce the soldier's exaggerated
+    // clearance. Rotate knee, ankle and toe direction together for side steps;
+    // rotating only the thigh left the original shin/foot fighting its parent.
+    if (movingWeight > 0.001 && seatedWeight < 0.001 && airWeight < 0.05 && !interaction) {
+      const sideWeight = Math.abs(Math.sin(legYaw));
+      const horizontalScale = strideScale * THREE.MathUtils.lerp(1, 0.68, sideWeight);
+      const clearanceScale = THREE.MathUtils.lerp(0.52, 0.78, runningWeight) * Math.sqrt(strideScale);
+      for (const [side, sign] of [['Right', -1], ['Left', 1]]) {
+        pose.position(`${side}UpLeg`, legHip);
+        pose.position(`${side}Leg`, legKnee);
+        pose.position(`${side}Foot`, legFoot);
+        pose.position(`${side}ToeBase`, legToe);
+        footDirection.subVectors(legToe, legFoot).applyAxisAngle(UP, legYaw * 0.45);
+        legKnee.sub(legHip);
+        legKnee.z *= horizontalScale;
+        legKnee.applyAxisAngle(UP, legYaw).add(legHip);
+        legFoot.sub(legHip);
+        legFoot.z *= horizontalScale;
+        legFoot.applyAxisAngle(UP, legYaw).add(legHip);
+        // Keep each shoe on its own side during a sidestep: the source forward
+        // stride must not become a pair of crossing scissor steps.
+        if (sideWeight > 0.1) legFoot.x = sign * Math.max(0.055, sign * legFoot.x);
+        const floor = standingFootHeight + groundLift;
+        legFoot.y = floor + Math.max(0, legFoot.y - floor) * clearanceScale;
+        pose.reach(`${side}UpLeg`, `${side}Leg`, `${side}Foot`, legFoot, legKnee, movingWeight);
+        pose.point(`${side}Foot`, `${side}ToeBase`, footDirection, movingWeight);
+      }
+    }
+
     // The source locomotion was captured with a rifle. Replace its locked arms
     // throughout the gait, using the opposite leg's motion to drive arm swing.
     const relaxed = (1 - movingWeight) * (1 - seatedWeight);
@@ -200,16 +256,6 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
         THREE.MathUtils.lerp(swing + 0.23 + sign * 0.025, 0.88 + swing * 0.45, runningWeight), armLayer);
       if (seatedWeight < 0.001 && airWeight < 0.05 && !interaction) {
         reachFoot(side, sign * 0.10, standingFootHeight + groundLift, 0.06 - sign * 0.025, sign * 0.10, 0.55, 0.28, relaxed);
-      }
-    }
-
-    // Reorient leg swing for strafing while the torso continues to face the aim.
-    if (movingWeight > 0.05 && Math.abs(strafeAngle) > 0.08) {
-      for (const side of ['Right', 'Left']) {
-        const upper = pose.position(`${side}UpLeg`, temp).clone();
-        const knee = pose.position(`${side}Leg`, new THREE.Vector3());
-        direction.copy(knee).sub(upper).applyAxisAngle(UP, clamp(strafeAngle, -1.15, 1.15));
-        pose.point(`${side}UpLeg`, `${side}Leg`, direction, movingWeight * 0.8);
       }
     }
 
@@ -261,15 +307,26 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
         + (plant.target.z - plant.hip.z) * Math.cos(movementAngle) < -0.05;
       // Release before a leg locks straight at the back of support. A fixed
       // displacement threshold let shorter rigs drag an unreachable anchor.
-      const overextended = behindTravel && reachRatio > 0.985
+      const side = plant.side === 'Right' ? -1 : 1;
+      const crossesStance = Math.abs(Math.sin(legYaw)) > 0.1 && plant.target.x * side < 0.045;
+      const overextended = behindTravel && reachRatio > 0.985 || crossesStance
         || Math.abs(plant.target.z) > 1 || Math.abs(plant.target.x) > 0.7;
+      // A lateral stance ends as the pelvis passes over it. Holding the anchor
+      // beyond this point pulls one shoe through the other during side steps.
+      if (crossesStance) plant.target.x = side * 0.045;
       if (plant.raw.y > standingFootHeight + groundLift + 0.06 || overextended) plant.active = false;
-      plant.weight = THREE.MathUtils.damp(plant.weight, plant.active ? 1 : 0, plant.active ? 28 : 22, step);
+      plant.weight = THREE.MathUtils.damp(plant.weight, plant.active ? 1 : 0, plant.active ? 28 : 13, step);
       if (plant.weight > 0.015) {
         const sign = plant.side === 'Right' ? -1 : 1;
-        const reachWeight = 1 - smooth(reachRatio, 0.985, 1.015);
-        reachFoot(plant.side, plant.target.x, plant.target.y, plant.target.z,
-          sign * 0.12, hipY - 0.38, plant.target.z + 0.35, plant.weight * movingWeight * reachWeight);
+        // Blend the end-effector target before solving, rather than multiplying
+        // a rapidly falling reach limit into joint-space weights. That old
+        // combination snapped the ankle 20–25 cm as a lateral anchor released.
+        plant.target.lerp(plant.raw, 1 - plant.weight * movingWeight);
+        pose.position(`${plant.side}Leg`, legKnee);
+        direction.set(sign * 0.12, hipY - 0.38, plant.target.z + 0.35);
+        legKnee.lerp(direction, plant.weight * movingWeight);
+        pose.reach(`${plant.side}UpLeg`, `${plant.side}Leg`, `${plant.side}Foot`, plant.target, legKnee);
+        point(`${plant.side}Foot`, `${plant.side}ToeBase`, 0, -0.05, 1, plant.weight * movingWeight);
       }
     }
 
@@ -425,6 +482,6 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     seatAnchor: 'pelvis',
     setWeapon(visible) { weaponVisible = Boolean(visible); weapon.visible = weaponVisible; },
     reactToHit(strength = 1) { hitReaction = clamp(strength, 0.2, 1); },
-    getPoseInfo() { return { state: mesh.userData.animationState, pelvis: pose.position('Hips', new THREE.Vector3()).toArray(), pelvisHeight: initialHipHeight, weaponVisible, armed: Boolean(weapon.visible), aimWeight, readyWeight, reloadWeight, recoil, grip: hands.getGripInfo(), footContacts: footPlants.map((plant) => ({ side: plant.side, planted: plant.active, weight: plant.weight })) }; },
+    getPoseInfo() { return { locomotion: { speed: motionSpeed, gaitPhase, strideScale, runningWeight, movementAngle }, state: mesh.userData.animationState, pelvis: pose.position('Hips', new THREE.Vector3()).toArray(), pelvisHeight: initialHipHeight, weaponVisible, armed: Boolean(weapon.visible), aimWeight, readyWeight, reloadWeight, recoil, grip: hands.getGripInfo(), footContacts: footPlants.map((plant) => ({ side: plant.side, planted: plant.active, weight: plant.weight })) }; },
   };
 }

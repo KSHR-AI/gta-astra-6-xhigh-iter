@@ -54,7 +54,7 @@ def main():
     copies = {
         REPO / 'benchmarks/scene.json': assets / 'scene.json',
         REPO / 'public/models/Soldier.glb': assets / 'Soldier.glb',
-        REPO / 'public/models/vehicles/ferrari-lod.glb': assets / 'ferrari-lod.glb',
+        REPO / 'benchmarks/fixtures/ferrari-lod.glb': assets / 'ferrari-lod.glb',
     }
     for source, destination in copies.items():
         if not destination.exists() or source.read_bytes() != destination.read_bytes():

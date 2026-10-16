@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PERSON_RADIUS, insideVehicle, crossesVehicle, vehicleDetour, vehicleEscape, vehiclePenetration, shouldYieldToVehicle, pedestrianSpeedLimit } from './street-navigation.js';
 
 const clamp = THREE.MathUtils.clamp;
 const turn = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
@@ -85,6 +86,8 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
 
   function updateTraffic(dt, time, currentCar, playerPosition) {
     const loop = [[-4, 82], [-4, -86], [84, -86], [84, 86]];
+    const people = pedestrians.filter(person => !person.down).map(person => ({ position: person.actor.mesh.position, velocity: person.velocity }));
+    if (!currentCar) people.push({ position: playerPosition });
     for (const car of vehicles) {
       if (car.closeDoorAt && time >= car.closeDoorAt) { car.model.setDoor(false); car.closeDoorAt = 0; }
       if (car === currentCar || car.police) continue;
@@ -94,29 +97,45 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
         if (Math.hypot(tx - p.x, tz - p.z) < 8) { car.routeIndex = (car.routeIndex + 1) % 4; [tx, tz] = loop[car.routeIndex]; }
         const direction = Math.atan2(tx - p.x, tz - p.z);
         const angle = turn(car.heading, direction);
+        const headingBefore = car.heading;
         car.heading += clamp(angle, -dt * 1.45, dt * 1.45);
         car.steer = clamp(angle, -.45, .45);
         let desired = Math.abs(angle) > .3 ? 4 : 8.2;
+        car.trafficDecision = 'cruising';
         const forward = new THREE.Vector3(Math.sin(car.heading), 0, Math.cos(car.heading));
         for (const other of vehicles) {
           if (other === car) continue;
           delta.copy(other.model.mesh.position).sub(p);
           const ahead = delta.dot(forward), lateral = Math.abs(delta.x * forward.z - delta.z * forward.x);
-          if (ahead > 0 && ahead < 11 && lateral < 2.5) desired = Math.min(desired, Math.max(0, (ahead - 5) * 1.8));
+          if (ahead > 0 && ahead < 11 && lateral < 2.5) {
+            const following = Math.max(0, (ahead - 5) * 1.8);
+            if (following < desired) { desired = following; car.trafficDecision = 'following'; }
+          }
         }
-        if (distance(p, playerPosition) < 5 && !currentCar) desired = 0;
+        const walkingLimit = pedestrianSpeedLimit(car, people);
+        car.yieldingToPedestrian = walkingLimit < desired;
+        if (car.yieldingToPedestrian) car.trafficDecision = 'pedestrian';
+        desired = Math.min(desired, walkingLimit);
         const vertical = Math.abs(forward.z) > .7;
         const greenVertical = Math.floor(time / 12) % 2 === 0;
         if (vertical !== greenVertical) {
           const approaching = vertical
             ? crossroads.some(z => (z - p.z) * forward.z > 10 && (z - p.z) * forward.z < 18)
             : [0, 80].some(x => (x - p.x) * forward.x > 12 && (x - p.x) * forward.x < 20);
-          if (approaching) desired = 0;
+          if (approaching) { desired = 0; car.trafficDecision = 'signal'; }
         }
+        car.desiredSpeed = desired;
         car.speed = THREE.MathUtils.damp(car.speed, desired, 3, dt);
+        // This bound prevents damped braking from creeping beyond the safe stop.
+        car.speed = Math.min(car.speed, walkingLimit);
         const prev = p.clone();
         moveBody(p, forward.x * car.speed * dt, forward.z * car.speed * dt, 1.05);
-        if (vehicles.some(other => other !== car && distance(p, other.model.mesh.position) < 6 && carsOverlap(p, car.heading, other.model.mesh.position, other.heading))) { p.copy(prev); car.speed = 0; }
+        const blockedByPerson = people.some(person => insideVehicle(person.position, car));
+        if (blockedByPerson || vehicles.some(other => other !== car && distance(p, other.model.mesh.position) < 6 && carsOverlap(p, car.heading, other.model.mesh.position, other.heading))) { p.copy(prev); car.speed = 0; }
+        if (blockedByPerson) {
+          car.heading = headingBefore;
+          car.desiredSpeed = 0; car.yieldingToPedestrian = true; car.trafficDecision = 'pedestrian';
+        }
         car.model.mesh.rotation.y = car.heading;
       }
       car.model.update(dt, car.speed, car.steer);
@@ -127,15 +146,23 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
   function updatePedestrians(dt, time, playerPosition) {
     for (let i = 0; i < pedestrians.length; i++) {
       const p = pedestrians[i], pos = p.actor.mesh.position;
+      const previous = { x: pos.x, z: pos.z };
+      p.velocity = { x: 0, z: 0 };
+      p.streetBehavior = 'idle';
+      p.yieldReason = null;
       p.actor.mesh.visible = distance(pos, playerPosition) < 95;
       if (p.down) {
+        p.streetBehavior = 'down';
+        p.detour = null;
         p.actor.update(dt, { speed: 0, dead: true });
         if (time > p.recoverAt) { p.down = false; p.fleeUntil = time + 6; }
         continue;
       }
-      if (p.evictedUntil > time) { p.actor.update(dt, { speed: 0 }); continue; }
+      if (p.evictedUntil > time) { p.detour = null; p.actor.update(dt, { speed: 0 }); continue; }
       let speed = 1.1, dx = 0, dz = 0;
       const fleeing = p.fleeUntil > time;
+      if (fleeing !== p.wasFleeing) p.detour = null;
+      p.wasFleeing = fleeing;
       if (fleeing) {
         const from = p.fleeFrom || playerPosition;
         delta.copy(pos).sub(from); delta.y = 0;
@@ -150,21 +177,75 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
           p.waypoint = i % 4;
         }
         delta.copy(p.route[p.waypoint]).sub(pos); delta.y = 0;
-        if (delta.lengthSq() < 1.1) p.waypoint = (p.waypoint + 1) % p.route.length;
+        if (delta.lengthSq() < 1.1) {
+          p.waypoint = (p.waypoint + 1) % p.route.length;
+          p.detour = null;
+          delta.copy(p.route[p.waypoint]).sub(pos); delta.y = 0;
+        }
         delta.normalize(); dx = delta.x; dz = delta.z;
       }
       if (speed > 0) {
-        const hit = moveBody(pos, dx * speed * dt, dz * speed * dt, .34);
-        if (hit && !fleeing) p.waypoint = (p.waypoint + 1) % 4;
-        // Separate neighboring pedestrians without synchronized crowd motion.
-        for (let j = 0; j < i; j++) {
-          const other = pedestrians[j].actor.mesh.position;
-          if (distance(pos, other) < .65) moveBody(pos, (pos.x - other.x) * dt * 2, (pos.z - other.z) * dt * 2, .32);
+        const overlap = vehicles.find(car => insideVehicle(pos, car));
+        const waiting = !overlap && vehicles.some(car => shouldYieldToVehicle(pos, { x: dx * speed, z: dz * speed }, car));
+        if (waiting) {
+          speed = 0;
+          p.streetBehavior = 'yielding';
+          p.yieldReason = 'moving-vehicle';
+        } else if (overlap) {
+          // A player may park over a person. Let that person step out instead of
+          // pinning them inside a newly arrived collision footprint.
+          const escape = vehicleEscape(pos, overlap);
+          dx = escape.x; dz = escape.z; p.detour = null;
+          p.streetBehavior = fleeing ? 'fleeing' : 'avoiding';
+        } else {
+          if (p.detour?.length && vehicles.some(car => crossesVehicle(pos, p.detour[0], car))) p.detour = null;
+          if (!p.detour?.length && time >= (p.nextDetourCheck || 0)) {
+            const length = fleeing ? 10 : Math.min(10, distance(pos, p.route[p.waypoint]));
+            const target = { x: pos.x + dx * length, z: pos.z + dz * length };
+            p.detour = vehicleDetour(pos, target, vehicles, world.colliders);
+            p.nextDetourCheck = time + .45;
+          }
+          if (p.detour?.length) {
+            const destination = p.detour[0], remaining = distance(pos, destination);
+            if (remaining < .15) p.detour.shift();
+            if (p.detour.length) {
+              const next = p.detour[0], length = distance(pos, next);
+              dx = (next.x - pos.x) / Math.max(length, .001); dz = (next.z - pos.z) / Math.max(length, .001);
+              speed = Math.min(speed, length / Math.max(dt, .001));
+              p.streetBehavior = fleeing ? 'fleeing' : 'avoiding';
+            }
+          }
+          if (p.streetBehavior === 'idle') p.streetBehavior = fleeing ? 'fleeing' : 'walking';
         }
-        const desired = Math.atan2(dx, dz);
-        p.actor.mesh.rotation.y += turn(p.actor.mesh.rotation.y, desired) * Math.min(1, dt * 8);
+        function step(x, z) {
+          const before = { x: pos.x, z: pos.z };
+          const hit = moveBody(pos, x, z, PERSON_RADIUS);
+          if (vehicles.some(car => insideVehicle(pos, car) && vehiclePenetration(pos, car) >= vehiclePenetration(before, car) - 1e-7)) {
+            pos.x = before.x; pos.z = before.z;
+            return true;
+          }
+          return hit;
+        }
+        const hit = step(dx * speed * dt, dz * speed * dt);
+        if (hit && !fleeing && !p.detour?.length && !waiting) {
+          p.waypoint = (p.waypoint + 1) % p.route.length;
+          p.nextDetourCheck = 0;
+        }
+        // Separate neighboring pedestrians without synchronized crowd motion.
+        for (let j = 0; speed > 0 && j < i; j++) {
+          const other = pedestrians[j].actor.mesh.position;
+          if (distance(pos, other) < .65) step((pos.x - other.x) * dt * 2, (pos.z - other.z) * dt * 2);
+        }
+        if (distance(pos, previous) > .0001) {
+          const desired = Math.atan2(pos.x - previous.x, pos.z - previous.z);
+          p.actor.mesh.rotation.y += turn(p.actor.mesh.rotation.y, desired) * Math.min(1, dt * 8);
+        }
       }
-      p.actor.update(dt, { speed, dead: false });
+      p.velocity.x = (pos.x - previous.x) / Math.max(dt, .001);
+      p.velocity.z = (pos.z - previous.z) / Math.max(dt, .001);
+      const actualSpeed = Math.hypot(p.velocity.x, p.velocity.z);
+      if (actualSpeed < .01 && (p.streetBehavior === 'walking' || p.streetBehavior === 'avoiding')) { p.streetBehavior = 'waiting'; p.yieldReason = 'blocked-path'; }
+      p.actor.update(dt, { speed: actualSpeed, dead: false });
     }
   }
 
@@ -235,7 +316,11 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
     Object.assign(heat, { wanted: 0, policeState: 'clear', searchProgress: 0, reportProgress: 0, lastKnown: null });
     pendingLevel = 0; reportAt = 0; lastSeen = engagementStarted = -100; nextShot = 0;
     officers.forEach(actor => { actor.mesh.visible = false; actor.mesh.userData.downUntil = 0; });
-    pedestrians.forEach(p => { p.route = null; p.reportingUntil = 0; p.evictedUntil = 0; });
+    pedestrians.forEach(p => { p.route = null; p.reportingUntil = 0; p.evictedUntil = 0; p.detour = null; p.nextDetourCheck = 0; p.velocity = { x: 0, z: 0 }; p.streetBehavior = 'idle'; p.yieldReason = null; });
+    vehicles.forEach(car => { car.yieldingToPedestrian = false; car.desiredSpeed = 0; car.trafficDecision = 'idle'; });
   }
-  return { reportCrime, update, reset, getState: () => ({ ...heat }) };
+  return { reportCrime, update, reset, getState: () => ({ ...heat }), getDiagnostics: () => ({
+    pedestrians: pedestrians.map((p, id) => ({ id, position: p.actor.mesh.position.toArray(), actualSpeed: Math.hypot(p.velocity?.x || 0, p.velocity?.z || 0), behavior: p.streetBehavior || 'idle', yieldReason: p.yieldReason, detourPoints: p.detour?.length || 0, routeTarget: p.route?.[p.waypoint]?.toArray() })),
+    traffic: vehicles.filter(car => car.traffic).map(car => ({ id: vehicles.indexOf(car), position: car.model.mesh.position.toArray(), heading: car.heading, speed: car.speed, desiredSpeed: car.desiredSpeed || 0, yielding: !!car.yieldingToPedestrian, decision: car.trafficDecision || 'idle' })),
+  }) };
 }

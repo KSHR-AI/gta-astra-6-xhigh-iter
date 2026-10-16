@@ -69,3 +69,32 @@ node --test tests/character-lod.test.js
 The [MIT-licensed meshoptimizer](https://github.com/zeux/meshoptimizer) runs only during authoring. It produces `public/models/CivilianMaleNatural.lod.json` and `CivilianFemaleNatural.lod.json`; no simplifier or additional package is shipped to the browser. These index buffers derive from the same credited meshes and retain their original licensing. Source SHA-256 checks in the tests catch stale generated data.
 
 LOD geometry references the original vertices, UVs, normals, joint weights, masks, and skeleton. Mixed-weight vertices and open boundaries are locked to protect joints and neck joins. Male triangle counts are 20,129 / 12,955 / 10,177, and female counts are 21,168 / 11,426 / 7,920. The playable character stays at full quality. NPCs transition at 14 / 30 m apparent distance with 15% hysteresis; camera FOV adjusts that distance, so photo zoom restores detail. Call `updateLOD(camera)` once per presented frame. Inspect both near/far transitions and zoomed photo views after authoring changes.
+
+## Astra Aurora roadster
+
+`vehicle_astra_aurora.py` authors the original two-seat Aurora in metres with the same reusable geometry helpers as the Meridian. Its body profiles, cockpit, wheels, fairings, lights, and trim are new project artwork; it does not import external car geometry or textures.
+
+```sh
+blender --background --factory-startup --threads 4 --python art/blender/vehicle_astra_aurora.py
+# Optional front, rear, and open-door source review renders in /tmp:
+blender --background --factory-startup --threads 4 --python art/blender/vehicle_astra_aurora.py -- --render-only
+```
+
+The saved `vehicle_astra_aurora.blend` retains the full 80,800-triangle editable source. Export optimizes small trim and planar areas to produce `public/models/AstraAurora.glb` (39,438 triangles) and `AstraAurora-lod.glb` (12,758 triangles). Each export has 47 material batches, including independently moving parts. Mesh validation runs after simplification. The source renders use the full source mesh; the browser must also be checked because it uses the optimized exports and different lighting.
+
+The `AstraAurora` root uses +Z forward and Y up in glTF. Keep these game-space attachment points and names when editing:
+
+| Node | Position / contract |
+| --- | --- |
+| `body_group` | Fixed body and visible cabin, zero origin |
+| `driver_door` | Hinge at `(-.94, .76, .70)`; positive Y rotation opens the left door |
+| `wheel_fl`, `wheel_fr` | Steering pivots at `(±.91, .352, 1.36)` |
+| `wheel_rl`, `wheel_rr` | Rear pivots at `(±.96, .352, -1.38)` |
+| `wheel_*_spin` | Child of each wheel pivot; spin local X; calipers stay outside the spin group |
+| `steering_wheel` | Rim, spokes and paddles at `(-.43, .85, .13)`; turn local Z |
+| `driver_seat`, `passenger_seat` | Pelvis anchors at `(±.43, .50, -.34)`; driver is negative X |
+| `door_entry` | Approach point `(-1.65, 0, -.15)` |
+| `engine_anchor` | Front engine bay `(0, .63, 1.25)` |
+| `exhaust_left`, `exhaust_right` | Rear outlets `(±.61, .29, -2.33)` |
+
+Tire radius is `.352 m`. The windshield runs from half-width `.82`, height `.88`, Z `.72` to half-width `.73`, height `1.29`, Z `.15`, with a `.025 m` vertical crown and `.04 m` forward crown. The rear plate backing is `.429 × .166 m`, centered at `(0, .52, -2.257)`; runtime lettering sits just behind it. Named paint, glass, lamp and interior materials are shared across static detail, while runtime clones materials that need individual damage or brake-light state. Verify steering, wheel rotation, door travel, seated hands, both LODs, and the windshield after changing the source.

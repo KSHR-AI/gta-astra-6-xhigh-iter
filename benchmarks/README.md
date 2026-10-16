@@ -63,7 +63,7 @@ The **Run** button repeats sampling in the already initialized scene; it does no
 [`scene.json`](scene.json) defines a fixed 960 × 540 drawing buffer at pixel ratio 1, WebGL2, no antialiasing, one orbiting camera, and these visible objects:
 
 - 64 separate buildings using shared box geometry and four rough materials, plus a ground plane.
-- Two instances of the same Ferrari LOD GLB.
+- Two instances of the same Ferrari LOD GLB, retained byte-for-byte in `fixtures/ferrari-lod.glb`. The lab serves its original `/models/vehicles/ferrari-lod.glb` URL; the gameplay build does not contain this fixture.
 - Four independently animated Soldier GLBs playing the imported `Walk` clip.
 - One directional light and approximate ambient illumination.
 

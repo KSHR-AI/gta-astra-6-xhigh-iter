@@ -68,7 +68,8 @@ async function fixture({ model, motion, height }) {
   mesh.position.set(13, 0, -7);
   mesh.rotation.y = 1.13;
   const forward = new THREE.Vector3(Math.sin(mesh.rotation.y), 0, Math.cos(mesh.rotation.y));
-  function frame(speed = 0) {
+  function frame(speed = 0, movementAngle = 0) {
+    forward.set(Math.sin(mesh.rotation.y + movementAngle), 0, Math.cos(mesh.rotation.y + movementAngle));
     mesh.position.addScaledVector(forward, speed * DT);
     animator.update(DT, { speed });
     mesh.updateMatrixWorld(true);
@@ -87,7 +88,7 @@ async function fixture({ model, motion, height }) {
       probe.object.localToWorld(vertex); mesh.worldToLocal(vertex);
       sole = Math.min(sole, vertex.y);
     }
-    return { feet, sole, hip: info.pelvis[1] };
+    return { feet, sole, hip: info.pelvis[1], locomotion: info.locomotion };
   }
   for (let i = 0; i < 60; i++) frame();
   return { frame };
@@ -136,5 +137,88 @@ for (const rig of RIGS) {
       previous = sample;
     }
     assert.ok(maximumStep < 0.018, `pelvis moves less than 1.8 cm in a 60 Hz startup frame, got ${maximumStep}`);
+  });
+}
+
+
+for (const rig of RIGS) {
+  test(`${rig.model}: slow pedestrians take shorter steps with low shoe clearance`, async () => {
+    const measures = [];
+    for (const speed of [1.1, 2.35]) {
+      const actor = await fixture(rig);
+      for (let i = 0; i < 120; i++) actor.frame(speed);
+      const samples = Array.from({ length: 360 }, () => actor.frame(speed));
+      measures.push(Object.fromEntries(['Left', 'Right'].map((side) => {
+        const ankles = samples.map((sample) => sample.feet[side].local);
+        return [side, {
+          stride: Math.max(...ankles.map((p) => p.z)) - Math.min(...ankles.map((p) => p.z)),
+          clearance: Math.max(...ankles.map((p) => p.y)) - Math.min(...ankles.map((p) => p.y)),
+        }];
+      })));
+    }
+    for (const side of ['Left', 'Right']) {
+      assert.ok(measures[0][side].stride < measures[1][side].stride * 0.82, `${side} shortens its slow-speed arc, instead of using full-size steps in slow motion`);
+      for (const gait of measures) {
+        assert.ok(gait[side].clearance > 0.07 && gait[side].clearance < 0.15,
+          `${side} clears the pavement without the source soldier's 20–23 cm marching step (${gait[side].clearance} m)`);
+      }
+    }
+  });
+
+  test(`${rig.model}: sprint stopping blends the gait without a pelvis or ankle snap`, async () => {
+    let maximumHipStep = 0, maximumFootStep = 0;
+    // Stopping is phase-dependent. Test both support and swing phases rather
+    // than selecting one convenient point in the animation cycle.
+    for (const phase of [0, 10, 20, 30, 40]) {
+      const actor = await fixture(rig);
+      for (let i = 0; i < 120 + phase; i++) actor.frame(5.8);
+      let previous = actor.frame(5.8);
+      for (let i = 0; i < 60; i++) {
+        const sample = actor.frame(0);
+        maximumHipStep = Math.max(maximumHipStep, Math.abs(sample.hip - previous.hip));
+        for (const side of ['Left', 'Right']) maximumFootStep = Math.max(maximumFootStep,
+          sample.feet[side].world.distanceTo(previous.feet[side].world));
+        previous = sample;
+      }
+    }
+    assert.ok(maximumHipStep < 0.018, `stopping pelvis change stays below 1.8 cm per 60 Hz frame (${maximumHipStep})`);
+    assert.ok(maximumFootStep < 0.12, `stopping ankle motion stays below 12 cm per frame (${maximumFootStep})`);
+  });
+
+  test(`${rig.model}: side steps keep shoes apart and preserve planted support`, async () => {
+    for (const direction of [-Math.PI / 2, Math.PI / 2]) {
+      const actor = await fixture(rig);
+      for (let i = 0; i < 120; i++) actor.frame(1.5, direction);
+      const samples = Array.from({ length: 360 }, () => actor.frame(1.5, direction));
+      assert.ok(Math.min(...samples.map((sample) => sample.feet.Left.local.x - sample.feet.Right.local.x)) > 0.09,
+        'ankles retain at least 9 cm of separation instead of crossing through one another');
+      const slip = [];
+      for (const side of ['Left', 'Right']) {
+        for (let i = 1; i < samples.length; i++) {
+          const current = samples[i].feet[side], previous = samples[i - 1].feet[side];
+          if (current.planted && previous.planted && current.weight > 0.98) {
+            slip.push(Math.hypot(current.world.x - previous.world.x, current.world.z - previous.world.z) / DT);
+          }
+        }
+      }
+      assert.ok(slip.length > 24, 'both directions establish measurable support contacts');
+      assert.ok(percentile(slip, 0.95) < 0.25, 'side-step support p95 slip remains below 0.25 m/s');
+    }
+  });
+
+  test(`${rig.model}: changing travel direction releases support without an ankle pop`, async () => {
+    const actor = await fixture(rig);
+    for (let i = 0; i < 120; i++) actor.frame(1.5);
+    let previous = actor.frame(1.5), maximumStep = 0;
+    for (const direction of [Math.PI / 2, Math.PI, -Math.PI / 2, 0]) {
+      for (let i = 0; i < 60; i++) {
+        const sample = actor.frame(1.5, direction);
+        for (const side of ['Left', 'Right']) maximumStep = Math.max(maximumStep,
+          sample.feet[side].world.distanceTo(previous.feet[side].world));
+        previous = sample;
+      }
+    }
+    assert.ok(maximumStep < 0.10, `an ankle moves less than 10 cm in a 60 Hz direction-change frame (${maximumStep})`);
+    assert.ok(Math.abs(previous.locomotion.movementAngle) < 0.001, 'a full turn returns the local travel direction to forward');
   });
 }
