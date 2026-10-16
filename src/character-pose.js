@@ -47,7 +47,7 @@ export function createPoseTools(root, bones) {
     bone.getWorldQuaternion(worldRotation).premultiply(deltaRotation);
     bone.parent.getWorldQuaternion(parentRotation).invert();
     localRotation.copy(parentRotation).multiply(worldRotation);
-    bone.quaternion.slerp(localRotation, THREE.MathUtils.clamp(weight, 0, 1));
+    bone.quaternion.slerp(localRotation.normalize(), THREE.MathUtils.clamp(weight, 0, 1)).normalize();
     return true;
   }
 

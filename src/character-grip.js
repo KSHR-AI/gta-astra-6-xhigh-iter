@@ -132,7 +132,7 @@ export function createHandPoseController({ mesh, bones, restPose = {} }) {
   function orientWrist(hand, weight = hand.wristWeight) {
     hand.bone.parent.getWorldQuaternion(q1).invert();
     targetQ.copy(q1).multiply(hand.desiredWorldQ);
-    hand.bone.quaternion.slerp(targetQ, weight);
+    hand.bone.quaternion.slerp(targetQ.normalize(), weight).normalize();
     hand.bone.updateWorldMatrix(false, false);
   }
 

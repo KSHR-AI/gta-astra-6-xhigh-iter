@@ -516,10 +516,16 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
     setWeapon: animator.setWeapon,
     reactToHit: animator.reactToHit,
     getPoseInfo: animator.getPoseInfo,
+    getAimState: animator.getAimState,
+    applyShot: animator.applyShot,
     getFaceInfo: face.getInfo,
     getHitVolumes() { animator.flushPose(); return getHitVolumes(); },
     setVisible(visible) { mesh.visible = Boolean(visible); },
     getMuzzlePosition(target = new THREE.Vector3()) { animator.flushPose(); return muzzle.getWorldPosition(target); },
+    getMuzzleDirection(target = new THREE.Vector3()) {
+      animator.flushPose(); weapon.updateWorldMatrix(true, false);
+      return target.set(0, 0, 1).transformDirection(weapon.matrixWorld);
+    },
     dispose() { mixer.stopAllAction(); materials.forEach((material) => material.dispose()); },
   };
 }
@@ -561,37 +567,94 @@ function createFallbackCharacter({ npc, color, police }) {
   const { group: weapon, muzzle } = handgun();
   limbs[0].hand.add(weapon); weapon.rotation.x = Math.PI / 2;
   let time = 0, weaponVisible = false, hitWeight = 0, wasJumping = false, landing = 0;
+  let aimWeight = 0, recoil = 0, recoilVelocity = 0, lastShotId = 0, wasShooting = false;
+  let localAimYaw = 0, localAimPitch = 0, aimTarget = null, aimBlocked = true;
+  const rootQuaternion = new THREE.Quaternion(), parentQuaternion = new THREE.Quaternion(), aimQuaternion = new THREE.Quaternion();
+  const direction = new THREE.Vector3(), localDirection = new THREE.Vector3(), origin = new THREE.Vector3();
+  const aimEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const aimState = { ready:false, raised:0, angleError:0, yaw:0, pitch:0, yawClamped:false, reachLimited:false, recoil:0 };
   const seatOffset = new THREE.Vector3(0, -0.94, 0);
+  function aimFrom(point) {
+    mesh.getWorldQuaternion(rootQuaternion);
+    direction.set(Math.sin(localAimYaw)*Math.cos(localAimPitch), Math.sin(localAimPitch), Math.cos(localAimYaw)*Math.cos(localAimPitch)).applyQuaternion(rootQuaternion);
+    if (aimTarget && aimTarget.distanceToSquared(point)>1e-10) direction.copy(aimTarget).sub(point).normalize();
+    localDirection.copy(direction).applyQuaternion(aimQuaternion.copy(rootQuaternion).invert());
+    const yaw=Math.atan2(localDirection.x,localDirection.z), pitch=Math.atan2(localDirection.y,Math.hypot(localDirection.x,localDirection.z));
+    return { yaw:THREE.MathUtils.clamp(yaw,-1.35,1.35), pitch:THREE.MathUtils.clamp(pitch,-1.1,1.1), yawClamped:Math.abs(yaw)>1.35 };
+  }
+  function refreshAim() {
+    let angles=aimFrom(weapon.getWorldPosition(origin));
+    if (weapon.visible && !aimBlocked) {
+      // Keep the simple articulated hand attachment, but make its barrel use
+      // the same world target as the full rig. A second pass accounts for the
+      // muzzle's small offset from the wrist during close-range convergence.
+      for(let pass=0;pass<2;pass++) {
+        angles=aimFrom(pass ? muzzle.getWorldPosition(origin) : weapon.getWorldPosition(origin));
+        aimEuler.set((1-aimWeight)*.58-angles.pitch*aimWeight-recoil,angles.yaw*aimWeight,0,'YXZ');
+        aimQuaternion.setFromEuler(aimEuler).premultiply(rootQuaternion);
+        weapon.parent.getWorldQuaternion(parentQuaternion).invert();
+        weapon.quaternion.copy(parentQuaternion).multiply(aimQuaternion);
+        weapon.updateWorldMatrix(true,true);
+      }
+    }
+    aimFrom(muzzle.getWorldPosition(origin));
+    const forward=new THREE.Vector3(0,0,1).applyQuaternion(weapon.getWorldQuaternion(parentQuaternion));
+    const angleError=forward.angleTo(direction);
+    Object.assign(aimState,{ready:weapon.visible&&!aimBlocked&&aimWeight>=.94&&angleError<=Math.PI/60,
+      raised:aimWeight,angleError,yaw:angles.yaw,pitch:angles.pitch,yawClamped:angles.yawClamped,recoil});
+  }
+  function applyShot(id) {
+    if (!Number.isFinite(id)||id<=lastShotId||!weapon.visible||aimBlocked)return false;
+    lastShotId=id; recoil=Math.min(.12,recoil+.012); recoilVelocity+=3.1;
+    // Accepted-shot feedback refreshes only the attached weapon. No animation
+    // clock, gait, landing, hit reaction, or interaction state advances here.
+    refreshAim(); return true;
+  }
   return {
     mesh, weapon, muzzle, seatOffset, seatAnchor: 'pelvis',
     advance(dt, options) { this.update(dt, options); },
     flushPose() { return false; },
-    update(dt, { speed = 0, aiming = false, shooting = false, dead = false, seated = false, steering = 0, jumping = false, verticalVelocity = 0, reloading = false, reloadProgress = 0, aimPitch = 0, interactionProgress = 0, interactionPhase = '', hit = false } = {}) {
+    update(dt, { speed = 0, armed = weaponVisible, aiming = false, shooting = false, shotId, dead = false, seated = false, steering = 0, jumping = false, verticalVelocity = 0, reloading = false, reloadProgress = 0, aimYaw = 0, aimPitch = 0, aimTarget:target, interactionProgress = 0, interactionPhase = '', hit = false } = {}) {
       const step = Math.min(dt, 0.1); time += step * (Math.abs(speed) > 3.7 ? 11 : 7);
       const interacting = interactionPhase === 'enter' || interactionPhase === 'exit';
       const seatWeight = interacting ? (interactionPhase === 'enter' ? THREE.MathUtils.smoothstep(interactionProgress, 0.22, 1) : 1 - THREE.MathUtils.smoothstep(interactionProgress, 0, 0.78)) : seated ? 1 : 0;
+      localAimYaw=aimYaw; localAimPitch=aimPitch; aimTarget=target?.isVector3?target.clone():null;
+      aimBlocked=reloading||dead||seated||interacting||!armed;
+      aimWeight=THREE.MathUtils.damp(aimWeight,weaponVisible&&!aimBlocked&&(aiming||shooting)?1:0,12,step);
+      const recoilSteps=Math.max(1,Math.ceil(step*120)), recoilStep=step/recoilSteps;
+      for(let i=0;i<recoilSteps;i++) {
+        recoilVelocity+=(-420*recoil-31*recoilVelocity)*recoilStep;
+        recoil=THREE.MathUtils.clamp(recoil+recoilVelocity*recoilStep,-.008,.12);
+      }
       const airborne = jumping || Math.abs(verticalVelocity) > 0.2;
       if (wasJumping && !airborne) landing = 1; wasJumping = airborne;
       landing = THREE.MathUtils.damp(landing, 0, 8, step);
       if (hit) hitWeight = 1; hitWeight = THREE.MathUtils.damp(hitWeight, 0, 6, step);
       const stride = Math.min(Math.abs(speed) / 4, 0.8) * (1 - seatWeight);
+      const angles=aimFrom(upperBody.getWorldPosition(origin));
       for (const limb of limbs) {
         limb.thigh.rotation.x = Math.sin(time) * stride * limb.side - seatWeight * 1.4 - (airborne ? 0.6 : landing * 0.18);
         limb.shin.rotation.x = seatWeight * 0.9 + (airborne ? 1.0 : landing * 0.4);
-        limb.arm.rotation.x = seatWeight ? dead ? 0.15 : -1.2 : reloading ? -0.9 : (aiming || shooting) ? -Math.PI / 2 - aimPitch : -Math.sin(time) * stride * limb.side;
+        limb.arm.rotation.x = seatWeight ? dead ? 0.15 : -1.2 : reloading ? -0.9 : THREE.MathUtils.lerp(-Math.sin(time)*stride*limb.side,-Math.PI/2-angles.pitch-recoil,aimWeight);
         limb.arm.rotation.z = seatWeight ? steering * 0.15 : 0;
         limb.forearm.rotation.x = reloading ? -0.5 - Math.sin(reloadProgress * Math.PI) * 0.4 : seatWeight ? -0.3 : -0.1;
       }
       visual.position.copy(seatOffset).multiplyScalar(seatWeight); visual.position.y -= landing * 0.08;
       visual.rotation.set(hitWeight * 0.18, interacting ? -Math.sin(interactionProgress * Math.PI) * 0.35 : 0, dead ? -(1 - seatWeight) * Math.PI / 2 : 0);
-      upperBody.rotation.x = dead ? seatWeight * 0.55 : 0;
-      weapon.visible = weaponVisible && !dead && !seated && !interacting;
-      mesh.userData.animationState = dead ? 'down' : interacting ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : speed > 0.1 ? 'walking' : 'idle';
+      upperBody.rotation.set(dead?seatWeight*.55:0,angles.yaw*aimWeight*(1-seatWeight),0);
+      weapon.visible = weaponVisible && armed && !dead && !seated && !interacting;
+      if (aimBlocked)weapon.rotation.set(Math.PI/2,0,0);
+      mesh.userData.animationState = dead ? 'down' : interacting ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : aiming||shooting ? 'aiming' : speed > 0.1 ? 'walking' : 'idle';
+      refreshAim();
+      if(shooting&&(Number.isFinite(shotId)?shotId>lastShotId:!wasShooting))applyShot(Number.isFinite(shotId)?shotId:lastShotId+1);
+      wasShooting=shooting;
     },
-    setWeapon(visible) { weaponVisible = Boolean(visible); weapon.visible = weaponVisible; },
+    applyShot,
+    getAimState() { return {...aimState}; },
+    setWeapon(visible) { weaponVisible = Boolean(visible); weapon.visible = weaponVisible; refreshAim(); },
     setVisible(visible) { mesh.visible = Boolean(visible); },
     reactToHit(strength = 1) { hitWeight = strength; },
-    getPoseInfo() { return { state: mesh.userData.animationState, pelvis: [0, 0.94 + visual.position.y, 0] }; },
+    getPoseInfo() { return { state: mesh.userData.animationState, pelvis: [0, 0.94 + visual.position.y, 0], aim:{...aimState}, recoil }; },
     getFaceInfo() { return { supported: false, meshes: 0, active: false, blinkLeft: 0, blinkRight: 0, samples: 0, writes: 0 }; },
     getHitVolumes() {
       const scale = visual.getWorldScale(new THREE.Vector3());
@@ -603,5 +666,6 @@ function createFallbackCharacter({ npc, color, police }) {
       };
     },
     getMuzzlePosition(target = new THREE.Vector3()) { return muzzle.getWorldPosition(target); },
+    getMuzzleDirection(target = new THREE.Vector3()) { return target.set(0,0,1).applyQuaternion(weapon.getWorldQuaternion(new THREE.Quaternion())).normalize(); },
   };
 }

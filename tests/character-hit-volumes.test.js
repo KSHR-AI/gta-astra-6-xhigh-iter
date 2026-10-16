@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { createPosedActorCollider, getAimPoint } from '../src/combat.js';
 
 let factoryPromise;
 function factory(t) {
@@ -27,6 +28,24 @@ function bonesOf(actor) {
   const bones = {};
   actor.mesh.traverse(object => { if (object.isBone) bones[object.name.replace(/.*mixamorig[:_]?/i, '')] = object; });
   return bones;
+}
+
+function assertHitEnvelope(actor, volumes) {
+  const before = actor.getEvaluationStats();
+  const collider = createPosedActorCollider(actor);
+  assert.deepEqual(actor.getEvaluationStats(), before, 'reading the broad phase never evaluates a pending pose');
+  assert.ok(collider.bounds, 'production characters expose a conservative collision envelope');
+  const containsSphere = (center, radius) => {
+    for (const axis of ['x', 'y', 'z']) for (const sign of [-1, 1]) {
+      const extreme = center.clone(); extreme[axis] += sign * radius;
+      assert.ok(collider.bounds.containsPoint(extreme), 'posed hit volumes, including their radii, remain inside the envelope');
+    }
+  };
+  for (const sphere of volumes.spheres) containsSphere(sphere.center, sphere.radius);
+  for (const capsule of volumes.capsules) {
+    containsSphere(capsule.start, capsule.radius); containsSphere(capsule.end, capsule.radius);
+  }
+  return collider;
 }
 
 function skinHeadCenter(actor, bones) {
@@ -59,6 +78,7 @@ for (const gender of ['male', 'female']) {
         actor.mesh.rotation.set(tilt ? 0.055 : 0, 1.2, tilt ? -0.07 : 0);
         for (let i = 0; i < 90; i++) actor.update(1 / 60, { seated, steering: 0.6 });
         const snapshot = actor.getHitVolumes(), head = snapshot.spheres[0], torso = snapshot.capsules[0];
+        assertHitEnvelope(actor, snapshot);
         assert.ok(head.center.distanceTo(skinHeadCenter(actor, bones)) < 0.035, 'head volume centers on the actual skinned skull, including its forward offset');
         assert.ok(head.center.distanceTo(bones.Head.getWorldPosition(new THREE.Vector3())) > 0.07, 'the Head joint at the neck is not mistaken for the face center');
         assert.ok(head.radius > 0.10 && head.radius < 0.20);
@@ -76,6 +96,7 @@ for (const gender of ['male', 'female']) {
     const uprightCenter = actor.mesh.worldToLocal(actor.getHitVolumes().spheres[0].center.clone());
     for (let i = 0; i < 180; i++) actor.update(1 / 60, { seated: true, dead: true });
     const downVolumes = actor.getHitVolumes();
+    assertHitEnvelope(actor, downVolumes);
     const slumpedCenter = actor.mesh.worldToLocal(downVolumes.spheres[0].center.clone());
     assert.ok(slumpedCenter.y < uprightCenter.y - 0.10, `the posed skull volume follows the forward slump (${uprightCenter.y - slumpedCenter.y} m down)`);
     assert.ok(slumpedCenter.z > uprightCenter.z + 0.2, 'slumped head collision moves forward with the visible face');
@@ -83,8 +104,20 @@ for (const gender of ['male', 'female']) {
     const initial = actor.getHitVolumes();
     actor.mesh.scale.setScalar(1.2);
     const scaled = actor.getHitVolumes();
+    assertHitEnvelope(actor, scaled);
     assert.ok(Math.abs(scaled.spheres[0].radius / initial.spheres[0].radius - 1.2) < 1e-7);
     assert.ok(Math.abs(scaled.capsules[0].radius / initial.capsules[0].radius - 1.2) < 1e-7);
+    actor.advance(1 / 30, { seated: true, steering: -.5 });
+    const pending = actor.getEvaluationStats();
+    assert.equal(pending.pending, true);
+    const collider = createPosedActorCollider(actor);
+    getAimPoint({ cameraRay: new THREE.Ray(new THREE.Vector3(100, 100, 100), new THREE.Vector3(1, 0, 0)), actors: [collider] });
+    assert.deepEqual(actor.getEvaluationStats(), pending, 'an unrelated aimed ray leaves actual driver animation deferred');
+    const origin = collider.bounds.getCenter(new THREE.Vector3()); origin.x = collider.bounds.min.x - 1;
+    getAimPoint({ cameraRay: new THREE.Ray(origin, new THREE.Vector3(1, 0, 0)), actors: [collider] });
+    assert.equal(actor.getEvaluationStats().poses, pending.poses + 1, 'a plausible driver resolves its fresh pending pose exactly once');
+    collider.getVolumes();
+    assert.equal(actor.getEvaluationStats().poses, pending.poses + 1);
   });
 }
 

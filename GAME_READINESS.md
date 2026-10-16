@@ -13,12 +13,24 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 
 1. **Performance:** consistent frame pacing on a documented hardware/browser matrix. Current cloud browser uses llvmpipe software graphics and runs the full city at only a few frames per second. Isolated engine benchmarks do not establish game performance. Profile the complete scene and preserve close-up quality when optimizing.
 2. **Characters:** production clothing, facial expressions/dialogue, convincing turns and stops, terrain-aware feet, vehicle interactions and hit reactions. Current procedural layers and imported base bodies remain visibly limited.
-3. **Combat and driving:** synchronize the firing pose with rapid aim changes and retain hit feedback across slow displayed frames; extended playtests for cover, camera collision, aim feedback, police fairness, vehicle collision and recovery. Current simple collision volumes and arcade driving need further work.
+3. **Combat and driving:** extended playtests for cover, camera collision, aim feedback, police fairness, vehicle collision and recovery. Current simple collision volumes and arcade driving need further work.
 4. **World and narrative:** authored mission variety, meaningful interiors and activities, pedestrian interactions, coherent art direction and soundscape. One short mission is not a complete game.
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current character proportions and apparel pass
+## Current shooting and aim pass
+
+- Resolve movement and camera direction before the character pose. Turn the upper body within bounded yaw and reach; converge the visible pistol on the current reticle target, including close targets. Accept a buffered click only when the raised barrel is aligned, then apply one immediate recoil event without advancing animation twice.
+- Preserve a confirmed hit until the HUD displays it. Freeze the feedback while paused and clear queued clicks when opening menus, holstering, reloading or entering a vehicle. Keep shot identifiers monotonic across restarts.
+- Use actual movement distance for footstep cadence and weapon spread, so pushing against a wall does not count as running. Query exact driver hit volumes only when a camera or muzzle ray intersects their conservative envelope; missing bounds retain full checks.
+- Normalize posed arm and wrist rotations and preserve the original lowered elbow position while refining wrist alignment. Visual review rejected an earlier wrist-only refinement because it raised the elbows unnaturally. The shorter female rig still limits the available elbow pose at the shared grip; this is not a production motion-capture solution.
+
+- Final normal-input browser checks cover first raise, immediate 90/180-degree turns, upward/downward aim, hip-fire follow-up, cancelled clicks, frozen armed poses, close occupant fire, reload and theft. The first raise accepted after 262.5 ms; sampled rapid turns accepted after about 29–75 ms, with the visible barrel within 1.25 degrees of the final ray. These are simulation-time observations on the software renderer, not measured hardware input latency. An induced 250 ms browser stall retained a full-strength hit marker on its first displayed frame.
+- The final full-city samples measured 6.45 fps exploring and 6.30 fps aiming at 1039 × 491 on llvmpipe, with 421/415 draw calls and 347,039/372,444 triangles. Scene timing and traffic differ from the previous 6.29 fps sample, so this is not an isolated improvement benchmark. Hardware frame pacing remains unproven.
+- Blocking all primary/legacy character downloads exercised the articulated fallback: it still raises, turns, fires once per press and kicks immediately. Restoring requests reloads the natural rigs. The fallback is deliberately simple and is not the intended visual presentation.
+- Wall movement correctly reports zero speed and stationary spread. The same playtest exposes a remaining camera defect: at the storefront near x=17.075, z=23, boom retraction places the camera inside the protagonist. This is a known release blocker, documented in the PR report for the next iteration.
+
+## Previous character proportions and apparel pass
 
 - Fit both heads against their posed body landmarks, shortening the female neck and reducing its lower flare. Keep the source skeleton, inverse binds, eyes and blink alignment intact.
 - Tailor the existing garment meshes, replacing balloon trouser volume and knee graphics with continuous authored denim, pockets and stitching. Preserve exposed skin, contact rings and rig influences. Keep editable Blender sources and repeatable staged exports.
@@ -31,7 +43,9 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 
 ### Next iteration priorities
 
-- **Shooting:** separate actual weapon readiness from the aim-button state; align the visible firing pose during rapid camera turns and retain hit feedback for a displayed frame. The current settled-aim encounter passes, but that does not cover rapid aim transitions.
+- **Camera obstruction:** prevent the protagonist’s interior surfaces from filling the view when the camera retracts at a wall, while preserving photo close-ups, vehicle occupants and collision queries. Reproduce the storefront case above and check recovery on moving away.
+- **Animation cost:** profile an early exit from repeated pistol target convergence once the barrel and shared grip are stable, retaining the iteration cap for close/extreme targets. Preserve current readiness, elbow and exact-grip bounds.
+- **Combat depth:** extend movement/cover playtests, improve hit reactions and adversary tactics, and evaluate weapon sound and input latency on hardware. The current pistol and bounded procedural grip remain a small combat slice.
 - **Character finish:** compare faces in sun and shade before changing exposure or albedo; current direct sunlight washes out cheek/nose definition. Improve collar and sleeve shapes and structural trouser folds rather than adding more weave texture. Hair still lacks convincing strands and facial acting remains absent.
 - **World surfaces:** reduce the road's uniformly speckled fine detail and improve broader wear variation and manhole rim/contact shading. These are visual review findings, not yet implemented changes.
 

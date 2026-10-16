@@ -3,6 +3,50 @@ import * as THREE from 'three';
 const EPSILON = 1e-8;
 const NEAR_COVER_DISTANCE = 1.1;
 
+/**
+ * One synchronous collision snapshot. Reading its conservative envelope does
+ * not flush a deferred character pose; exact volumes are captured on demand.
+ * The existing render envelope encloses head/torso centers. Expand it by the
+ * largest authored hit radius (25 cm), including uniform collision radii under
+ * nonuniform root transforms rather than treating them as ellipsoids.
+ */
+export function createPosedActorCollider(actor, object = actor) {
+  const root = actor.mesh;
+  const position = root.getWorldPosition(new THREE.Vector3());
+  const envelope = actor.getLODInfo?.()?.culling;
+  let bounds = null;
+  const e = root.matrixWorld.elements;
+  if (Array.isArray(envelope?.center) && envelope.center.length === 3 && envelope.center.every(Number.isFinite)
+    && Number.isFinite(envelope.radius) && envelope.radius > 0 && e.every(Number.isFinite)
+    && Math.abs(e[3]) < 1e-10 && Math.abs(e[7]) < 1e-10 && Math.abs(e[11]) < 1e-10
+    && Math.abs(e[15] - 1) < 1e-10 && Math.abs(root.matrixWorld.determinant()) > 1e-12) {
+    const center = new THREE.Vector3().fromArray(envelope.center).applyMatrix4(root.matrixWorld);
+    // The infinity norm of A^T A bounds its largest eigenvalue, so this
+    // remains conservative with rotation, nonuniform scale and parent shear.
+    const aa = e[0] ** 2 + e[1] ** 2 + e[2] ** 2;
+    const bb = e[4] ** 2 + e[5] ** 2 + e[6] ** 2;
+    const cc = e[8] ** 2 + e[9] ** 2 + e[10] ** 2;
+    const ab = Math.abs(e[0] * e[4] + e[1] * e[5] + e[2] * e[6]);
+    const ac = Math.abs(e[0] * e[8] + e[1] * e[9] + e[2] * e[10]);
+    const bc = Math.abs(e[4] * e[8] + e[5] * e[9] + e[6] * e[10]);
+    const padding = .25 * Math.sqrt(Math.max(aa + ab + ac, bb + ab + bc, cc + ac + bc)) + 1e-8;
+    const extent = new THREE.Vector3(
+      Math.hypot(e[0], e[4], e[8]), Math.hypot(e[1], e[5], e[9]), Math.hypot(e[2], e[6], e[10]),
+    ).multiplyScalar(envelope.radius).addScalar(padding);
+    if ([...center.toArray(), ...extent.toArray()].every(Number.isFinite)) {
+      bounds = new THREE.Box3(center.clone().sub(extent), center.clone().add(extent));
+    }
+  }
+  let sampled = false, volumes;
+  return {
+    object, position, bounds,
+    getVolumes() {
+      if (!sampled) { volumes = actor.getHitVolumes?.(); sampled = true; }
+      return volumes;
+    },
+  };
+}
+
 function normalizedRay(source) {
   const direction = source.direction.clone();
   if (direction.lengthSq() < EPSILON) throw new RangeError('A shot needs a nonzero camera direction.');
@@ -74,12 +118,19 @@ function capsuleHit(ray, bottom, top, radius) {
   return closest;
 }
 
-function actorHit(ray, actor) {
-  if (actor.volumes) {
+function actorHit(ray, actor, maxRange) {
+  const bounds = actor.bounds;
+  if (bounds?.isBox3 && !bounds.isEmpty()
+    && [...bounds.min.toArray(), ...bounds.max.toArray()].every(Number.isFinite)) {
+    const coarse = boxHit(ray, bounds);
+    if (!coarse || coarse.distance > maxRange) return null;
+  }
+  const volumes = actor.volumes ?? actor.getVolumes?.();
+  if (volumes) {
     let nearest = null;
     const consider = hit => { if (hit && (!nearest || hit.distance < nearest.distance)) nearest = hit; };
-    for (const sphere of actor.volumes.spheres || []) consider(sphereHit(ray, sphere.center, sphere.radius));
-    for (const capsule of actor.volumes.capsules || []) consider(capsuleHit(ray, capsule.start, capsule.end, capsule.radius));
+    for (const sphere of volumes.spheres || []) consider(sphereHit(ray, sphere.center, sphere.radius));
+    for (const capsule of volumes.capsules || []) consider(capsuleHit(ray, capsule.start, capsule.end, capsule.radius));
     // Explicit posed volumes replace the standing approximation, including
     // empty volume sets for a character that currently has no hittable body.
     return nearest;
@@ -128,7 +179,7 @@ function nearestHit(ray, { buildings = [], vehicles = [], actors = [], groundY }
     consider(hit, vehicle.object, 'vehicle');
   }
   consider(groundHit(ray, groundY), null, 'ground');
-  for (const actor of actors) consider(actorHit(ray, actor), actor.object, 'actor');
+  for (const actor of actors) consider(actorHit(ray, actor, nearest?.distance ?? maxRange), actor.object, 'actor');
   return nearest;
 }
 
@@ -149,6 +200,10 @@ export function getAimPoint({ cameraRay, buildings = [], vehicles = [], actors =
  * actors: { object, position: Vector3, headHeight? }[] or { object, volumes }[].
  * Optional volumes contain world-space spheres [{center, radius}] and capsules
  * [{start, end, radius}], allowing seated/leaning bodies with arbitrary axes.
+ * A lazy getVolumes callback can replace volumes, with optional conservative
+ * world-space bounds (Box3). Both ray passes test those bounds independently;
+ * a character outside the camera ray can still obstruct the physical muzzle.
+ * Reuse a createPosedActorCollider snapshot only within the same world state.
  * Vehicle callbacks receive
  * a normalized world-space ray and return null or { distance, normal }, with
  * nonnegative world-space distance and an outward world-space Vector3 normal.

@@ -10,6 +10,7 @@ const smooth = THREE.MathUtils.smoothstep;
 /** Layered skeletal performance over the locally stored motion-capture clips. */
 export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, weapon, magazine, soleProbes, restPose, bindHeadOrientation, npc, phaseOffset = 0, groundHeightAt }) {
   const pose = createPoseTools(mesh, bones);
+  const chooseElbowPole = createElbowPoleSolver(pose);
   const hands = createHandPoseController({ mesh, bones, restPose });
   const rootRotation = new THREE.Quaternion();
   const inverseRotation = new THREE.Quaternion();
@@ -35,6 +36,24 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   const groundPoint = new THREE.Vector3();
   const actorInverse = new THREE.Matrix4();
   const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const weaponEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const torsoWorld = new THREE.Quaternion(), torsoParent = new THREE.Quaternion();
+  const torsoTurn = new THREE.Quaternion(), actorUp = new THREE.Vector3();
+  const aimDirection = new THREE.Vector3(), fallbackDirection = new THREE.Vector3();
+  const aimLocalTarget = new THREE.Vector3(), muzzleLocal = new THREE.Vector3();
+  const barrelDirection = new THREE.Vector3(), gripCenter = new THREE.Vector3();
+  const gripOrigin = new THREE.Vector3(), wristOffset = new THREE.Vector3();
+  const shoulder = new THREE.Vector3(), sphereOffset = new THREE.Vector3();
+  const aimPole = new THREE.Vector3(), wristTarget = new THREE.Vector3();
+  const muzzle = weapon.getObjectByName('Muzzle');
+  const muzzleOffset = muzzle?.position.clone() ?? new THREE.Vector3(0, .024, .202);
+  const armLengths = Object.fromEntries(['Right', 'Left'].map(side => [side,
+    pose.position(`${side}Arm`).distanceTo(pose.position(`${side}ForeArm`))
+      + pose.position(`${side}ForeArm`).distanceTo(pose.position(`${side}Hand`))]));
+  const aimState = { ready: false, raised: 0, angleError: Math.PI, yaw: 0, pitch: 0,
+    yawClamped: false, reachLimited: false, recoil: 0 };
+  let presentedAim = null;
+  let lastAppliedShotId = -Infinity;
   let headInitialized = false;
   const seatOffset = pose.position('Hips', new THREE.Vector3()).multiplyScalar(-1);
   const initialHipHeight = -seatOffset.y;
@@ -142,7 +161,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     const {
       speed = 0, armed = weaponVisible, aiming = false, shooting = false, shotId, dead = false,
       seated = false, steering = 0, jumping = false, verticalVelocity = 0,
-      reloading = false, reloadProgress, aimPitch = 0,
+      reloading = false, reloadProgress, aimPitch = 0, aimYaw = 0, aimTarget = null,
       interactionProgress = 0, interactionPhase = '', hit = false,
     } = options;
     const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.25);
@@ -164,16 +183,16 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     lastHitInput = Boolean(hit);
     hitReaction = THREE.MathUtils.damp(hitReaction, 0, 6, step);
     readyWeight = THREE.MathUtils.damp(readyWeight, carrying ? 1 : 0, 11, step);
-    const aimTarget = carrying && reloading ? aimWeight : carrying && (aiming || shooting) ? 1 : 0;
-    aimWeight = THREE.MathUtils.damp(aimWeight, aimTarget, 12, step);
+    const raiseTarget = carrying && reloading ? aimWeight : carrying && (aiming || shooting) ? 1 : 0;
+    aimWeight = THREE.MathUtils.damp(aimWeight, raiseTarget, 12, step);
     reloadWeight = THREE.MathUtils.damp(reloadWeight, carrying && reloading ? 1 : 0, 10, step);
     // A queued raise is not a shot. Discrete IDs preserve recoil on every round
     // even while a sustained firing/follow-through boolean remains true.
     const shot = Number.isFinite(shotId)
-      ? shooting && (lastShotId !== null ? shotId !== lastShotId : shotId > 0)
+      ? shooting && shotId > (lastShotId ?? 0)
       : shooting && !wasShooting;
-    if (Number.isFinite(shotId)) lastShotId = shotId;
-    if (shot && carrying && !reloading) recoilVelocity += 3.1;
+    if (Number.isFinite(shotId)) lastShotId = Math.max(lastShotId ?? 0, shotId);
+    if (shot && carrying && !reloading) { recoil = clamp(recoil + .012, -.008, .12); recoilVelocity += 3.1; }
     wasShooting = shooting;
     const recoilSteps = Math.max(1, Math.ceil(step * 120)), recoilStep = step / recoilSteps;
     for (let i = 0; i < recoilSteps; i++) {
@@ -257,7 +276,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     pendingPoseTime += step;
     pendingPose = { interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
       movingWeight, aiming, shooting, dead, seated, steering, verticalVelocity,
-      reloading, reloadT, aimPitch, interactionPhase };
+      reloading, reloadT, aimPitch, aimYaw, aimTarget: aimTarget?.isVector3 ? aimTarget.clone() : null, interactionPhase };
     mesh.userData.animationState = dead ? 'down' : interaction ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : landing > 0.08 ? 'landing' : hitReaction > 0.05 ? 'hit' : aiming || shooting ? 'aiming' : motionSpeed > 3.7 ? 'running' : motionSpeed > 0.15 ? 'walking' : carrying ? 'low-ready' : 'idle';
   }
 
@@ -265,7 +284,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     if (!pendingPose) return false;
     const { interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
       movingWeight, aiming, shooting, dead, seated, steering, verticalVelocity,
-      reloading, reloadT, aimPitch, interactionPhase } = pendingPose;
+      reloading, reloadT, aimPitch, aimYaw, aimTarget, interactionPhase } = pendingPose;
     const step = pendingPoseTime;
     pendingPose = null; pendingPoseTime = 0; poseCount++;
     mesh.getWorldQuaternion(rootRotation);
@@ -314,6 +333,24 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     const bodyLean = landing * 0.20 + hitReaction * 0.26 + airWeight * 0.08 + movingWeight * runningWeight * 0.07 + aimWeight * 0.035 - recoil * 0.2;
     point('Spine', 'Spine1', -weightShift * idleLife, 1, bodyLean - seatedWeight * 0.13 + breathing * idleLife * 0.012, Math.max(neutralWeight * 0.55, airWeight, landing, hitReaction));
     point('Spine2', 'Neck', -turnLean * (1 - seatedWeight) * 0.025 + weightShift * idleLife * 0.6, 1, bodyLean * 0.25 + breathing * idleLife * 0.009, Math.max(neutralWeight * 0.4, hitReaction));
+
+    const aim = { carrying, canUseWeapon, reloading, reloadT, seatedWeight, steering,
+      dead, interaction, hipY, aimPitch, aimYaw, target: aimTarget, yaw: 0, pitch: 0,
+      lowRun: runningWeight * (1 - aimWeight), reachLimited: false };
+    // Use this frame's target before posing the shoulders. Root heading remains
+    // free to turn smoothly; the spine supplies a bounded share of local yaw.
+    resolveAim(aim, false);
+    const torsoYaw = clamp(aim.yaw * .55, -.65, .65) * aimWeight * (1 - reloadWeight) * Number(carrying);
+    actorUp.copy(UP).applyQuaternion(rootRotation);
+    for (const [name, fraction] of [['Spine', .28], ['Spine1', .34], ['Spine2', .38]]) {
+      const bone = bones[name];
+      if (!bone?.parent || !torsoYaw) continue;
+      bone.getWorldQuaternion(torsoWorld);
+      torsoTurn.setFromAxisAngle(actorUp, torsoYaw * fraction);
+      bone.parent.getWorldQuaternion(torsoParent).invert();
+      bone.quaternion.copy(torsoParent).multiply(torsoTurn).multiply(torsoWorld);
+      bone.updateWorldMatrix(false, true);
+    }
 
     // Warp the authored ankle trajectory, retaining its alternating contact and
     // swing timing. Shorten low-speed steps and reduce the soldier's exaggerated
@@ -470,13 +507,16 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     reachArm('Right', -0.10 - lowRun * 0.07, hipY + 0.115 - lowRun * 0.16,
       0.32 - lowRun * 0.16, -0.34, hipY + 0.04, 0.08, readyWeight);
     reachArm('Left', -0.028, hipY + 0.10, 0.31, 0.32, hipY + 0.04, 0.1, readyWeight * (1 - lowRun * 0.82));
-    const pitch = clamp(aimPitch, -1.1, 1.1);
-    const aimY = Math.sin(pitch);
-    const aimZ = Math.cos(pitch);
-    reachArm('Right', -0.055, hipY + 0.40 + aimY * 0.49 + recoil * 0.12,
-      aimZ * 0.49 - recoil * 0.20, -0.34, hipY + 0.18 + aimY * 0.12, 0.20, aimWeight);
-    reachArm('Left', -0.025, hipY + 0.38 + aimY * 0.46 + recoil * 0.10,
-      aimZ * 0.46 - recoil * 0.18, 0.32, hipY + 0.17 + aimY * 0.12, 0.19, aimWeight);
+    const pitch = aim.pitch;
+    const aimY = Math.sin(pitch), aimZ = Math.cos(pitch);
+    for (const [side, sign, extension] of [['Right', -1, .49], ['Left', 1, .46]]) {
+      wristTarget.set(side === 'Right' ? -.055 : -.025, aimY * extension, aimZ * extension - recoil * .20)
+        .applyAxisAngle(UP, aim.yaw);
+      wristTarget.y += hipY + .40 + recoil * .12;
+      aimPole.set(sign * .34, .18 + aimY * .12, .20).applyAxisAngle(UP, aim.yaw * .72);
+      aimPole.y += hipY;
+      reachArm(side, wristTarget.x, wristTarget.y, wristTarget.z, aimPole.x, aimPole.y, aimPole.z, aimWeight);
+    }
 
     if (reloadWeight > 0.005 && canUseWeapon) {
       const rack = Math.sin(smooth(reloadT, 0.67, 0.88) * Math.PI);
@@ -506,7 +546,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       const attentive = !aiming && !shooting && !reloading;
       const lookPitch = (aiming || shooting ? pitch * 0.75 : Math.sin(elapsed * 0.29) * 0.018 * idleLife)
         + hitReaction * 0.22 - landing * 0.06 - seatedWeight * 0.015;
-      const lookYaw = attentive ? Math.sin(elapsed * 0.37) * 0.065 * idleLife + steering * seatedWeight * 0.10 : 0;
+      const lookYaw = attentive ? Math.sin(elapsed * 0.37) * 0.065 * idleLife + steering * seatedWeight * 0.10 : aim.yaw * .82;
       lookEuler.set(-clamp(lookPitch, -0.82, 0.82), lookYaw, 0);
       wantedLook.setFromEuler(lookEuler);
       headLook.slerp(wantedLook, headInitialized ? 1 - Math.exp(-12 * step) : 1);
@@ -646,49 +686,145 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
 
     }
 
+    // Ground correction may have lifted the entire pose. Recompute the chest
+    // anchor for the weapon solve in the same frame, without altering the feet.
+    aim.hipY = pose.position('Hips', pelvis).y;
+    presentedAim = aim;
+    presentWeapon(aim, step);
+    mesh.userData.animationState = dead ? 'down' : interaction ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : landing > 0.08 ? 'landing' : hitReaction > 0.05 ? 'hit' : aiming || shooting ? 'aiming' : motionSpeed > 3.7 ? 'running' : motionSpeed > 0.15 ? 'walking' : carrying ? 'low-ready' : 'idle';
+    return true;
+  }
+
+  function resolveAim(context, fromMuzzle = true) {
+    const yaw = Number.isFinite(context.aimYaw) ? context.aimYaw : 0;
+    const pitch = Number.isFinite(context.aimPitch) ? context.aimPitch : 0;
+    fallbackDirection.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+    aimDirection.copy(fallbackDirection);
+    if (context.target) {
+      mesh.worldToLocal(aimLocalTarget.copy(context.target));
+      if (fromMuzzle) {
+        muzzleLocal.copy(muzzleOffset).applyQuaternion(weapon.quaternion).add(weapon.position);
+      } else muzzleLocal.set(0, context.hipY + .40, 0);
+      aimDirection.subVectors(aimLocalTarget, muzzleLocal);
+      // A near reticle obstruction behind the physical muzzle cannot require
+      // firing backwards. Match traceShot's forward-direction fallback.
+      if (aimDirection.lengthSq() < 1e-8 || aimDirection.dot(fallbackDirection) <= 0) aimDirection.copy(fallbackDirection);
+      else aimDirection.normalize();
+    }
+    const requestedYaw = Math.atan2(aimDirection.x, aimDirection.z);
+    const requestedPitch = Math.atan2(aimDirection.y, Math.hypot(aimDirection.x, aimDirection.z));
+    context.yaw = clamp(requestedYaw, -1.35, 1.35);
+    context.pitch = clamp(requestedPitch, -1.1, 1.1);
+    context.yawClamped = Math.abs(requestedYaw - context.yaw) > 1e-5;
+  }
+
+  function alignSupportedGrip(context, supportWeight) {
+    // Both palms share one grip. Intersect the grip ray with the two measured
+    // arm reach spheres; moving only the support wrist conceals an overextended
+    // firing elbow on the shorter female rig during rapid sideways aim.
+    hands.getGripTarget('Right', gripCenter.set(0, 0, 0), wristOffset);
+    pose.position('RightHand', gripCenter).sub(wristOffset);
+    aimDirection.set(Math.sin(context.yaw) * Math.cos(context.pitch), Math.sin(context.pitch), Math.cos(context.yaw) * Math.cos(context.pitch));
+    const extension = .49;
+    gripOrigin.copy(gripCenter).addScaledVector(aimDirection, -extension);
+    let minimum = 0, maximum = extension;
+    for (const side of ['Right', 'Left']) {
+      hands.getGripTarget(side, gripCenter, wristTarget);
+      wristOffset.subVectors(wristTarget, gripCenter);
+      pose.position(`${side}Arm`, shoulder);
+      sphereOffset.copy(gripOrigin).add(wristOffset).sub(shoulder);
+      const projection = sphereOffset.dot(aimDirection);
+      const radius = armLengths[side] * .965;
+      const discriminant = projection * projection - (sphereOffset.lengthSq() - radius * radius);
+      if (discriminant < 0) { context.reachLimited = true; continue; }
+      const span = Math.sqrt(discriminant);
+      minimum = Math.max(minimum, -projection - span);
+      maximum = Math.min(maximum, -projection + span);
+    }
+    if (maximum < minimum) context.reachLimited = true;
+    if (!context.reachLimited) gripCenter.copy(gripOrigin).addScaledVector(aimDirection, maximum);
+    for (const [side, sign] of [['Right', -1], ['Left', 1]]) {
+      hands.getGripTarget(side, gripCenter, wristTarget);
+      aimPole.set(sign * .34, .14, .18).applyAxisAngle(UP, context.yaw * .72);
+      aimPole.y += context.hipY;
+      chooseElbowPole(side, wristTarget, aimPole, aimPole);
+      reachArm(side, wristTarget.x, wristTarget.y, wristTarget.z, aimPole.x, aimPole.y, aimPole.z,
+        side === 'Right' ? aimWeight : supportWeight);
+      hands.refreshWrist(side);
+    }
+  }
+
+  function presentWeapon(context, step) {
+    const { carrying, canUseWeapon, reloading, reloadT, seatedWeight, steering, hipY, lowRun } = context;
+    const supportWeight = Math.max(aimWeight, readyWeight * (1 - lowRun * .82)) * (1 - reloadWeight);
+    const wheelHold = seatedWeight * (1 - smooth(deathWeight, .05, .7));
     pose.position('RightHand', hand);
-    weapon.position.copy(hand);
-    weapon.position.y += 0.018;
-    weapon.rotation.set(
-      THREE.MathUtils.lerp((1 - aimWeight) * (0.58 + lowRun * 0.35) - pitch * aimWeight - recoil, -0.48, reloadWeight),
-      THREE.MathUtils.lerp((1 - aimWeight) * -0.035, -0.12, reloadWeight),
-      THREE.MathUtils.lerp((1 - aimWeight) * -0.055, -0.24, reloadWeight));
-    weapon.visible = carrying;
-    const supportWeight = Math.max(aimWeight, readyWeight * (1 - lowRun * 0.82)) * (1 - reloadWeight);
-    const wheelHold = seatedWeight * (1 - smooth(deathWeight, 0.05, 0.7));
-    hands.update({ dt: step, weapon, armed: weapon.visible, aimWeight, readyWeight: supportWeight,
-      reloading: reloading && canUseWeapon, reloadProgress: reloadT, seated: wheelHold, steering });
-    if (wheelHold > 0.001) {
-      // The arm solve initially reaches with the wrist joint. After posing the
-      // fingers, use each rig's measured palm offset to put the actual grip on
-      // the steering rim. The full actor quaternion carries this local cockpit
-      // frame through suspension pitch/roll and world heading together.
-      const wheelAngle = clamp(steering, -1, 1) * 0.8;
-      for (const [side, sign] of [['Right', -1], ['Left', 1]]) {
-        temp.set(sign * 0.15 * Math.cos(wheelAngle), hipY + 0.35 + sign * 0.15 * Math.sin(wheelAngle), 0.47);
-        hands.getGripTarget(side, temp, temp);
-        reachArm(side, temp.x, temp.y, temp.z, sign * 0.42, hipY + 0.12, 0.20, wheelHold);
-        hands.refreshWrist(side);
+    weapon.position.copy(hand); weapon.position.y += .018;
+    weapon.visible = Boolean(carrying && weaponVisible);
+    context.reachLimited = false;
+    // Target convergence uses the final muzzle, not the camera origin. This
+    // removes shoulder-camera parallax at close targets without changing time.
+    for (let iteration = 0; iteration < (context.target && weapon.visible ? 5 : 1); iteration++) {
+      resolveAim(context, iteration > 0);
+      weaponEuler.set(
+        THREE.MathUtils.lerp((1 - aimWeight) * (.58 + lowRun * .35) - context.pitch * aimWeight - recoil, -.48, reloadWeight),
+        THREE.MathUtils.lerp(context.yaw * aimWeight + (1 - aimWeight) * -.035, -.12, reloadWeight),
+        THREE.MathUtils.lerp((1 - aimWeight) * -.055, -.24, reloadWeight));
+      weapon.quaternion.setFromEuler(weaponEuler);
+      hands.update({ dt: iteration === 0 ? step : 0, weapon, armed: weapon.visible, aimWeight,
+        readyWeight: supportWeight, reloading: reloading && canUseWeapon,
+        reloadProgress: reloadT, seated: wheelHold, steering });
+      if (wheelHold > .001 && iteration === 0) {
+        const wheelAngle = clamp(steering, -1, 1) * .8;
+        for (const [side, sign] of [['Right', -1], ['Left', 1]]) {
+          temp.set(sign * .15 * Math.cos(wheelAngle), hipY + .35 + sign * .15 * Math.sin(wheelAngle), .47);
+          hands.getGripTarget(side, temp, temp);
+          reachArm(side, temp.x, temp.y, temp.z, sign * .42, hipY + .12, .20, wheelHold);
+          hands.refreshWrist(side);
+        }
+      }
+      if (weapon.visible) {
+        if (supportWeight > .01 && !reloading) {
+          if (aimWeight > .5) alignSupportedGrip(context, supportWeight);
+          // Make the support palm exact after the shared reachable target blend.
+          hands.getSupportTarget(temp);
+          aimPole.set(.32, .14, .18).applyAxisAngle(UP, context.yaw * .72); aimPole.y += hipY;
+          if (aimWeight > .5) chooseElbowPole('Left', temp, aimPole, aimPole);
+          reachArm('Left', temp.x, temp.y, temp.z, aimPole.x, aimPole.y, aimPole.z, supportWeight);
+          hands.refreshWrist('Left');
+        }
+        weapon.position.copy(hands.getWeaponPosition(hand));
       }
     }
-    if (weapon.visible) {
-      if (supportWeight > 0.01 && !reloading) {
-        // Place the support palm on the same measured grip as the firing hand,
-        // then restore its wrist orientation after this final arm adjustment.
-        hands.getSupportTarget(temp);
-        reachArm('Left', temp.x, temp.y, temp.z, 0.32, hipY + 0.14, 0.18, supportWeight);
-        hands.refreshWrist('Left');
-      }
-      weapon.position.copy(hands.getWeaponPosition(hand));
-    }
-    magazine.visible = Boolean(reloading && carrying && reloadT > 0.16 && reloadT < 0.61);
+    magazine.visible = Boolean(reloading && carrying && reloadT > .16 && reloadT < .61);
     if (magazine.visible) {
       pose.position('LeftHand', magazine.position);
       magazine.quaternion.copy(weapon.quaternion);
-      temp.set(0, -0.037, 0).applyQuaternion(magazine.quaternion);
+      temp.set(0, -.037, 0).applyQuaternion(magazine.quaternion);
       magazine.position.add(temp);
     }
-    mesh.userData.animationState = dead ? 'down' : interaction ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : landing > 0.08 ? 'landing' : hitReaction > 0.05 ? 'hit' : aiming || shooting ? 'aiming' : motionSpeed > 3.7 ? 'running' : motionSpeed > 0.15 ? 'walking' : carrying ? 'low-ready' : 'idle';
+    resolveAim(context, true);
+    barrelDirection.set(0, 0, 1).applyQuaternion(weapon.quaternion).normalize();
+    const angleError = barrelDirection.angleTo(aimDirection);
+    // The error is measured against the original requested direction, before
+    // anatomical yaw/pitch limits, so a 180-degree request cannot fire sideways.
+    Object.assign(aimState, { ready: Boolean(weapon.visible && !reloading && reloadWeight < .05
+      && !context.dead && !context.interaction && seatedWeight < .001 && aimWeight >= .94
+      && angleError <= Math.PI / 60 && !context.reachLimited), raised: aimWeight,
+    angleError, yaw: context.yaw, pitch: context.pitch, yawClamped: context.yawClamped,
+    reachLimited: context.reachLimited, recoil });
+  }
+
+  function getAimState() { flushPose(); return { ...aimState, ready: aimState.ready && weaponVisible }; }
+  function applyShot(id) {
+    flushPose();
+    if (!Number.isFinite(id) || id <= lastAppliedShotId || id <= (lastShotId ?? 0) || !presentedAim?.carrying
+      || presentedAim.reloading || !weaponVisible) return false;
+    lastAppliedShotId = id; lastShotId = id; wasShooting = true;
+    recoil = clamp(recoil + .012, -.008, .12); recoilVelocity += 3.1;
+    // Pure presentation refresh: do not advance mixer, gait, spring, foot plants
+    // or reload clocks a second time for the shot accepted in this frame.
+    presentWeapon(presentedAim, 0);
     return true;
   }
 
@@ -703,12 +839,104 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   }
 
   return {
-    update, advance, flushPose, resetGrounding,
+    update, advance, flushPose, resetGrounding, getAimState, applyShot,
     getEvaluationStats: () => ({ advances: advanceCount, poses: poseCount, pending: Boolean(pendingPose), pendingTime: pendingPoseTime }),
     seatOffset,
     seatAnchor: 'pelvis',
     setWeapon(visible) { flushPose(); weaponVisible = Boolean(visible); weapon.visible = weaponVisible; },
     reactToHit(strength = 1) { flushPose(); hitReaction = clamp(strength, 0.2, 1); },
-    getPoseInfo() { flushPose(); return { evaluations: { advances: advanceCount, poses: poseCount }, locomotion: { speed: motionSpeed, gaitPhase, strideScale, runningWeight, movementAngle }, state: mesh.userData.animationState, pelvis: pose.position('Hips', new THREE.Vector3()).toArray(), pelvisHeight: initialHipHeight, surfaceOffset, neutralPelvisLift, standingWeight, weaponVisible, armed: Boolean(weapon.visible), aimWeight, readyWeight, reloadWeight, reloadProgress: currentReloadProgress, landingWeight: landing, hitWeight: hitReaction, airborneWeight: airWeight, deathWeight, recoil, grip: hands.getGripInfo(), footContacts: footPlants.map((plant) => ({ side: plant.side, planted: plant.active, weight: plant.weight, anchor: plant.anchor.toArray(), ankleHeight: plant.height, floor: plant.floor, soleClearance: plant.soleHeight, probes: plant.probes.length })) }; },
+    getPoseInfo() { flushPose(); return { evaluations: { advances: advanceCount, poses: poseCount }, locomotion: { speed: motionSpeed, gaitPhase, strideScale, runningWeight, movementAngle }, state: mesh.userData.animationState, pelvis: pose.position('Hips', new THREE.Vector3()).toArray(), pelvisHeight: initialHipHeight, surfaceOffset, neutralPelvisLift, standingWeight, weaponVisible, armed: Boolean(weapon.visible), aimWeight, readyWeight, reloadWeight, reloadProgress: currentReloadProgress, landingWeight: landing, hitWeight: hitReaction, airborneWeight: airWeight, deathWeight, recoil, aim: getAimState(), grip: hands.getGripInfo(), footContacts: footPlants.map((plant) => ({ side: plant.side, planted: plant.active, weight: plant.weight, anchor: plant.anchor.toArray(), ankleHeight: plant.height, floor: plant.floor, soleClearance: plant.soleHeight, probes: plant.probes.length })) }; },
   };
+}
+
+/**
+ * Choose a wrist-aligned elbow bend on the exact two-bone elbow circle.
+ * All coordinates are actor-root-local. Call after posing the wrist/fingers and
+ * before arm IK, then restore that wrist's world quaternion after the IK solve.
+ * Pass the same solver to both the shared-grip solve and the final support solve.
+ */
+function createElbowPoleSolver(pose) {
+  const shoulder = new THREE.Vector3(), elbow = new THREE.Vector3();
+  const wrist = new THREE.Vector3(), requested = new THREE.Vector3();
+  const otherShoulder = new THREE.Vector3(), middle = new THREE.Vector3();
+  const midpoint = new THREE.Vector3(), outward = new THREE.Vector3();
+  const axis = new THREE.Vector3(), center = new THREE.Vector3();
+  const forward = new THREE.Vector3(), fallback = new THREE.Vector3();
+  const fallbackBend = new THREE.Vector3(), optimal = new THREE.Vector3();
+  const candidate = new THREE.Vector3(), best = new THREE.Vector3();
+  const projection = new THREE.Vector3(), tangent = new THREE.Vector3();
+  const down = new THREE.Vector3(0, -1, 0), result = new THREE.Vector3();
+
+
+  function solve(side, wristTarget, fallbackPole, output = result) {
+    requested.copy(wristTarget); fallback.copy(fallbackPole); output.copy(fallback);
+    pose.position(`${side}Arm`, shoulder);
+    pose.position(`${side}ForeArm`, elbow);
+    pose.position(`${side}Hand`, wrist);
+    pose.position(`${side}HandMiddle1`, middle);
+    const upper = shoulder.distanceTo(elbow), lower = elbow.distanceTo(wrist);
+    axis.subVectors(requested, shoulder);
+    const distance = axis.length();
+    if (!(upper > 1e-5 && lower > 1e-5 && distance > 1e-5)) return output;
+    // Do not disguise a clamped target by inventing a different elbow circle.
+    if (distance >= upper + lower || distance <= Math.abs(upper - lower)) {
+      return output;
+    }
+    axis.multiplyScalar(1 / distance);
+    const along = (upper * upper - lower * lower + distance * distance) / (2 * distance);
+    const heightSquared = upper * upper - along * along;
+    if (heightSquared <= 1e-10) return output;
+    const radius = Math.sqrt(heightSquared);
+    center.copy(shoulder).addScaledVector(axis, along);
+    forward.subVectors(middle, wrist).normalize();
+    fallbackBend.subVectors(fallback, shoulder);
+    fallbackBend.addScaledVector(axis, -fallbackBend.dot(axis));
+    // Pole directions parallel to the shoulder/wrist line have no stable bend.
+    if (fallbackBend.lengthSq() < 1e-10) {
+      fallbackBend.copy(down).addScaledVector(axis, -down.dot(axis));
+      if (fallbackBend.lengthSq() < 1e-10) return output;
+    }
+    fallbackBend.normalize();
+    pose.position(side === 'Right' ? 'LeftArm' : 'RightArm', otherShoulder);
+    midpoint.addVectors(shoulder, otherShoulder).multiplyScalar(.5);
+    outward.subVectors(shoulder, otherShoulder); outward.y = 0;
+    if (outward.lengthSq() < 1e-10) return output;
+    outward.normalize();
+    const baselineOutward = center.dot(outward) - midpoint.dot(outward) + radius * fallbackBend.dot(outward);
+    // Never pull this elbow farther inward than the existing down/out pole.
+    // A fixed torso clearance is not reachable at every extreme aim angle.
+    const requiredClearance = baselineOutward;
+    const outwardBound = (requiredClearance - center.dot(outward) + midpoint.dot(outward)) / radius;
+    // A horizontal bend-plane bound still allows the elbow to rise to shoulder
+    // level. Preserve the original pole's elbow height: a tiny wrist improvement
+    // must not turn a lowered arm into a flared, elevated aiming stance.
+    const downBound = Math.max(0, fallbackBend.dot(down));
+    let bestScore = -Infinity;
+    const before = -forward.dot(fallbackBend);
+    const consider = () => {
+      if (candidate.dot(down) < downBound - 1e-7 || candidate.dot(outward) < outwardBound - 1e-7) return;
+      const score = -forward.dot(candidate);
+      if (score > bestScore) { bestScore = score; best.copy(candidate); }
+    };
+    optimal.copy(forward).multiplyScalar(-1).addScaledVector(axis, forward.dot(axis));
+    if (optimal.lengthSq() > 1e-10) { candidate.copy(optimal).normalize(); consider(); }
+    // Each halfspace clips the unit circle to an arc. The optimum is either the
+    // unconstrained direction or one of at most four boundary intersections.
+    const boundary = (normal, bound) => {
+      projection.copy(normal).addScaledVector(axis, -normal.dot(axis));
+      const square = projection.lengthSq();
+      if (square <= 1e-12 || bound * bound > square + 1e-10) return;
+      tangent.crossVectors(axis, projection).normalize();
+      const tangentScale = Math.sqrt(Math.max(0, 1 - bound * bound / square));
+      projection.multiplyScalar(bound / square);
+      candidate.copy(projection).addScaledVector(tangent, tangentScale); consider();
+      candidate.copy(projection).addScaledVector(tangent, -tangentScale); consider();
+    };
+    boundary(down, downBound); boundary(outward, outwardBound);
+    if (!Number.isFinite(bestScore)) return output;
+    if (bestScore < before - 1e-7) return output;
+    output.copy(center).addScaledVector(best, radius);
+    return output;
+  }
+  return solve;
 }
