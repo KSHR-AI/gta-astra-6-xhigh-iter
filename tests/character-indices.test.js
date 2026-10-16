@@ -310,13 +310,14 @@ test('repeating the transform is byte-stable and stale optimization metadata is 
   assert.throws(() => optimizeCharacterAsset(input.glb, wrongSource, encoderFixture()), /hash|sha256|match|source/i);
 });
 
-// Captured from the authored clothing, hair, and blink PRE-index exports, then
-// independently verified against the optimized production files. These allow
-// index order and exact duplicate references to change, while independently
-// detecting altered skinning, seams, morphs, surface winding, textures or rigs.
+// Reviewed appearance baseline: fitted head/neck proportions, authored apparel,
+// head micro-surface maps, and exposed-ankle skin masks. PRE-index exports were
+// independently compared with production; rig fingerprints remain unchanged.
+// Index order and exact duplicate references may change, while altered skinning,
+// seams, morphs, surface winding, textures or rigs still fail these assertions.
 const baselines = {
-  Male: { attributes: '0c68688c5e59a6c810ccdcb3d6e40ea31c9b6331cc4b1acd68a477c0c52b0419', orientedSurfaces: 'dd07b5cf8405dc97da7eab42d4ab24b30ec0167b3fbe6e7e253a035f418acc5f', blendOrder: '0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260', rig: '3f7087b99cde7bc508fa63461ab37154f8d50f08898ec328186d771dac561be9', materials: '10d6d4299ef2fd86408599ed351482b2278956a365286dd9cc55c7fb392f3b24' },
-  Female: { attributes: 'e547bb937b229c5feebfd742009acad42edd10641f90829e8d5ea95b2d0bd573', orientedSurfaces: '60bde6ad0ebf345c5c2d72a98d24d0635e3c84c226feccb7767a09ff764c4402', blendOrder: '1b2397b4b23db70f8447e687c207a8e9b48d074d3f7b4d08cf64e6107b802669', rig: '5e66e1d0f0590a9ee999c3fa40a25722f5cc371a3a825686e1a4a803d36a52f4', materials: '0c83ccbaac50807c3f01d19f3b430957d2ecfb59cb53e46a1dd116d87c9e3386' },
+  Male: { attributes: 'b7db6715521d74700c346f7c51a0e189fc1fdd0aeb6157c8b718a43f9246c0b7', orientedSurfaces: '2ffa337ea86fdc71ece9587da14f853aeb730565024a3d43fa7df8e333451617', blendOrder: '0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260', rig: '3f7087b99cde7bc508fa63461ab37154f8d50f08898ec328186d771dac561be9', materials: '90d5586564658d00c31d9db010d44dfc426b1fc02670f4afc646d5dfb57bdf3b' },
+  Female: { attributes: 'c3f013f8f8b30f2922c4b2fc285104d58e671521e4e336db66678d604ecfb8ef', orientedSurfaces: '0dc950a667875bfedc26306be58a57ffa0e548b8fbd553d49afb9189397df769', blendOrder: '1b2397b4b23db70f8447e687c207a8e9b48d074d3f7b4d08cf64e6107b802669', rig: '5e66e1d0f0590a9ee999c3fa40a25722f5cc371a3a825686e1a4a803d36a52f4', materials: '58823dfd0b3fcb809bf8826a797fc41e9244012a3c2a043255a689e00896fec6' },
 };
 for (const sex of ['Male', 'Female']) test(`${sex}: production asset retains its authored surfaces, vertex payloads, materials and rig`, async () => {
   const bytes = await readFile(new URL(`../public/models/Civilian${sex}Natural.glb`, import.meta.url));

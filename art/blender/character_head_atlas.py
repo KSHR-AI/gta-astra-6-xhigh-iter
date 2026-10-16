@@ -7,6 +7,7 @@ from io import BytesIO
 import json,struct,sys,collections
 import numpy as np
 from PIL import Image
+from character_head_surface import author_surface_maps
 ROOT=Path(sys.argv[1]) if len(sys.argv)>1 else Path(__file__).resolve().parent
 SIZE=2048;PADDING=8
 DTYPES={5126:np.dtype('<f4'),5125:np.dtype('<u4'),5123:np.dtype('<u2'),5121:np.dtype('u1')}
@@ -99,8 +100,9 @@ for sex in ['male','female']:
             if np.any(factor[:3]!=1):image[:,:,:3]=np.rint(np.clip(to_srgb(to_linear(image[:,:,:3]/255.)*factor[:3]),0,1)*255).astype(np.uint8)
             image[:,:,3]=np.rint(image[:,:,3]*factor[3]).astype(np.uint8)
             if is_skin:image[:,:,3]=255
-            rough=.64 if is_skin else .24 if is_eye else .85
-            part={'name':name,'attrs':attrs,'indices':indices,'uv':attrs['TEXCOORD_0'].copy(),'image':image,'skin':is_skin,'hair':is_hair or is_brow or is_lash,'roughness':rough,'tiles':[],'morphs':read_morphs(g,buf,mesh,prim,len(attrs['POSITION']),node_weights)}
+            kind='skin' if is_skin else 'eye' if is_eye else 'hair' if is_hair else 'other'
+            surface_normal,surface_roughness=author_surface_maps(image.shape[1],image.shape[0],kind,731 if sex=='male' else 947)
+            part={'surface_normal':surface_normal,'surface_roughness':surface_roughness,'name':name,'attrs':attrs,'indices':indices,'uv':attrs['TEXCOORD_0'].copy(),'image':image,'skin':is_skin,'hair':is_hair or is_brow or is_lash,'tiles':[],'morphs':read_morphs(g,buf,mesh,prim,len(attrs['POSITION']),node_weights)}
             # Keep overlapping hair strip UVs together; isolate other UV islands.
             groups=[np.arange(len(attrs['POSITION']))] if is_hair else components(len(attrs['POSITION']),indices)
             height,width=image.shape[:2]
@@ -113,13 +115,15 @@ for sex in ['male','female']:
             parts.append(part)
     positions=pack([(t['key'],t['w'],t['h']) for t in tiles],SIZE)
     atlas=np.zeros((SIZE,SIZE,4),dtype=np.uint8);roughness=np.zeros((SIZE,SIZE,3),dtype=np.uint8);roughness[:,:,0]=255;roughness[:,:,1]=163
+    normal_atlas=np.empty((SIZE,SIZE,3),dtype=np.uint8);normal_atlas[:]=[128,128,255]
     for t in tiles:
         x,y,w,h=positions[t['key']];part=parts[t['part']];source=part['image'];minimum=t['minimum'];maximum=t['maximum']
         # Repeat-wrap source pixels including the border: source hair extends a few
         # texels past V=0. This reproduces the original sampler at those vertices.
         xs=np.arange(minimum[0]-PADDING,maximum[0]+PADDING)%source.shape[1];ys=np.arange(minimum[1]-PADDING,maximum[1]+PADDING)%source.shape[0]
         atlas[y:y+h,x:x+w]=source[ys[:,None],xs[None,:]]
-        roughness[y:y+h,x:x+w,1]=round(part['roughness']*255)
+        roughness[y:y+h,x:x+w,1]=part['surface_roughness'][ys[:,None],xs[None,:]]
+        normal_atlas[y:y+h,x:x+w]=part['surface_normal'][ys[:,None],xs[None,:]]
     all_pos=[];all_norm=[];all_uv=[];all_idx=[];skin=[];hair=[];offset=0;max_error=0
     for part in parts:
         out_uv=part['uv'].copy();height,width=part['image'].shape[:2]
@@ -138,8 +142,10 @@ for sex in ['male','female']:
         morph_targets.append({key:np.concatenate([part['morphs'].get(name,{}).get('attrs',{}).get(key,np.zeros((len(part['attrs']['POSITION']),3),dtype=np.float32)) for part in parts]) for key in sorted(semantics)})
     attrs={'POSITION':np.concatenate(all_pos),'NORMAL':np.concatenate(all_norm),'TEXCOORD_0':np.concatenate(all_uv),'_SKIN_MASK':np.concatenate(skin),'_HAIR_MASK':np.concatenate(hair)};indices=np.concatenate(all_idx).reshape((-1,1))
     atlas_image=Image.fromarray(atlas);rough_image=Image.fromarray(roughness).resize((1024,1024),Image.Resampling.BOX)
+    normal_image=Image.fromarray(normal_atlas).resize((1024,1024),Image.Resampling.BOX)
+    normal_image.save(ROOT/f'{sex}_head_normal.png')
     atlas_image.save(ROOT/f'{sex}_head_atlas.png');rough_image.save(ROOT/f'{sex}_head_roughness.png')
-    output={'asset':{'version':'2.0','generator':'Original head atlas optimizer, CC0 MakeHuman inputs'},'scene':0,'scenes':[{'nodes':[0]}],'nodes':[{'mesh':0,'name':sex+'_head'}],'meshes':[{'name':sex+'_head_atlas','primitives':[{'attributes':{},'material':0}]}],'materials':[{'name':sex+'_head_atlas','alphaMode':'MASK','alphaCutoff':.3,'doubleSided':True,'pbrMetallicRoughness':{'baseColorTexture':{'index':0},'metallicRoughnessTexture':{'index':1},'metallicFactor':0,'roughnessFactor':1}}],'textures':[{'sampler':0,'source':0},{'sampler':0,'source':1}],'samplers':[{'magFilter':9729,'minFilter':9987,'wrapS':33071,'wrapT':33071}],'images':[],'accessors':[],'bufferViews':[],'buffers':[{}]};binary=bytearray()
+    output={'asset':{'version':'2.0','generator':'Original head atlas optimizer, CC0 MakeHuman inputs'},'scene':0,'scenes':[{'nodes':[0]}],'nodes':[{'mesh':0,'name':sex+'_head'}],'meshes':[{'name':sex+'_head_atlas','primitives':[{'attributes':{},'material':0}]}],'materials':[{'name':sex+'_head_atlas','alphaMode':'MASK','alphaCutoff':.3,'doubleSided':True,'normalTexture':{'index':2,'scale':.45},'pbrMetallicRoughness':{'baseColorTexture':{'index':0},'metallicRoughnessTexture':{'index':1},'metallicFactor':0,'roughnessFactor':1}}],'textures':[{'sampler':0,'source':0},{'sampler':0,'source':1},{'sampler':0,'source':2}],'samplers':[{'magFilter':9729,'minFilter':9987,'wrapS':33071,'wrapT':33071}],'images':[],'accessors':[],'bufferViews':[],'buffers':[{}]};binary=bytearray()
     def add_blob(blob,target=None):
         binary.extend(b'\0'*((-len(binary))%4));view={'buffer':0,'byteOffset':len(binary),'byteLength':len(blob)}
         if target:view['target']=target
@@ -156,11 +162,11 @@ for sex in ['male','female']:
         output['meshes'][0]['weights']=target_weights
         primitive['targets']=[{key:add_accessor(values.astype('<f4'),'VEC3',5126,34962) for key,values in target.items()} for target in morph_targets]
 
-    for name,img in [('Color',atlas_image),('Roughness',rough_image)]:output['images'].append({'name':sex+'_head_'+name,'mimeType':'image/png','bufferView':add_blob(png_bytes(img))})
+    for name,img in [('Color',atlas_image),('Roughness',rough_image),('Normal',normal_image)]:output['images'].append({'name':sex+'_head_'+name,'mimeType':'image/png','bufferView':add_blob(png_bytes(img))})
     output['buffers'][0]['byteLength']=len(binary);binary.extend(b'\0'*((-len(binary))%4));js=json.dumps(output,separators=(',',':')).encode();js+=b' '*((-len(js))%4)
     result=struct.pack('<III',0x46546C67,2,28+len(js)+len(binary))+struct.pack('<II',len(js),0x4E4F534A)+js+struct.pack('<II',len(binary),0x004E4942)+binary
     path=ROOT/f'optimized_{sex}_head.glb';path.write_bytes(result)
-    reports[sex]={'file':path.name,'bytes':len(result),'vertices':len(attrs['POSITION']),'triangles':len(indices)//3,'materials':1,'color_atlas':[SIZE,SIZE],'roughness_atlas':[1024,1024],'uv_islands':len(tiles),'max_uv_roundtrip_error':max_error,'skin_vertices':int(attrs['_SKIN_MASK'].sum()),'hair_vertices':int(attrs['_HAIR_MASK'].sum()),'sources':[p['name'] for p in parts],'morph_targets':target_names}
+    reports[sex]={'file':path.name,'bytes':len(result),'vertices':len(attrs['POSITION']),'triangles':len(indices)//3,'materials':1,'color_atlas':[SIZE,SIZE],'roughness_atlas':[1024,1024],'normal_atlas':[1024,1024],'normal_scale':.45,'normal_png_bytes':len(png_bytes(normal_image)),'normal_gpu_rgba8_mip_bytes':5592404,'surface_authorship':'Original seeded UV-space pores and strand roughness; no diffuse-derived relief','uv_islands':len(tiles),'max_uv_roundtrip_error':max_error,'skin_vertices':int(attrs['_SKIN_MASK'].sum()),'hair_vertices':int(attrs['_HAIR_MASK'].sum()),'sources':[p['name'] for p in parts],'morph_targets':target_names}
     print(json.dumps(reports[sex],indent=2))
 (ROOT/'atlas-report.json').write_text(json.dumps(reports,indent=2))
 
@@ -172,7 +178,7 @@ for sex in ['male','female']:
         for prim in mesh['primitives']:
             count=source['accessors'][prim['indices']]['count']//3
             (soft if 'eyebrow' in mesh['name'] or 'eyelash' in mesh['name'] else solid).append(indices[offset:offset+count]);offset+=count
-    soft_material=json.loads(json.dumps(g['materials'][0]));soft_material['name']=sex+'_head_soft_brows';soft_material['alphaMode']='BLEND';soft_material.pop('alphaCutoff',None);g['materials'].append(soft_material)
+    soft_material=json.loads(json.dumps(g['materials'][0]));soft_material['name']=sex+'_head_soft_brows';soft_material['alphaMode']='BLEND';soft_material.pop('alphaCutoff',None);soft_material.pop('normalTexture',None);g['materials'].append(soft_material)
     primitives=[]
     for material,arrays in enumerate([solid,soft]):
         array=np.concatenate(arrays).astype('<u4');binary.extend(b'\0'*((-len(binary))%4));view={'buffer':0,'byteOffset':len(binary),'byteLength':array.nbytes,'target':34963};g['bufferViews'].append(view);binary.extend(array.tobytes());g['accessors'].append({'bufferView':len(g['bufferViews'])-1,'componentType':5125,'count':array.size,'type':'SCALAR'});primitives.append({'attributes':primitive['attributes'],'indices':len(g['accessors'])-1,'material':material,**({'targets':primitive['targets']} if 'targets' in primitive else {})})

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { measureCharacterScale } from '../src/character-scale.js';
 import { createHumanoidAnimator } from '../src/character-animation.js';
 
 async function actor(model, motion, height) {
@@ -20,13 +21,13 @@ async function actor(model, motion, height) {
     bones[name] = object; restPose[name] = object.quaternion.clone();
   });
   const bindHeadOrientation = bones.Head.getWorldQuaternion(new THREE.Quaternion());
+  const normalization = measureCharacterScale(asset.scene, height);
   const mixer = new THREE.AnimationMixer(asset.scene);
   const clips = JSON.parse(await readFile(new URL(`../public/models/${motion}`, import.meta.url), 'utf8'));
   const actions = Object.fromEntries(clips.map((clip) => [clip.name.toLowerCase(), mixer.clipAction(THREE.AnimationClip.parse(clip))]));
   actions.idle.play(); mixer.update(0); mesh.updateMatrixWorld(true);
-  const bounds = new THREE.Box3().setFromObject(asset.scene, true);
-  visual.scale.setScalar(height / (bounds.max.y - bounds.min.y));
-  asset.scene.position.y -= bounds.min.y;
+  visual.scale.setScalar(normalization.scale);
+  asset.scene.position.y += normalization.offsetY;
   mesh.updateMatrixWorld(true);
   const weapon = new THREE.Group(), magazine = new THREE.Group();
   mesh.add(weapon, magazine);

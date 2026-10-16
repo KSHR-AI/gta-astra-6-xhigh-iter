@@ -1,4 +1,4 @@
-"""Author restrained garment edge construction without rewriting animation rigs.
+"""Author tailored apparel and garment edge construction without rewriting rigs.
 
 Prerequisites (system Python, Pillow/NumPy):
   python3 art/blender/character_clothing_boundaries.py /tmp/astra-clothing-stage
@@ -6,10 +6,11 @@ Prerequisites (system Python, Pillow/NumPy):
 Then (Blender 4.5, all outputs are staged):
   blender --background --factory-startup --threads 2 --python art/blender/character_clothing.py -- /tmp/astra-clothing-stage
 
-The Blender project keeps the garment facing strips as editable meshes with the
-source skin groups. The GLB writer appends their geometry to the original body
-primitive and patches textures only; original skeleton nodes/inverse binds and
-original vertex data are not exported through Blender's armature converter.
+The Blender project keeps the garment fit as editable shape keys and facing
+strips as separate meshes with source skin groups. Original garment positions
+and normals are deliberately authored; UVs, skin influences, exposed skin and
+rig nodes/inverse binds stay exact. GLBs are written without an armature export
+conversion. The source originals themselves remain unchanged.
 """
 from pathlib import Path
 import json, struct, sys, math, copy
@@ -25,6 +26,8 @@ OUT = Path(ARGS[0]) if ARGS else Path('/tmp/astra-clothing-stage')
 OUT.mkdir(parents=True, exist_ok=True)
 TYPES = {5120: np.dtype('i1'), 5121: np.dtype('u1'), 5122: np.dtype('<i2'), 5123: np.dtype('<u2'), 5125: np.dtype('<u4'), 5126: np.dtype('<f4')}
 WIDTHS = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4, 'MAT4': 16}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from character_apparel_shape import shape_garments
 
 class GLB:
     def __init__(self, path):
@@ -264,18 +267,31 @@ for sex,filename,x in [('male','CivilianMale.glb',-.65),('female','Michelle-crow
     attributes={key:source.read(index) for key,index in primitive['attributes'].items()}
     indices=source.read(primitive['indices']).reshape(-1) if 'indices'in primitive else np.arange(len(attributes['POSITION']))
     original_count=len(attributes['POSITION']);attributes['COLOR_0']=np.ones((original_count,4),dtype=np.float32)
+    original_attributes={key:values.copy() for key,values in attributes.items()}
     paths=[OUT/f'{sex}-clothing-boundary-report.json',Path(f'/tmp/{sex}-clothing-boundary-report.json')]
     boundary_path=next(p for p in paths if p.exists());boundaries=json.loads(boundary_path.read_text())
     textures=OUT/'textures';_,mask=image_pixels(textures/f'{sex}-clothing-mask.png')
+    _,trouser_mask=image_pixels(textures/f'{sex}-trouser-mask.png')
     # Interior cloth texel for the small facing strip islands, far from skin.
-    cloth_uv=json.loads((textures/'report.json').read_text())[sex]['fabric_uv_anchor_gltf']
+    texture_report=json.loads((textures/'report.json').read_text())[sex]
+    cloth_uv=texture_report['fabric_uv_anchor_gltf']
     joint_names=[source.j['nodes'][i]['name'] for i in skin['joints']]
+    attributes,shaping=shape_garments(attributes,indices.reshape((-1,3)),np.array(bind),
+        source.read(skin['inverseBindMatrices']),joint_names,sex,mask[:,:,0],trouser_mask[:,:,0],boundaries)
+    (OUT/f'{sex}-apparel-shaping.json').write_text(json.dumps(shaping,indent=2))
     material=display_material(sex,textures)
     collection=bpy.data.collections.new(sex.title()+' garment construction');bpy.context.scene.collection.children.link(collection)
     world_positions=np.array([list(bind@Vector(p)) for p in attributes['POSITION']]);floor=float(world_positions[:,1].min());scale=(1.82 if male else 1.74)/float(np.ptp(world_positions[:,1]))
     body_triangles=indices.reshape((-1,3));visible=body_triangles[np.max(world_positions[body_triangles,1],axis=1)<(70 if male else 1.32)]
-    body=make_display(sex+' original clothed body',attributes,visible.tolist(),bind,scale,floor,x,material,joint_names,collection)
+    body=make_display(sex+' tailored clothed body',attributes,visible.tolist(),bind,scale,floor,x,material,joint_names,collection)
     body['source_file']=filename;body['source_rig_unchanged']=True
+    body['authorship']='Original apparel fit and compression folds; imported skin influences and UVs retained'
+    target_points=[v.co.copy() for v in body.data.vertices]
+    basis=body.shape_key_add(name='Imported garment reference')
+    tailored=body.shape_key_add(name='Tailored apparel');tailored.value=1
+    for i,point in enumerate(original_attributes['POSITION']):
+        v=bind@Vector(point);basis.data[i].co=(v.x*scale+x,-v.z*scale,(v.y-floor)*scale)
+        tailored.data[i].co=target_points[i]
     project,sample=cloth_surface_projector(bind,normal_matrix,attributes,body_triangles,mask) if male else (None,None)
     strips=[]
     for loop in boundaries.get('shirtBoundaryLoops',[]):
@@ -292,10 +308,11 @@ for sex,filename,x in [('male','CivilianMale.glb',-.65),('female','Michelle-crow
     mat=source.j['materials'][primitive['material']];pbr=mat.setdefault('pbrMetallicRoughness',{})
     pbr['baseColorTexture']={'index':source.texture(textures/f'{sex}-diffuse.png')};pbr['metallicRoughnessTexture']={'index':source.texture(textures/f'{sex}-roughness.png')};pbr['metallicFactor']=0;pbr['roughnessFactor']=1
     mat['normalTexture']={'index':source.texture(textures/f'{sex}-normal.png'),'scale':.85}
-    mat.setdefault('extras',{}).update(clothingAuthored=True,clothingMaskChannel='metallicRoughnessTexture.R',clothRoughnessChannel='metallicRoughnessTexture.G',skinMaskChannel='metallicRoughnessTexture.B',normalConvention='retain source convention; runtime normalScale.y=-1' if male else 'retain source glTF normal convention',clothingSource='art/blender/character_clothing.py')
+    mat.setdefault('extras',{}).update(clothingAuthored=True,trousersAuthored=True,apparelShapeAuthored=True,clothingMaskChannel='metallicRoughnessTexture.R',clothRoughnessChannel='metallicRoughnessTexture.G',skinMaskChannel='metallicRoughnessTexture.B',normalConvention='retain source convention; runtime normalScale.y=-1' if male else 'retain source glTF normal convention',clothingSource='art/blender/character_clothing.py')
+    mat['extras']['shirtDyeLuminance']=texture_report['shirt_dye_linear_luminance_median']
     assert source.j['nodes']==original_json['nodes'] and source.j['skins']==original_json['skins'],'Original rig changed'
     source.save(OUT/filename)
-    report.append({'source':filename,'originalTriangles':len(body_triangles),'addedTriangles':(len(indices)//3-len(body_triangles)),'materialBatches':1,'originalVerticesPreserved':original_count,'newVertices':len(attributes['POSITION'])-original_count,'strips':[s['label'] for s in strips],'bytes':(OUT/filename).stat().st_size,'rigNodesAndInverseBindsUnchanged':True})
+    report.append({'source':filename,'originalTriangles':len(body_triangles),'addedTriangles':(len(indices)//3-len(body_triangles)),'materialBatches':1,'originalVertexIdsPreserved':original_count,'authoredSourceVertices':shaping['editedSourceVertices'],'maximumApparelDisplacementMetres':shaping['maximumWorldDisplacementMetres'],'newVertices':len(attributes['POSITION'])-original_count,'strips':[s['label'] for s in strips],'bytes':(OUT/filename).stat().st_size,'rigNodesAndInverseBindsUnchanged':True,'sourceSkinInfluencesAndUVsExact':True,'shapingReport':f'{sex}-apparel-shaping.json'})
 
 # Soft studio setup makes garment construction readable independently of sun/exposure.
 scene=bpy.context.scene;scene.render.engine='CYCLES';scene.cycles.samples=24;scene.cycles.use_denoising=True

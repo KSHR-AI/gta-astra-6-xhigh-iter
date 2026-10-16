@@ -1,50 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { actor } from './helpers/character-animation-fixture.js';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { createHumanoidAnimator } from '../src/character-animation.js';
-import { createPoseTools } from '../src/character-pose.js';
 
 const RIGS = [
   { model: 'CivilianMaleNatural.glb', motion: 'civilian-male-motion.json', height: 1.82 },
   { model: 'CivilianFemaleNatural.glb', motion: 'pedestrian-motion.json', height: 1.76 },
 ];
 
-async function actor({ model, motion, height }) {
-  const bytes = await readFile(new URL(`../public/models/${model}`, import.meta.url));
-  const loader = new GLTFLoader();
-  loader.register(() => ({ name: 'TEST_SKIP_RASTER_DECODE', loadTexture: () => Promise.resolve(new THREE.Texture()) }));
-  const asset = await loader.parseAsync(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), '');
-  const mesh = new THREE.Group(), visual = new THREE.Group();
-  mesh.add(visual); visual.add(asset.scene);
-  const bones = {}, restPose = {};
-  asset.scene.traverse(object => {
-    if (!/mixamorig/i.test(object.name)) return;
-    const name = object.name.replace(/.*mixamorig[:_]?/i, '');
-    bones[name] = object; restPose[name] = object.quaternion.clone();
-  });
-  const bindHeadOrientation = bones.Head.getWorldQuaternion(new THREE.Quaternion());
-  const clips = JSON.parse(await readFile(new URL(`../public/models/${motion}`, import.meta.url), 'utf8'));
-  const mixer = new THREE.AnimationMixer(asset.scene);
-  const actions = Object.fromEntries(clips.map(clip => [clip.name.toLowerCase(), mixer.clipAction(THREE.AnimationClip.parse(clip))]));
-  actions.idle.play(); mixer.update(0); mesh.updateMatrixWorld(true);
-  const bounds = new THREE.Box3().setFromObject(asset.scene, true);
-  visual.scale.setScalar(height / (bounds.max.y - bounds.min.y));
-  asset.scene.position.y -= bounds.min.y;
-  mesh.updateMatrixWorld(true);
-  const weapon = new THREE.Group(), magazine = new THREE.Group();
-  weapon.userData.gripCenter = [0, -0.046, -0.037];
-  mesh.add(weapon, magazine);
-  const animation = createHumanoidAnimator({ mesh, visual, bones, actions, mixer, weapon, magazine,
-    soleProbes: [], restPose, bindHeadOrientation, npc: false });
-  const pose = createPoseTools(mesh, bones);
-  function frame(options = {}, count = 1, dt = 1 / 60) {
-    for (let i = 0; i < count; i++) animation.update(dt, options);
-    return animation.getPoseInfo();
-  }
-  return { mesh, visual, bones, weapon, magazine, animation, pose, frame };
-}
 
 
 let vehiclesReady;
@@ -112,6 +77,11 @@ for (const rig of RIGS) {
     for (const phase of ['enter', 'exit']) {
       for (let i = 0; i <= 102; i++) {
         driver.frame({ interactionPhase: phase, interactionProgress: i / 102, steering: 0.5 });
+        if (phase === 'enter' && i === 0) {
+          const feet = driver.sampleFeet();
+          for (const foot of Object.values(feet.feet)) assert.ok(foot.clearance > -.002 && foot.clearance < .006,
+            'entry begins from the grounded standing soles while the neutral pelvis blends into the seat');
+        }
         const current = positions();
         for (let side = 0; side < current.length; side++) largestStep = Math.max(largestStep, current[side].distanceTo(previous[side]));
         previous = current;

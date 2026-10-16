@@ -281,14 +281,19 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     }
     const standingInfluence = standingWeight * (1 - seatedWeight) * (1 - airWeight) * (1 - deathWeight) * (1 - landing);
     displayedPostureLift = 0;
-    visual.position.set(weightShift * idleLife, seatedWeight > 0 || airWeight > 0.1 ? 0 : surfaceOffset - landing * 0.085, 0);
+    // Grounded foot correction is suspended during entry/exit, but its neutral
+    // torso posture must blend into the seat instead of dropping at progress 0.
+    const interactionPostureLift = interaction ? neutralPelvisLift * standingInfluence : 0;
+    displayedPostureLift = interactionPostureLift * (1 - seatedWeight);
+    visual.position.set(weightShift * idleLife,
+      (seatedWeight > 0 || airWeight > 0.1 ? 0 : surfaceOffset - landing * 0.085) + interactionPostureLift, 0);
     visual.rotation.set(0, interaction ? -Math.sin(progress * Math.PI) * 0.35 : 0, -turnLean * movingWeight * 0.025);
     mesh.updateWorldMatrix(false, true);
     pose.position('Hips', pelvis);
     // Retargeted mocap contains roughly 9 cm of walking pelvis bounce. Preserve
     // each gait's moving mean while reducing its vertical oscillation; using a
     // fixed idle height instead would overextend the shorter civilian legs.
-    const sourceHip = pelvis.y - surfaceOffset;
+    const sourceHip = pelvis.y - surfaceOffset - interactionPostureLift;
     if (movingWeight < 0.01 || seatedWeight > 0 || airWeight > 0.05) hipCenter = sourceHip;
     else {
       hipCenter = THREE.MathUtils.damp(hipCenter, sourceHip, 2.8, step);
@@ -352,7 +357,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       point(`${side}ForeArm`, `${side}Hand`, sign * 0.025,
         THREE.MathUtils.lerp(-0.96, -0.35, runningWeight),
         THREE.MathUtils.lerp(swing + 0.23 + sign * 0.025, 0.88 + swing * 0.45, runningWeight), armLayer);
-      if (seatedWeight < 0.001 && airWeight < 0.05 && !interaction) {
+      if (airWeight < 0.05 && seatedWeight < (interaction ? .999 : .001)) {
         const plant = footPlants.find((candidate) => candidate.side === side);
         reachFoot(side, sign * 0.10, plant.height + plant.floor, 0.06 - sign * 0.025, sign * 0.10, 0.55, 0.28, relaxed);
         orientSole(plant, relaxed);
@@ -424,15 +429,19 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       plant.weight = THREE.MathUtils.damp(plant.weight, plant.active ? 1 : 0, plant.active ? 28 : 13, step);
       if (plant.weight > 0.015) {
         const sign = plant.side === 'Right' ? -1 : 1;
+        // Ease the last part of settling so residual exponential blending does
+        // not drag a supported shoe. Retaining half the original response keeps
+        // contact acquisition stable when several physics steps share a frame.
+        const contactWeight = (plant.weight + smooth(plant.weight, 0, 1)) * .5 * movingWeight;
         // Blend the end-effector target before solving, rather than multiplying
         // a rapidly falling reach limit into joint-space weights. That old
         // combination snapped the ankle 20–25 cm as a lateral anchor released.
-        plant.target.lerp(plant.raw, 1 - plant.weight * movingWeight);
+        plant.target.lerp(plant.raw, 1 - contactWeight);
         pose.position(`${plant.side}Leg`, legKnee);
         direction.set(sign * 0.12, hipY - 0.38, plant.target.z + 0.35);
-        legKnee.lerp(direction, plant.weight * movingWeight);
+        legKnee.lerp(direction, contactWeight);
         pose.reach(`${plant.side}UpLeg`, `${plant.side}Leg`, `${plant.side}Foot`, plant.target, legKnee);
-        orientSole(plant, plant.weight * movingWeight, legYaw * .45);
+        orientSole(plant, contactWeight, legYaw * .45);
       }
     }
 
@@ -471,12 +480,20 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
 
     if (reloadWeight > 0.005 && canUseWeapon) {
       const rack = Math.sin(smooth(reloadT, 0.67, 0.88) * Math.PI);
-      reachArm('Right', -0.10, hipY + 0.25 + rack * 0.015, 0.30, -0.34, hipY + 0.08, 0.12, reloadWeight);
+      // Blend wrist targets rather than two joint rotations: an almost straight
+      // aiming arm otherwise sweeps a large arc at the first reload frame.
+      pose.position('RightHand', hand);
+      direction.set(-0.10, hipY + 0.25 + rack * 0.015, 0.30);
+      hand.lerp(direction, reloadWeight);
+      reachArm('Right', hand.x, hand.y, hand.z, -0.34, hipY + 0.08, 0.12);
       const retrieve = smooth(reloadT, 0.02, 0.22), insert = smooth(reloadT, 0.28, 0.59);
       const handX = THREE.MathUtils.lerp(THREE.MathUtils.lerp(-0.025, 0.20, retrieve), -0.045, insert);
       const handY = THREE.MathUtils.lerp(THREE.MathUtils.lerp(0.13, -0.12, retrieve), 0.155, insert) + rack * 0.12;
       const handZ = THREE.MathUtils.lerp(THREE.MathUtils.lerp(0.32, 0.04, retrieve), 0.29, insert) - rack * 0.055;
-      reachArm('Left', handX, hipY + handY, handZ, 0.33, hipY + 0.02, 0.10, reloadWeight);
+      pose.position('LeftHand', hand);
+      direction.set(handX, hipY + handY, handZ);
+      hand.lerp(direction, reloadWeight);
+      reachArm('Left', hand.x, hand.y, hand.z, 0.33, hipY + 0.02, 0.10);
     }
 
     if (hitReaction > 0.05 && !seated) {
@@ -540,6 +557,9 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
         let height = Infinity;
         bounds?.makeEmpty();
         for (const probe of probes) {
+          // Upper shoe extrema expand the terrain footprint once per pose;
+          // repeated sole-height corrections only need outsole probes.
+          if (probe.footprintOnly && !bounds) continue;
           probe.object.getVertexPosition(probe.index, temp);
           temp.applyMatrix4(probe.object.matrixWorld);
           bounds?.expandByPoint(temp);
@@ -593,7 +613,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
         if (plant.floor < previousFloor - .03 && height > .04) {
           plant.active = false; plant.armed = true;
         }
-        const support = Math.max(relaxed, plant.active ? plant.weight * movingWeight : 0);
+        const support = Math.max(relaxed, plant.active ? (plant.weight + smooth(plant.weight, 0, 1)) * .5 * movingWeight : 0);
         pose.position(`${plant.side}Foot`, plant.corrected);
         plant.corrected.y += (.001 - height) * (height < .001 ? 1 : support);
         bones[`${plant.side}Foot`]?.getWorldQuaternion(plant.rotation);

@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createHumanoidAnimator } from '../../src/character-animation.js';
 import { createPoseTools } from '../../src/character-pose.js';
 import { makeSoleProbes } from '../../src/characters.js';
+import { measureCharacterScale } from '../../src/character-scale.js';
 export async function actor({ model, motion, height, groundHeightAt }) {
   const bytes = await readFile(new URL(`../../public/models/${model}`, import.meta.url));
   const loader = new GLTFLoader();
@@ -19,12 +20,12 @@ export async function actor({ model, motion, height, groundHeightAt }) {
   });
   const bindHeadOrientation = bones.Head.getWorldQuaternion(new THREE.Quaternion());
   const clips = JSON.parse(await readFile(new URL(`../../public/models/${motion}`, import.meta.url), 'utf8'));
+  const normalization = measureCharacterScale(asset.scene, height);
   const mixer = new THREE.AnimationMixer(asset.scene);
   const actions = Object.fromEntries(clips.map(clip => [clip.name.toLowerCase(), mixer.clipAction(THREE.AnimationClip.parse(clip))]));
   actions.idle.play(); mixer.update(0); mesh.updateMatrixWorld(true);
-  const bounds = new THREE.Box3().setFromObject(asset.scene, true);
-  visual.scale.setScalar(height / (bounds.max.y - bounds.min.y));
-  asset.scene.position.y -= bounds.min.y;
+  visual.scale.setScalar(normalization.scale);
+  asset.scene.position.y += normalization.offsetY;
   mesh.updateMatrixWorld(true);
   const soleProbes = makeSoleProbes(asset.scene);
   if (soleProbes.length < 2) throw new Error('Real imported soles must supply the production ground probes');

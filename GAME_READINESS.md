@@ -13,12 +13,29 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 
 1. **Performance:** consistent frame pacing on a documented hardware/browser matrix. Current cloud browser uses llvmpipe software graphics and runs the full city at only a few frames per second. Isolated engine benchmarks do not establish game performance. Profile the complete scene and preserve close-up quality when optimizing.
 2. **Characters:** production clothing, facial expressions/dialogue, convincing turns and stops, terrain-aware feet, vehicle interactions and hit reactions. Current procedural layers and imported base bodies remain visibly limited.
-3. **Combat and driving:** extended playtests for cover, camera collision, aim feedback, police fairness, vehicle collision and recovery. Current simple collision volumes and arcade driving need further work.
+3. **Combat and driving:** synchronize the firing pose with rapid aim changes and retain hit feedback across slow displayed frames; extended playtests for cover, camera collision, aim feedback, police fairness, vehicle collision and recovery. Current simple collision volumes and arcade driving need further work.
 4. **World and narrative:** authored mission variety, meaningful interiors and activities, pedestrian interactions, coherent art direction and soundscape. One short mission is not a complete game.
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current grounding and distant-character pass
+## Current character proportions and apparel pass
+
+- Fit both heads against their posed body landmarks, shortening the female neck and reducing its lower flare. Keep the source skeleton, inverse binds, eyes and blink alignment intact.
+- Tailor the existing garment meshes, replacing balloon trouser volume and knee graphics with continuous authored denim, pockets and stitching. Preserve exposed skin, contact rings and rig influences. Keep editable Blender sources and repeatable staged exports.
+- Preserve cloth and hair texture contrast in the runtime material; add subtle original skin normals and spatial skin/hair roughness while retaining the eye response. This adds one 1K normal atlas per sex, about 5.33 MiB each with uncompressed RGBA8 mipmaps.
+- Normalize character stature from referenced, skinned neutral geometry before any crouched setup animation. Correct the newly exposed toe/curb footprint miss, preserve standing height during car entry, and blend reload wrist targets continuously.
+- Contact checks against the final fitted geometry measure relaxed standing at 1.8079 m male / 1.7446 m female for neutral stature requests of 1.82 / 1.76 m. Worst sampled shoe penetration is 1.264 / 0.746 mm, within the existing 2 mm bound. Smooth the final contact-target interpolation without changing touchdown timing or damping rates. These are sampled measurements, not a continuous terrain-collision guarantee.
+- Fit the police cap to the skull with an oval crown and projecting visor, scaled across actor heights.
+- Final integrated browser review covers protagonist front/side views, the civilian's ankle complexion, and a deployed officer's cap. Normal-input recordings cover walking onto the sidewalk, jumping/landing, running back to the road, car entry/steering/braking/exit, and aimed occupant fire, reload and theft. Photo zoom restores both models' near detail; settled pause/map/photo preserve simulation and facial state. The PR report carries the recordings, measurements and remaining limitations.
+- The final full-city sample measured 6.29 fps at 1039 × 491 on llvmpipe (51 displayed frames in 8,112.1 ms, 421 draw calls and 347,039 triangles). The preceding pass measured 6.36 fps with different scene timing and traffic; this is not a controlled comparison or evidence of hardware frame pacing. The authored normal maps add memory and sampling cost, and full-city performance remains far below release requirements.
+
+### Next iteration priorities
+
+- **Shooting:** separate actual weapon readiness from the aim-button state; align the visible firing pose during rapid camera turns and retain hit feedback for a displayed frame. The current settled-aim encounter passes, but that does not cover rapid aim transitions.
+- **Character finish:** compare faces in sun and shade before changing exposure or albedo; current direct sunlight washes out cheek/nose definition. Improve collar and sleeve shapes and structural trouser folds rather than adding more weave texture. Hair still lacks convincing strands and facial acting remains absent.
+- **World surfaces:** reduce the road's uniformly speckled fine detail and improve broader wear variation and manhole rim/contact shading. These are visual review findings, not yet implemented changes.
+
+## Previous grounding and distant-character pass
 
 - Ground characters on the actual road, sidewalk, curb, beach and interior slabs. Player jumps use the current surface; pedestrian/officer animation and combat reads use their current floor. Vehicle approaches, exits, evictions and checkpoint placements retain the correct support height. Contact shadows follow the same surface.
 - Calibrate each anatomical shoe from its own rendered sole and retain the authored foot orientation. Correct contact at the legs, including landing impact, instead of lifting the entire character. Preserve planted contacts, soften the torso's movement over steps, and query four footprint corners and the center of each shoe for split-level support.

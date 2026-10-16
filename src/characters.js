@@ -5,6 +5,7 @@ import { createHumanoidAnimator } from './character-animation.js';
 import { createCharacterLOD, registerCharacterLODs } from './character-lod.js';
 import { createCharacterBounds } from './character-bounds.js';
 import { createCharacterFace } from './character-face.js';
+import { measureCharacterScale } from './character-scale.js';
 
 let characterAsset;
 let pedestrianAsset;
@@ -14,10 +15,12 @@ let sidearmAsset;
 let pedestrianCount = 0;
 let loadingPromise;
 const white = new THREE.Color(0xffffff);
+const characterScaleReferences = new WeakMap();
 
 function prepareCharacterMaterial(original, { civilian, male, natural, skinTint, hairTint, npc, color, police }) {
   const material = original.clone();
   const authoredCloth = Boolean(original.userData.clothingAuthored && material.roughnessMap);
+  const authoredTrousers = authoredCloth && Boolean(original.userData.trousersAuthored);
   // Retain the source's baked textile, seams and normal maps at oblique angles.
   for (const texture of [material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.specularColorMap]) {
     if (!texture) continue;
@@ -39,20 +42,14 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
       shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
         #include <map_fragment>
         diffuseColor.rgb *= mix(vec3(1.0), skinTint, vSkinRegion);
-        float hairLight = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-        // Lift the atlas's near-black hair into dark brown without flattening
-        // its strand texture; the source tint was already baked into the atlas.
-        diffuseColor.rgb = mix(diffuseColor.rgb, (vec3(hairLight * 1.8) + vec3(0.012)) * hairTint, vHairRegion * 0.78);
+        // The atlas already carries strand colour and its darkest creases.
+        // Multiplicative variation keeps those details without a grey lift.
+        diffuseColor.rgb *= mix(vec3(1.0), hairTint, clamp(vHairRegion, 0.0, 1.0));
       `);
-      shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
-        #include <roughnessmap_fragment>
-        // Keep the atlas variation while preventing oily highlights on skin;
-        // the eye surface keeps its separately authored wet specular response.
-        roughnessFactor = mix(roughnessFactor, clamp(roughnessFactor, 0.60, 0.85), vSkinRegion);
-        roughnessFactor = mix(roughnessFactor, 0.62, vHairRegion);
-      `);
+      // Skin, hair and eyes share an atlas but retain their authored roughness
+      // and normal response. Do not flatten either map into a region constant.
     };
-    material.customProgramCacheKey = () => 'natural-human-skin-hair-v3';
+    material.customProgramCacheKey = () => 'natural-human-skin-hair-v4';
     return material;
   }
   material.color.copy(white);
@@ -69,6 +66,9 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
   }
 
   // Dye the civilian fabric while preserving skin, hair and baked textile detail.
+  const referenceLuminance = Number.isFinite(original.userData.shirtDyeLuminance) && original.userData.shirtDyeLuminance > .001
+    ? original.userData.shirtDyeLuminance : male ? .222696 : .123442;
+  const shirtDyeScale = (male ? .65 + referenceLuminance * 2.25 : .45 + referenceLuminance) / referenceLuminance;
   const wardrobe = new THREE.Color(police ? 0x172b43 : color ?? (npc ? 0x647078 : 0x384c58));
   const femaleTrouserMask = 'smoothstep(0.18, 0.42, diffuseColor.g) * smoothstep(0.16, 0.38, diffuseColor.r - diffuseColor.b) * smoothstep(0.12, 0.30, diffuseColor.g - diffuseColor.b)';
   material.roughness = authoredCloth ? 1 : male ? 0.82 : civilian ? 0.9 : 0.72;
@@ -76,8 +76,9 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
   material.metalness = civilian ? 0 : 0.14;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.wardrobeColor = { value: wardrobe };
+    shader.uniforms.shirtDyeScale = { value: shirtDyeScale };
     shader.uniforms.skinTint = { value: skinTint };
-    shader.fragmentShader = `uniform vec3 wardrobeColor;\nuniform vec3 skinTint;\n${shader.fragmentShader}`;
+    shader.fragmentShader = `uniform vec3 wardrobeColor;\nuniform float shirtDyeScale;\nuniform vec3 skinTint;\n${shader.fragmentShader}`;
     if (male) {
       shader.vertexShader = `attribute float clothDye;\nattribute float trouserRegion;\nvarying float vClothDye;\nvarying float vTrouserRegion;\n${shader.vertexShader}`;
       shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvClothDye = clothDye;\nvTrouserRegion = trouserRegion;');
@@ -86,7 +87,7 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
     shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
       #include <map_fragment>
       float wardrobeMask = ${authoredCloth
-        ? male ? 'clamp(texture2D(roughnessMap, vRoughnessMapUv).r, 0.0, 1.0)'
+        ? male || authoredTrousers ? 'clamp(texture2D(roughnessMap, vRoughnessMapUv).r, 0.0, 1.0)'
           : `max(clamp(texture2D(roughnessMap, vRoughnessMapUv).r, 0.0, 1.0), ${femaleTrouserMask})`
         : male
         ? 'vClothDye * (1.0 - smoothstep(0.08, 0.18, (max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b) - min(min(diffuseColor.r, diffuseColor.g), diffuseColor.b)) / max(max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b), 0.001))) * smoothstep(0.025, 0.09, diffuseColor.g)'
@@ -99,7 +100,7 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
         * smoothstep(0.002, 0.012, sourceLuminance) * (1.0 - wardrobeMask)` : `smoothstep(0.018, 0.075, diffuseColor.r - diffuseColor.b)
         * smoothstep(0.006, 0.035, diffuseColor.r - diffuseColor.g)
         * smoothstep(0.025, 0.13, sourceLuminance) * (1.0 - wardrobeMask)`};
-      vec3 dyedSurface = wardrobeColor * (${male ? '0.65 + sourceLuminance * 2.25' : civilian ? '0.45 + sourceLuminance' : '0.45 + sourceLuminance * 1.75'});
+      vec3 dyedSurface = ${authoredCloth ? 'diffuseColor.rgb * wardrobeColor * shirtDyeScale' : `wardrobeColor * (${male ? '0.65 + sourceLuminance * 2.25' : civilian ? '0.45 + sourceLuminance' : '0.45 + sourceLuminance * 1.75'})`};
       diffuseColor.rgb = mix(diffuseColor.rgb, dyedSurface, wardrobeMask * ${civilian ? '0.94' : '0.88'});
       ${natural ? `// Match exposed hands/neck to the new phototextured head while
       // retaining the original body's surface detail and clothing texture.
@@ -111,7 +112,7 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
       // source's relative texture variation away from the join.
       vec3 matchedSkin = ${male ? 'vec3(0.7682, 0.4260, 0.2705) * ((0.74 + sourceLuminance * 0.70) / 0.99342)' : 'vec3(0.6918, 0.4451, 0.3076) * (0.74 + sourceLuminance * 3.5)'} * skinTint;
       diffuseColor.rgb = mix(diffuseColor.rgb, matchedSkin, skinMask);` : ''}
-      ${male ? `// Dark fabric still reflects light; preserve texture contrast in shade.
+      ${male && !authoredTrousers ? `// Dark fabric still reflects light; preserve texture contrast in shade.
       float trouserMask = vTrouserRegion * (1.0 - smoothstep(0.05, 0.14, sourceLuminance));
       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.011, 0.013, 0.016) + diffuseColor.rgb * 0.90, trouserMask);` : ''}
     `);
@@ -132,7 +133,7 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
       `);
     }
   };
-  material.customProgramCacheKey = () => `${male ? 'civilian-male' : civilian ? 'civilian' : 'player'}-skin-cloth-${natural ? 'natural' : 'legacy'}-${authoredCloth ? 'authored' : 'source'}-v3`;
+  material.customProgramCacheKey = () => `${male ? 'civilian-male' : civilian ? 'civilian' : 'player'}-skin-cloth-${natural ? 'natural' : 'legacy'}-${authoredCloth ? 'authored' : 'source'}-${authoredTrousers ? 'denim' : 'legacy-trousers'}-v4`;
   return material;
 }
 
@@ -173,11 +174,17 @@ async function loadLocomotion(path) {
 export function makeSoleProbes(model) {
   const probes = [];
   const vertex = new THREE.Vector3();
-  const directions = [new THREE.Vector3(0, -1, 0)];
-  for (const tilt of [.35, .7, 1.05, 1.4]) {
+  const directions = [
+    { vector: new THREE.Vector3(0, -1, 0), footprintOnly: false },
+    { vector: new THREE.Vector3(0, 1, 0), footprintOnly: true },
+  ];
+  for (const tilt of [.35, .7, 1.05, 1.4, 1.75, 2.1, 2.45, 2.8]) {
     for (let i = 0; i < 16; i++) {
       const angle = i * Math.PI / 8;
-      directions.push(new THREE.Vector3(Math.sin(tilt) * Math.cos(angle), -Math.cos(tilt), Math.sin(tilt) * Math.sin(angle)));
+      directions.push({
+        vector: new THREE.Vector3(Math.sin(tilt) * Math.cos(angle), -Math.cos(tilt), Math.sin(tilt) * Math.sin(angle)),
+        footprintOnly: tilt > Math.PI / 2,
+      });
     }
   }
   model.traverse((object) => {
@@ -206,19 +213,20 @@ export function makeSoleProbes(model) {
       candidates.get(key).vertices.push({ index, position: vertex.clone() });
     }
     for (const { side, vertices } of candidates.values()) {
-      const selected = new Set();
+      const selected = new Map();
       // Contact is a support extremum, not a farthest-point coverage problem.
-      // Sample the lower support cone of EACH shoe, including its tilted heel
-      // and edges. Twelve spread-out vertices missed the female sole by 3 cm.
+      // Cover the outsole plus the upper toe/heel silhouette: a shoe pitches
+      // during a stride, and its upper toe can cross a curb before its sole.
+      // Downward-only probes missed that footprint by 8 mm at neutral scale.
       for (const direction of directions) {
         let maximum = -Infinity, extreme;
         for (const candidate of vertices) {
-          const distance = candidate.position.dot(direction);
+          const distance = candidate.position.dot(direction.vector);
           if (distance > maximum) { maximum = distance; extreme = candidate.index; }
         }
-        if (extreme !== undefined) selected.add(extreme);
+        if (extreme !== undefined) selected.set(extreme, (selected.get(extreme) ?? true) && direction.footprintOnly);
       }
-      for (const index of selected) probes.push({ object, index, side });
+      for (const [index, footprintOnly] of selected) probes.push({ object, index, side, footprintOnly });
     }
   });
   return probes;
@@ -383,6 +391,14 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
   const male = Boolean(civilianMaleAsset && (!npc || police || !pedestrianAsset || variant % 2 === 0));
   const civilian = male || Boolean(pedestrianAsset);
   const asset = male ? civilianMaleAsset : civilian ? (npc && crowdAsset ? crowdAsset : pedestrianAsset) : characterAsset;
+  // Loaded source scenes are immutable; measure their authored neutral stature
+  // once, before a clone's crouched setup clip or accessories alter its extent.
+  let scaleReference = characterScaleReferences.get(asset);
+  if (!scaleReference) {
+    scaleReference = measureCharacterScale(asset.scene, 1);
+    if (!scaleReference) return createFallbackCharacter({ npc, color, police });
+    characterScaleReferences.set(asset, scaleReference);
+  }
   const natural = Boolean(asset.naturalHuman);
   const skinTones = [[1, 1, 1], [0.90, 0.82, 0.72], [0.67, 0.48, 0.34], [0.43, 0.28, 0.19], [0.84, 0.73, 0.57], [0.96, 0.91, 0.85]];
   const hairTones = [[1.0, 0.66, 0.39], [0.44, 0.43, 0.42], [1.4, 0.64, 0.29], [1.8, 1.7, 1.55]];
@@ -436,11 +452,9 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
   actions.idle?.play();
   mixer.update(0);
   mesh.updateMatrixWorld(true);
-  const bounds = new THREE.Box3().setFromObject(model);
-  const sourceHeight = bounds.max.y - bounds.min.y;
   const height = male ? (npc ? [1.78, 1.84, 1.72, 1.88][Math.floor(variant / 2) % 4] : 1.82) : npc ? [1.69, 1.76, 1.72, 1.64][Math.floor(variant / 2) % 4] : 1.76;
-  visual.scale.setScalar(height / sourceHeight);
-  model.position.y -= bounds.min.y;
+  visual.scale.setScalar(height / scaleReference.referenceHeight);
+  model.position.y += scaleReference.offsetY;
   mesh.updateMatrixWorld(true);
   const soleProbes = makeSoleProbes(model);
   if (police && bones.Head) {
@@ -448,15 +462,28 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
     cap.name = 'Police uniform cap';
     const navy = new THREE.MeshStandardMaterial({ color: 0x13283f, roughness: 0.88 });
     const gold = new THREE.MeshStandardMaterial({ color: 0xe4bc62, metalness: 0.7, roughness: 0.4 });
-    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.165, 0.065, 12), navy);
-    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.013, 0.1), navy);
-    brim.position.set(0, -0.027, 0.105);
+    const crown = new THREE.Mesh(male
+      ? new THREE.CylinderGeometry(.0875 * .91, .0875, .075, 24)
+      : new THREE.CylinderGeometry(.15, .165, .065, 12), navy);
+    if (male) crown.scale.z = .225 / .175;
+    const brim = new THREE.Mesh(male
+      ? new THREE.BoxGeometry(.185, .009, .080)
+      : new THREE.BoxGeometry(.27, .013, .1), navy);
+    brim.position.set(0, male ? -.030 : -.027, male ? .120 : .105);
+    if (male) brim.rotation.x = .10;
     const badge = new THREE.Mesh(new THREE.BoxGeometry(0.027, 0.032, 0.008), gold);
-    badge.position.set(0, 0.005, 0.138);
+    badge.position.set(0, .005, male ? .108 : .138);
     cap.add(crown, brim, badge);
     const headScale = bones.Head.getWorldScale(new THREE.Vector3()).y;
-    cap.scale.setScalar(1 / headScale);
-    cap.position.y = (male ? 0.235 : 0.29) / headScale;
+    const capScale = (male ? height / 1.82 : 1) / headScale;
+    cap.scale.setScalar(capScale);
+    // Measured against the fitted scalp in the Head bone's identity bind frame.
+    // The old fixed center perched a 330 mm crown above the top of the skull.
+    cap.position.set(male ? .0006 : 0, male ? .1735 : .29, male ? .0066 : 0).multiplyScalar(capScale);
+    for (const part of [crown, brim, badge]) {
+      part.castShadow = true;
+      part.receiveShadow = true;
+    }
     bones.Head.add(cap);
     materials.push(navy, gold);
   }

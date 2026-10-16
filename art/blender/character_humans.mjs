@@ -10,6 +10,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import * as THREE from 'three';
 import { transformMorphDeltas, matchNeckBoundaryNormal } from './character_morphs.mjs';
+import { createHeadFit, HEAD_FITS } from './character_head_fit.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const INPUT = resolve(process.argv[2] ?? '/tmp/astra-human-source');
@@ -216,13 +217,14 @@ function mergeMaterials(target, source) {
 
 const configs = [
   { gender: 'male', body: 'CivilianMale.glb', out: 'CivilianMaleNatural.glb', cut: 70, radius: 20,
-    sourceCut: 6.62, scale: [10.3, 11.25, 11.25], offset: [-0.70831424, 70 - 6.62 * 11.25, -0.72], blendHeight: 7.08 },
+    sourceCut: 6.62, ...HEAD_FITS.male, offset: [-0.70831424, 70 - 6.62 * HEAD_FITS.male.scale[1], -0.72], blendHeight: 7.08 },
   { gender: 'female', body: 'Michelle-crowd.glb', out: 'CivilianFemaleNatural.glb', cut: 1.32, radius: 0.3,
-    sourceCut: 5.16, scale: [0.088, 0.108, 0.095], offset: [0, 1.32 - 5.16 * 0.108, -0.028], blendHeight: 5.63 },
+    sourceCut: 5.16, ...HEAD_FITS.female, offset: [0, 1.32 - 5.16 * HEAD_FITS.female.scale[1], -0.028], blendHeight: 5.63 },
 ];
 
 const report = [];
 for (const config of configs) {
+  const fit = createHeadFit(config);
   const body = new GLB(await readFile(resolve(bodyDirectory, config.body)));
   let headPath = resolve(INPUT, `soft_${config.gender}_head.glb`);
   let headBytes;
@@ -280,14 +282,17 @@ for (const config of configs) {
       const existingSkin = primitive.attributes._SKIN_MASK === undefined ? null : head.read(primitive.attributes._SKIN_MASK).values;
       const existingHair = primitive.attributes._HAIR_MASK === undefined ? null : head.read(primitive.attributes._HAIR_MASK).values;
       const morphTransform = inverseBind.clone().multiply(new THREE.Matrix4().makeScale(...config.scale)).multiply(headWorld[nodeIndex]);
-      const normalMatrix = new THREE.Matrix3().getNormalMatrix(morphTransform);
+      const normalMatrix = new THREE.Matrix3(), fittedLinear = new THREE.Matrix4();
       for (let i = 0; i < p.accessor.count; i++) {
         const native = new THREE.Vector3().fromArray(p.values, i * 3).applyMatrix4(headWorld[nodeIndex]);
         const isHeadSkin = existingSkin ? existingSkin[i] > 0.5 : isSkin;
-        const world = native.clone().multiply(new THREE.Vector3(...config.scale)).add(new THREE.Vector3(...config.offset));
+        const world = fit.position(native, isHeadSkin);
         let boundary, boundaryBlend = 0;
-        if (isHeadSkin && native.y < config.blendHeight) {
-          const blend = 1 - THREE.MathUtils.smoothstep(native.y, config.sourceCut, config.blendHeight);
+        const contourEnd = config.neckContourEnd ?? config.blendHeight;
+        if (isHeadSkin && native.y < contourEnd) {
+          // Fit the female source clavicle flare through the upper neck. Ending
+          // this radial blend early leaves a vase-shaped bulge above the cut.
+          const blend = 1 - THREE.MathUtils.smoothstep(native.y, config.sourceCut, contourEnd);
           const angle = Math.atan2(world.z - center.z, world.x - center.x), sample = contourSample(angle);
           const radius = sample.radius * (config.gender === 'female' ? 0.985 : 1);
           world.x = THREE.MathUtils.lerp(world.x, center.x + Math.cos(angle) * radius, blend);
@@ -301,6 +306,8 @@ for (const config of configs) {
         }
         const neckWeight = isHeadSkin ? 1 - THREE.MathUtils.smoothstep(native.y, config.sourceCut, config.blendHeight + 0.35) : 0;
         points.push(...world.applyMatrix4(inverseBind).toArray());
+        fittedLinear.copy(inverseBind).multiply(fit.linear(native, isHeadSkin)).multiply(headWorld[nodeIndex]);
+        normalMatrix.getNormalMatrix(fittedLinear);
         const fittedNormal = new THREE.Vector3().fromArray(n.values, i * 3).applyMatrix3(normalMatrix).normalize();
         // Both normals are in the same bind-mesh space. Match the cut exactly,
         // restoring the authored head normal smoothly above the boundary.
@@ -337,7 +344,7 @@ for (const config of configs) {
           for (const deltas of [positionDeltas, normalDeltas]) if (deltas && deltas.length !== p.values.length) throw new Error('Morph vertex count differs from head');
           if (positionDeltas) for (let i = 0; i < p.accessor.count; i++) {
             const native = new THREE.Vector3().fromArray(p.values, i * 3).applyMatrix4(headWorld[nodeIndex]);
-            if (native.y < config.blendHeight && positionDeltas.subarray(i * 3, i * 3 + 3).some(value => Math.abs(value) > 1e-7)) throw new Error('Facial morph must not deform the fitted neck seam');
+            if (native.y < Math.max(config.neckContourEnd ?? config.blendHeight, fit.affineFrom) && positionDeltas.subarray(i * 3, i * 3 + 3).some(value => Math.abs(value) > 1e-7)) throw new Error('Facial morph must remain above the non-affine fitted neck');
           }
           return Object.fromEntries(Object.entries(transformMorphDeltas(positionDeltas, normalDeltas, n.values, morphTransform))
             .map(([name, values]) => [name, body.attribute(values, 'VEC3')]));
@@ -369,6 +376,8 @@ for (const config of configs) {
   await writeFile(resolve(outputDirectory, config.out), output);
   const triangles = json.meshes.reduce((sum, mesh) => sum + mesh.primitives.reduce((n, p) => n + (p.indices === undefined ? json.accessors[p.attributes.POSITION].count : json.accessors[p.indices].count) / 3, 0), 0);
   report.push({ output: config.out, sourceHead: headPath, bytes: output.length, triangles, bodyCut: config.cut, headJoint, neckJoint, neckBoundaryProof,
+    headFit: { scale: config.scale, neckShift: config.neckShift, neckEnd: config.neckEnd,
+      neckContourEnd: config.neckContourEnd ?? config.blendHeight, sourceCut: config.sourceCut },
     originalNodesPreserved: bodyNodeIndex, primitives: json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0) });
 }
 await writeFile(resolve(INPUT, 'integrated-report.json'), JSON.stringify(report, null, 2));

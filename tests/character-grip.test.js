@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { measureCharacterScale } from '../src/character-scale.js';
 import { createPoseTools } from '../src/character-pose.js';
 import { createHandPoseController } from '../src/character-grip.js';
 
@@ -30,12 +31,12 @@ async function fixture({ model, motion, height }) {
     restPose[name] = object.quaternion.clone();
   });
   const json = JSON.parse(await readFile(new URL(`../public/models/${motion}`, import.meta.url), 'utf8'));
+  const normalization = measureCharacterScale(asset.scene, height);
   const mixer = new THREE.AnimationMixer(asset.scene);
   mixer.clipAction(THREE.AnimationClip.parse(json.find((clip) => clip.name === 'Idle'))).play();
   mixer.update(0); mesh.updateMatrixWorld(true);
-  const bounds = new THREE.Box3().setFromObject(asset.scene, true);
-  visual.scale.setScalar(height / (bounds.max.y - bounds.min.y));
-  asset.scene.position.y -= bounds.min.y;
+  visual.scale.setScalar(normalization.scale);
+  asset.scene.position.y += normalization.offsetY;
   mesh.updateMatrixWorld(true);
   const before = Object.fromEntries(Object.entries(bones).map(([name, bone]) => [name, bone.quaternion.toArray()]));
   const weapon = new THREE.Group(); mesh.add(weapon);
