@@ -56,19 +56,24 @@ The graft step reads the existing `CivilianMale.glb` and `Michelle-crowd.glb` bo
 
 The packed library contains everything needed to reproduce the head exports without downloading the original asset pack. Keep the collection/object names, source coordinate conventions, and region-mask attributes intact. Inspect the rebuilt characters in-game from the front and back, then exercise walking, aiming, entry/exit, and seated driving before shipping changed assets. These heads inherit skeletal head/neck motion; they do not add facial expressions or lip sync.
 
-### Civilian distance meshes
+### Civilian distance meshes and index optimization
 
-After rebuilding either natural character, regenerate its distance meshes:
+After rebuilding the natural heads and bodies above, generate the distance meshes, then optimize vertex reuse in that order:
 
 ```sh
 npm install --prefix /tmp/astra-lod-tool meshoptimizer@0.24.0 --no-audit --no-fund
 node art/blender/character_lod.mjs /tmp/astra-lod-tool/node_modules/meshoptimizer/meshopt_simplifier.module.js
-node --test tests/character-lod.test.js
+node art/blender/character_indices.mjs /tmp/astra-lod-tool/node_modules/meshoptimizer/meshopt_encoder.module.js
+node --test tests/character-lod.test.js tests/character-indices.test.js
 ```
 
-The [MIT-licensed meshoptimizer](https://github.com/zeux/meshoptimizer) runs only during authoring. It produces `public/models/CivilianMaleNatural.lod.json` and `CivilianFemaleNatural.lod.json`; no simplifier or additional package is shipped to the browser. These index buffers derive from the same credited meshes and retain their original licensing. Source SHA-256 checks in the tests catch stale generated data.
+The [MIT-licensed meshoptimizer](https://github.com/zeux/meshoptimizer), pinned to version 0.24.0, runs only during authoring. The simplifier produces `public/models/CivilianMaleNatural.lod.json` and `CivilianFemaleNatural.lod.json`; no simplifier, encoder, or additional package is shipped to the browser. These index buffers derive from the same credited meshes and retain their original licensing. Source SHA-256 checks in the tests catch stale generated data.
 
 LOD geometry references the original vertices, UVs, normals, joint weights, masks, and skeleton. Mixed-weight vertices and open boundaries are locked to protect joints and neck joins. Male triangle counts are 20,129 / 12,955 / 10,177, and female counts are 21,168 / 11,426 / 7,920. The playable character stays at full quality. NPCs transition at 14 / 30 m apparent distance with 15% hysteresis; camera FOV adjusts that distance, so photo zoom restores detail. Call `updateLOD(camera)` once per presented frame. Inspect both near/far transitions and zoomed photo views after authoring changes.
+
+The final index step preserves every original vertex buffer, vertex number, material, skeleton, and triangle. It adds indices to the unindexed body meshes, sharing vertices only when every attribute and morph value matches exactly. The male body then references 4,970 of its 23,289 retained vertices, and the female body 2,924 of 13,128. This reduces repeated skinning work without changing the geometry or the vertex numbers used by sole and hit probes. Opaque and alpha-masked triangle indices are reordered for vertex reuse at every LOD; blended brows and lashes keep their original order.
+
+`character_indices.mjs` validates complete surface equivalence and immutable attributes before writing either character. It updates the LOD source hashes and records an `indexOptimization` proof in each sidecar. Running the final index step again validates those hashes and leaves the files unchanged. A stale proof fails instead of silently reoptimizing edited data: rebuild the heads/bodies, regenerate the LODs, then run the index step again. The asset tests also retain fingerprints of the original attributes, rig, materials, and oriented surfaces so an index-only change cannot silently alter them.
 
 ## Astra Aurora roadster
 

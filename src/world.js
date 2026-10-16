@@ -7,6 +7,7 @@ import { createShrubBuilder } from './world-shrubs.js';
 import { createOcean } from './world-ocean.js';
 import { createCityProps } from './world-props.js';
 import { createInstanceVisibility } from './instance-visibility.js';
+import { createBuildingOcclusion } from './building-occlusion.js';
 
 // Everything in the district is real geometry. Repeated architectural details
 // share instanced meshes, so the dense streetscape stays inexpensive to render.
@@ -15,6 +16,7 @@ export function createWorld(scene) {
   root.name = 'Grand Theft Astra — Pacific district';
   scene.add(root);
   const colliders = [];
+  const solidBuildingBounds = [];
   const lampPositions = [];
   const illuminatedSigns = [];
   const batches = new Map();
@@ -231,6 +233,12 @@ export function createWorld(scene) {
     const facade = palette[style % palette.length];
     const accent = style % 3 === 0 ? materials.teal : style % 3 === 1 ? materials.terracotta : materials.dark;
     box(facade, x, height / 2 + 0.2, z, width, height, depth);
+    // Exact opaque body bounds, distinct from inflated gameplay collision boxes.
+    // Hollow authored interiors are deliberately not registered as occluders.
+    solidBuildingBounds.push(new THREE.Box3(
+      new THREE.Vector3(x - width / 2, .2, z - depth / 2),
+      new THREE.Vector3(x + width / 2, height + .2, z + depth / 2),
+    ));
     colliders.push({ minX: x - width / 2 - 0.2, maxX: x + width / 2 + 0.2, minY: 0, maxY: height + 3, minZ: z - depth / 2 - 0.2, maxZ: z + depth / 2 + 0.2 });
     // Separate retail plinth, cornices, roof coping and recessed dark frontage.
     box(accent, x, 2.0, z, width + 0.15, 3.7, depth + 0.15);
@@ -700,11 +708,19 @@ export function createWorld(scene) {
     root.add(mesh);
     instanceVisibility.add(mesh, { padding: batch.material === materials.leaves ? .16 : 0 });
   }
+  const buildingOcclusion = createBuildingOcclusion(solidBuildingBounds);
+  const occlusionWorldIdentity = new THREE.Matrix4();
   return {
     root, colliders, roads, ready, lampPositions,
-    updateInstanceVisibility: instanceVisibility.update,
+    updateInstanceVisibility(camera, options) {
+      root.updateWorldMatrix(true, false);
+      // Registered boxes are in the original district world frame. A moved or
+      // scaled district keeps frustum culling but skips these static occluders.
+      buildingOcclusion.update(camera, { enabled: root.matrixWorld.equals(occlusionWorldIdentity) });
+      instanceVisibility.update(camera, { ...options, occlusion: buildingOcclusion });
+    },
     restoreInstances: instanceVisibility.restore,
-    getInstanceVisibility: instanceVisibility.getStats,
+    getInstanceVisibility: () => ({ ...instanceVisibility.getStats(), occluders: buildingOcclusion.getStats() }),
     updateWires: streetDetails.updateWires,
     getWireStats: streetDetails.getWireStats,
     setSky: data => ocean.setSky(data),

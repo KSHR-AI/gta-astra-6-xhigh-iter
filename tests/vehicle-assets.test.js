@@ -74,6 +74,26 @@ test('Aurora doors, steering and wheel spin stay synchronized across both detail
   assert.ok(lod.levels.every(({ object }) => object.getObjectByName('driver_door').rotation.y < 0.003));
 });
 
+test('Aurora projector optics sit inside both headlamp housings at every detail level', async () => {
+  const { createCar } = await factory();
+  const car = createCar({ type: 'sport' });
+  car.mesh.updateMatrixWorld(true);
+  const lod = car.mesh.children.find(child => child.isLOD);
+  for (const { object: level } of lod.levels) {
+    const optics = collect(level, object => object.isMesh && object.material.name === 'lamp_lens');
+    assert.equal(optics.length, 1, 'projector cells share one material batch');
+    const optic = optics[0], positions = optic.geometry.attributes.position;
+    let left = 0, right = 0;
+    for (let i = 0; i < positions.count; i++) {
+      const vertex = new THREE.Vector3().fromBufferAttribute(positions, i).applyMatrix4(optic.matrixWorld);
+      assert.ok(Math.abs(vertex.x) > .49 && Math.abs(vertex.x) < .81, 'optic belongs to a left or right housing, never the hood center');
+      assert.ok(vertex.z > 1.9 && vertex.z < 2.1, 'optic remains in the front headlamp assembly');
+      if (vertex.x < 0) left++; else right++;
+    }
+    assert.ok(left > 0 && right > 0, 'both headlights have modeled projector optics');
+  }
+});
+
 test('the authored pelvis anchor follows suspension while entry remains clear of the body', async () => {
   const { createCar } = await factory();
   const car = createCar({ type: 'sport' });

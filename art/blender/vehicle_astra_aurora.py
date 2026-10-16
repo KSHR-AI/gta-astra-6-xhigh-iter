@@ -218,7 +218,7 @@ def fascia(m,chassis,detail):
             tube('blade_headlamp',points,.008,head,chassis,6)
         # Internal projector elements give the lamps depth behind the signature.
         for q in (.22,.50,.78):
-            x,y,z=lamp(q,.5,.012)
+            x,y,z=lamp(q,.5,lift=.012)
             box('lamp_optic_cell',(x,y,z),(.053,.014,.04),m['lamp_lens'],chassis,.006,2)
         tube('front_corner_air_curtain',[(side*x,y,z) for x,y,z in [(.78,.34,2.06),(.80,.42,2.04),(.82,.49,2.01)]],.012,m['dark'],chassis,6)
     # Rounded rear fascia with a single clean floating light graphic.

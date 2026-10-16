@@ -20,10 +20,21 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 
 ## Current rendering pass
 
+- Skip world instances fully hidden behind explicitly registered solid building bodies. Hollow interiors and inflated collision bounds are excluded; shadow casters remain available to light cameras. Unsupported camera/world transforms fall back to ordinary frustum visibility.
+- Give skinned characters conservative pose envelopes for each render camera. Detached/external rigs, morphs, shear and invalid transforms retain the safe always-submit behavior.
+- Reuse only byte-identical character vertices and reorder opaque/cutout triangles without changing source vertex arrays, skin weights, masks, textures, rigs or triangle count. Transparent brow/lash ordering remains intact.
+- Correct the Aurora's projector cells so they sit inside both headlamp housings. The Blender source and both exported detail levels contain the fix.
+- Refresh paused simulation poses once per frame instead of repeating zero-time physics subdivisions; photo camera movement and presentation continue normally.
+- Same-view software-renderer probes show lower scene time from building occlusion and character vertex reuse. Pixel comparisons at the reference camera found no image changes from these optimizations; this does not establish performance or visual coverage across a hardware matrix.
+- The final live sample measured 5.74 fps at 1039 × 491 internal resolution on llvmpipe, compared with 4.83 fps in the previous pass. Traffic and sampling windows differ. Controlled paused-view scene samples improved from roughly 149–152 ms to 135–137 ms with occlusion, then to 125–127 ms with character vertex reuse. These remain far below release frame pacing.
+- A final CPU trace still attributes most sampled game-frame work to character animation. The next performance target is repeated NPC pose evaluation across physics substeps, with fresh muzzle and hit-volume poses retained for combat. Police shots also need actual vehicle/surface traces before cover can be considered reliable.
+
+## Previous draw batching pass
+
 - Merge opaque world batches without changing their geometry, materials, transforms or instance colors. Distant vehicles instance identical wheel parts while preserving steering, spin and stationary calipers; nearby models retain their original meshes.
 - Shadow refreshes retain the union of camera-visible instances and casters inside the light frustum. Reflections still restore full geometry. Missing shadow bounds retain the safe full-set fallback.
 - Overhead cables retain physical 3D tubes nearby and use filtered coverage at subpixel sizes. Coverage follows the actual viewport, including photo and reflection passes, rather than vanishing into dotted raster samples.
-- New full-game samples remain only about 4.7–4.9 fps on the software renderer. Draw calls fell substantially, but hardware performance and release frame pacing remain unproven.
+- That pass's full-game samples remained only about 4.7–4.9 fps on the software renderer. Draw calls fell substantially, but hardware performance and release frame pacing remain unproven.
 
 ## Previous vehicle and combat pass
 

@@ -33,7 +33,7 @@ test('shadow refresh restores every off-camera caster and the following frame ca
   manager.update(camera); assert.equal(mesh.count, 1);
   manager.update(camera, { preserveShadows: true }); assert.equal(mesh.count, 2);
   manager.update(camera); assert.equal(mesh.count, 1);
-  assert.deepEqual(manager.getStats(), { totalInstances: 2, visibleInstances: 1, totalTriangles: 24, visibleTriangles: 12 });
+  assert.deepEqual(manager.getStats(), { totalInstances: 2, visibleInstances: 1, totalTriangles: 24, visibleTriangles: 12, cameraOccludedInstances: 0, cameraOccludedTriangles: 0 });
 });
 
 test('parent transforms and wider photo lenses preserve intersecting geometry', () => {

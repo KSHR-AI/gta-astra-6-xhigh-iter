@@ -12,6 +12,7 @@ export function createInstanceVisibility() {
   const sphere = new THREE.Sphere();
   const worldSphere = new THREE.Sphere();
   let totalInstances = 0, visibleInstances = 0, totalTriangles = 0, visibleTriangles = 0;
+  let cameraOccludedInstances = 0, cameraOccludedTriangles = 0;
 
   function add(mesh, { padding = 0 } = {}) {
     if (!mesh.isInstancedMesh || mesh.morphTexture) return;
@@ -54,9 +55,10 @@ export function createInstanceVisibility() {
       for (let i = 0; i < batch.count; i++) batch.selected[i] = i;
     }
     visibleInstances = totalInstances; visibleTriangles = totalTriangles;
+    cameraOccludedInstances = 0; cameraOccludedTriangles = 0;
   }
 
-  function update(camera, { preserveShadows = false, shadowFrusta } = {}) {
+  function update(camera, { preserveShadows = false, shadowFrusta, occlusion } = {}) {
     // Refresh frames need off-camera casters too. Valid light frusta permit a
     // conservative union; callers without those bounds retain the safe full set.
     const cullShadows = preserveShadows && Array.isArray(shadowFrusta)
@@ -65,6 +67,7 @@ export function createInstanceVisibility() {
     camera.updateWorldMatrix(true, false);
     projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     visibleInstances = 0; visibleTriangles = 0;
+    cameraOccludedInstances = 0; cameraOccludedTriangles = 0;
     for (const batch of batches) {
       const { mesh, spheres } = batch;
       mesh.updateWorldMatrix(true, false);
@@ -76,6 +79,12 @@ export function createInstanceVisibility() {
         sphere.center.set(spheres[offset], spheres[offset + 1], spheres[offset + 2]);
         sphere.radius = spheres[offset + 3];
         let visible = frustum.intersectsSphere(sphere);
+        if (visible && occlusion) {
+          worldSphere.copy(sphere).applyMatrix4(mesh.matrixWorld);
+          if (occlusion.isOccluded(worldSphere)) {
+            visible = false; cameraOccludedInstances++; cameraOccludedTriangles += batch.triangles;
+          }
+        }
         if (!visible && cullShadows && mesh.castShadow) {
           worldSphere.copy(sphere).applyMatrix4(mesh.matrixWorld);
           for (const lightFrustum of shadowFrusta) {
@@ -100,5 +109,5 @@ export function createInstanceVisibility() {
       visibleInstances += count; visibleTriangles += count * batch.triangles;
     }
   }
-  return { add, update, restore, getStats: () => ({ totalInstances, visibleInstances, totalTriangles, visibleTriangles }) };
+  return { add, update, restore, getStats: () => ({ totalInstances, visibleInstances, totalTriangles, visibleTriangles, cameraOccludedInstances, cameraOccludedTriangles }) };
 }

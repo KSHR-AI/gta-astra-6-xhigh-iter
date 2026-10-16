@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createHumanoidAnimator } from './character-animation.js';
 import { createCharacterLOD, registerCharacterLODs } from './character-lod.js';
+import { createCharacterBounds } from './character-bounds.js';
 
 let characterAsset;
 let pedestrianAsset;
@@ -436,11 +437,12 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
   });
   animator.update(0);
   const lod = createCharacterLOD(model, mesh, { enabled: npc });
+  const renderBounds = createCharacterBounds(model, mesh, { height });
   const getHitVolumes = createHitVolumeReader(mesh, model, bones);
   return {
     mesh, mixer, weapon, muzzle,
-    updateLOD: lod.update,
-    getLODInfo: lod.getInfo,
+    updateLOD(camera) { const level = lod.update(camera); renderBounds.update(); return level; },
+    getLODInfo() { return { ...lod.getInfo(), culling: renderBounds.getInfo() }; },
     update: animator.update,
     seatOffset: animator.seatOffset,
     seatAnchor: animator.seatAnchor,
