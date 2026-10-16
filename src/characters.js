@@ -157,7 +157,7 @@ async function loadLocomotion(path) {
   return parseLocomotion(await response.json());
 }
 
-function makeSoleProbes(model) {
+export function makeSoleProbes(model) {
   const probes = [];
   const vertex = new THREE.Vector3();
   model.traverse((object) => {
@@ -441,17 +441,20 @@ export function createCharacter({ npc = false, color, police = false } = {}) {
   const getHitVolumes = createHitVolumeReader(mesh, model, bones);
   return {
     mesh, mixer, weapon, muzzle,
-    updateLOD(camera) { const level = lod.update(camera); renderBounds.update(); return level; },
+    updateLOD(camera) { animator.flushPose(); const level = lod.update(camera); renderBounds.update(); return level; },
     getLODInfo() { return { ...lod.getInfo(), culling: renderBounds.getInfo() }; },
     update: animator.update,
+    advance: animator.advance,
+    flushPose: animator.flushPose,
+    getEvaluationStats: animator.getEvaluationStats,
     seatOffset: animator.seatOffset,
     seatAnchor: animator.seatAnchor,
     setWeapon: animator.setWeapon,
     reactToHit: animator.reactToHit,
     getPoseInfo: animator.getPoseInfo,
-    getHitVolumes,
+    getHitVolumes() { animator.flushPose(); return getHitVolumes(); },
     setVisible(visible) { mesh.visible = Boolean(visible); },
-    getMuzzlePosition(target = new THREE.Vector3()) { return muzzle.getWorldPosition(target); },
+    getMuzzlePosition(target = new THREE.Vector3()) { animator.flushPose(); return muzzle.getWorldPosition(target); },
     dispose() { mixer.stopAllAction(); materials.forEach((material) => material.dispose()); },
   };
 }
@@ -496,6 +499,8 @@ function createFallbackCharacter({ npc, color, police }) {
   const seatOffset = new THREE.Vector3(0, -0.94, 0);
   return {
     mesh, weapon, muzzle, seatOffset, seatAnchor: 'pelvis',
+    advance(dt, options) { this.update(dt, options); },
+    flushPose() { return false; },
     update(dt, { speed = 0, aiming = false, shooting = false, dead = false, seated = false, steering = 0, jumping = false, verticalVelocity = 0, reloading = false, reloadProgress = 0, aimPitch = 0, interactionProgress = 0, interactionPhase = '', hit = false } = {}) {
       const step = Math.min(dt, 0.1); time += step * (Math.abs(speed) > 3.7 ? 11 : 7);
       const interacting = interactionPhase === 'enter' || interactionPhase === 'exit';

@@ -48,6 +48,8 @@ function simulationFixture({ policePosition = [0, 200], pedestrians = [], collid
     vehicles: [police], pedestrians, police, officers, world: { colliders },
     moveBody(position, dx, dz) { position.x += dx; position.z += dz; return false; },
     carsOverlap: () => false,
+    getPoliceShotGeometry: () => ({ player: { object: playerPosition, position: playerPosition }, groundY: .04 }),
+    policeRandom: () => 0,
     onPoliceShot: shot => policeShots.push(shot),
     onToast: (title, detail) => toasts.push({ title, detail }),
   });
@@ -313,7 +315,7 @@ test('A browser that blocks the localStorage property can still load and play th
 function officerActor() {
   const mesh = new THREE.Object3D();
   mesh.visible = false;
-  return { mesh, update() {}, getMuzzlePosition(target) { return target.copy(mesh.position); } };
+  return { mesh, update() {}, getMuzzlePosition(target) { return target.copy(mesh.position).add(new THREE.Vector3(0, 1.4, 0)); } };
 }
 
 test('Repeated gunfire cannot extend the initial police warning grace indefinitely', t => {

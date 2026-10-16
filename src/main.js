@@ -74,6 +74,7 @@ let lastFrame=performance.now(),frameCount=0,fpsTimer=0,uiTimer=0,miniTimer=0,mo
 const aimRay=new THREE.Raycaster();
 const handling=createWeaponHandling();
 let aimSolution=null,lastImpact=null,lastDryFire=-100,renderFrame=0;
+const policeShotHistory=[];
 const vehicles=[],pedestrians=[],effects=[],officers=[];
 const contactCanvas=document.createElement('canvas');contactCanvas.width=contactCanvas.height=64;
 const contactContext=contactCanvas.getContext('2d');const contactGradient=contactContext.createRadialGradient(32,32,2,32,32,32);
@@ -143,7 +144,7 @@ function restart(fresh=false){
  simulation?.reset();interaction=null;currentCar=null;state.started=true;
  Object.assign(state,{health:100,stamina:100,wanted:0,ammo:12,reserve:96,inCar:false,speed:0,nearCar:false,policeState:'clear',searchProgress:0,subtitle:'',subtitleSpeaker:''});
  weapon=false;aiming=false;mouseDown=false;reloading=false;reloadRemaining=0;respawnTimer=0;doorTimer=0;lastShot=-100;lastCrime=-100;wantedSince=-100;lookTimer=elapsed;dialogueQueue=[];dialogueUntil=0;
- state.weapon='UNARMED';handling.reset();sound.cancelReload?.();lastImpact=null;aimSolution=null;
+ state.weapon='UNARMED';handling.reset();sound.cancelReload?.();lastImpact=null;aimSolution=null;policeShotHistory.length=0;
  const home=job.getState().mission>=4?world.landmarks?.safehouse:null;
  player.mesh.position.set(home?.x??1.4,0,home?.z??23);player.mesh.rotation.set(0,Math.PI,0);player.setVisible(true);player.setWeapon(false);playerVelocity.set(0,0,0);yaw=home?-Math.PI/2:0;pitch=.07;jumpVelocity=0;
  for(let i=pedestrians.length-1;i>=0;i--)if(pedestrians[i].isDriver)pedestrians.splice(i,1);
@@ -325,6 +326,11 @@ function shoot(){
  if(state.ammo<=0){if(state.reserve>0)reload();else if(elapsed-lastDryFire>.35){sound.dryFire?.();lastDryFire=elapsed;ui.toast('OUT OF AMMUNITION','Visit Mara at Orbit Exchange for supplies.');}return;}
  handling.request(elapsed,aiming);
 }
+function incapacitateActor(target){
+ target.actor.reactToHit?.();
+ if(target.car){target.car.driverDownUntil=elapsed+24;target.car.driverTrafficBeforeHit ||= target.car.traffic;target.car.traffic=false;}
+ else{target.down=true;target.recoverAt=elapsed+24;if(target.officer)target.actor.mesh.userData.downUntil=elapsed+24;}
+}
 function fireShot(spread){
  state.ammo--;lastShot=elapsed;sound.shoot();crime(Math.min(5,Math.max(2,state.wanted+(state.ammo%4===0?1:0))));
  aimRay.setFromCamera(new THREE.Vector2(),camera);
@@ -341,9 +347,7 @@ function fireShot(spread){
   const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([start,end]),new THREE.LineBasicMaterial({color:0xffe5b5,transparent:true,opacity:.36,depthWrite:false}));scene.add(line);effects.push({mesh:line,life:.045,max:.045,opacity:.36,born:renderFrame});
  }
  if(hit.kind==='actor'){
-  const p=hit.object;handling.confirmHit();p.actor.reactToHit?.();
-  if(p.car){p.car.driverDownUntil=elapsed+24;p.car.driverTrafficBeforeHit ||= p.car.traffic;p.car.traffic=false;}
-  else{p.down=true;p.recoverAt=elapsed+24;if(p.officer)p.actor.mesh.userData.downUntil=elapsed+24;}
+  handling.confirmHit();incapacitateActor(hit.object);
   crime(3);
  }else if(hit.kind==='vehicle'){
   const c=hit.object;handling.confirmHit();c.health=Math.max(0,c.health-24);c.model.setDamage?.(c.health);spawnEffect(hit.point,0xddc49c,3);sound.impact?.({position:hit.point,material:'metal'});
@@ -411,21 +415,53 @@ function updateDriving(dt){
  player.update(dt,{speed:0,seated:true,steering:c.steer});
  state.speed=Math.round(Math.abs(c.speed)*3.6);state.gear=telemetry.gear;state.rpm=telemetry.rpm;state.slip=telemetry.slip;state.vehicleHealth=c.health;state.nearCar=false;
 }
+function advanceDriver(c,dt){
+ c.driver.mesh.position.copy(anchor(c));orientDriver(c.driver,c);setActorShadow(c.driver,false);
+ c.driver.advance(dt,{speed:0,seated:true,steering:c.steer,dead:c.driverDownUntil>elapsed});
+}
 function updateDrivers(dt){
  for(const c of vehicles){
   if(!c.driver||!c.driverActive||(interaction?.car===c&&interaction.phase==='enter'&&interaction.opened))continue;
   if(c.driverDownUntil&&c.driverDownUntil<=elapsed){c.driverDownUntil=0;if(c.driverTrafficBeforeHit&&!c.stolen&&!c.occupied&&c.health>0)c.traffic=true;c.driverTrafficBeforeHit=false;}
   c.driver.mesh.visible=c.model.mesh.position.distanceTo(camera.position)<65;
-  c.driver.mesh.position.copy(anchor(c));orientDriver(c.driver,c);setActorShadow(c.driver,false);
-  c.driver.update(dt,{speed:0,seated:true,steering:c.steer,dead:c.driverDownUntil>elapsed});
+  advanceDriver(c,dt);
  }
 }
-function policeShot({origin,target,hit,damage}){
+function getPoliceShotGeometry({shooter}){
+ const drivers=vehicles.filter(c=>c.driverActive&&c.driver?.mesh.visible&&!(c.driverDownUntil>elapsed));
+ // Traffic has moved this substep. Snapshot occupants at their current seats
+ // before the later driver update, without advancing their animation clocks.
+ for(const c of drivers)if(!(interaction?.car===c&&interaction.phase==='enter'&&interaction.opened))advanceDriver(c,0);
+ const actors=[
+  ...[...pedestrians,...officers.map(actor=>({actor,officer:true}))].filter(p=>!p.down&&p.actor!==shooter&&p.actor.mesh.visible&&(p.actor.mesh.userData.downUntil||0)<=elapsed),
+  ...drivers.map(car=>({actor:car.driver,car})),
+ ];
+ return {
+  buildings:buildingBoxes,groundY:.04,
+  vehicles:vehicles.map(c=>({object:c,box:vehicleBounds(c),raycast:c.model.raycastSurface})),
+  actors:actors.map(target=>({object:target,position:target.actor.mesh.position,volumes:target.actor.getHitVolumes()})),
+  player:{object:player,position:player.mesh.position,volumes:player.getHitVolumes()},
+ };
+}
+function policeShot({origin,target,hit,damage,impact,warning,shotId}){
  const direction=target.clone().sub(origin).normalize(),distance=origin.distanceTo(target);
- const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([origin.clone().addScaledVector(direction,.5),origin.clone().addScaledVector(direction,Math.min(distance,6))]),new THREE.LineBasicMaterial({color:0xffe5b5,transparent:true,opacity:.3,depthWrite:false}));scene.add(line);effects.push({mesh:line,life:.045,max:.045,opacity:.3,born:renderFrame});
+ if(distance>.05){
+  const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([origin.clone().addScaledVector(direction,Math.min(.5,distance*.25)),origin.clone().addScaledVector(direction,Math.min(distance,6))]),new THREE.LineBasicMaterial({color:0xffe5b5,transparent:true,opacity:.3,depthWrite:false}));scene.add(line);effects.push({mesh:line,life:.045,max:.045,opacity:.3,born:renderFrame});
+ }
  const flash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTexture,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));flash.position.copy(origin);flash.scale.set(.12,.09,1);scene.add(flash);effects.push({mesh:flash,life:.04,max:.04,born:renderFrame});
  sound.shoot?.({position:origin});
- if(hit){state.health=Math.max(0,state.health-damage);player.reactToHit?.(.65);damageFlash=.3;if(currentCar)currentCar.health=Math.max(0,currentCar.health-damage*.7);}
+ const healthBefore=state.health,vehicle=impact.kind==='vehicle'?impact.object:null,vehicleHealthBefore=vehicle?.health;
+ if(hit){state.health=Math.max(0,state.health-damage);player.reactToHit?.(.65);damageFlash=.3;}
+ else if(impact.kind==='actor')incapacitateActor(impact.object);
+ else if(vehicle){
+  vehicle.health=Math.max(0,vehicle.health-damage);vehicle.model.setDamage?.(vehicle.health);
+  spawnEffect(impact.point,0xddc49c,3);sound.impact?.({position:impact.point,material:'metal'});
+  if(vehicle.health<=0){vehicle.speed=0;vehicle.traffic=false;}
+ }else if(impact.kind==='building'||impact.kind==='ground'){
+  spawnEffect(impact.point,0xb3a89a,3);sound.impact?.({position:impact.point,material:'stone'});
+ }
+ policeShotHistory.push({id:shotId,time:elapsed,origin:origin.toArray(),point:target.toArray(),kind:impact.kind,surface:impact.surfaceName,warning,playerHit:hit,actor:impact.kind==='actor'?(hit?'player':impact.object.car?'driver':impact.object.officer?'officer':'pedestrian'):null,actorDown:impact.kind==='actor'&&!hit?Boolean(impact.object.down||impact.object.car?.driverDownUntil>elapsed):false,healthBefore,healthAfter:state.health,vehicle:vehicle?vehicles.indexOf(vehicle):null,vehicleHealthBefore,vehicleHealthAfter:vehicle?.health});
+ if(policeShotHistory.length>24)policeShotHistory.shift();
 }
 function clipCameraBoom(head,target){
  const cars=vehicles.filter(c=>c!==currentCar&&c!==interaction?.car);
@@ -490,9 +526,9 @@ function updateGame(dt){
   if(state.health<100&&state.wanted===0)state.health=Math.min(100,state.health+dt*.5);
   if(dialogueQueue.length&&elapsed>=dialogueUntil){const next=dialogueQueue.shift();state.subtitle=next.text;state.subtitleSpeaker=next.speaker;dialogueUntil=elapsed+Math.max(4.5,next.text.length*.055);}
   else if(elapsed>=dialogueUntil){state.subtitle='';state.subtitleSpeaker='';}
- }else if(!state.started){vehicles.forEach(c=>c.model.update(simDt,0,0));pedestrians.forEach(p=>{p.actor.mesh.visible=p.actor.mesh.position.distanceTo(camera.position)<70;p.actor.update(simDt,{speed:0});});player?.update(simDt,{speed:0});}
+ }else if(!state.started){vehicles.forEach(c=>c.model.update(simDt,0,0));pedestrians.forEach(p=>{p.actor.mesh.visible=p.actor.mesh.position.distanceTo(camera.position)<70;p.actor.advance(simDt,{speed:0});});player?.update(simDt,{speed:0});}
  for(const c of vehicles)if(c!==currentCar&&!c.traffic&&!c.police&&!c.occupied&&Math.abs(c.speed)>.05){updateVehiclePhysics(c,simDt,{throttle:0,steering:0,moveBody,vehicles,carsOverlap});c.model.update(simDt,c.speed,c.steer);}
- updateDrivers(simDt);contactActor?.update(simDt,{speed:0});
+ updateDrivers(simDt);contactActor?.advance(simDt,{speed:0});
  if(job){const progress=job.getState();Object.assign(state,progress);mission=progress.mission;if(progress.target){goal.set(progress.target.x,0,progress.target.z);marker.position.copy(goal);}marker.visible=!!progress.target&&state.started;const close=progress.target&&player.mesh.position.distanceTo(goal)<4;markerBeam.visible=!close;markerDiamond.visible=!close;markerRing.scale.setScalar(close?.5:1);}
  const context=player&&job?contextAction():null;
  Object.assign(state,{interactionVisible:!!context&&!interaction,interactionTitle:context?.title||'',interactionName:context?.name||'',interactionKey:'E'});
@@ -505,14 +541,14 @@ function updateGame(dt){
 // submit audio/HUD updates up to eight times before anything can be displayed.
 function updatePresentation(dt){
  const active=state.started&&!state.paused&&!state.mapOpen;
- // The reticle needs the final displayed pose once per frame. Actual shots
- // still trace their camera and muzzle inside the simulation step.
- updateAimSolution();
  world.update?.(state.paused||state.mapOpen?0:dt,elapsed);updateNightLights();
+ // NPC time advances with physics; finish its procedural pose once for this
+ // displayed frame. Geometry readers also flush before an actual shot.
  player?.updateLOD?.(camera);contactActor?.updateLOD?.(camera);
  for(const p of pedestrians)p.actor.updateLOD?.(camera);
  for(const officer of officers)officer.updateLOD?.(camera);
  for(const car of vehicles)car.driver?.updateLOD?.(camera);
+ updateAimSolution();
  if(player){const pos=player.mesh.position;const shadowFocus=photo.active?camera.position:pos;if(Math.hypot(shadowFocus.x-shadowAnchor.x,shadowFocus.z-shadowAnchor.z)>28){shadowAnchor.copy(shadowFocus);shadowAnchor.y=0;sun.target.position.copy(shadowAnchor);sun.position.copy(shadowAnchor).add(sunOffset);renderer.shadowMap.needsUpdate=true;}state.location=world.locationAt?.(pos.x,pos.z)||'VESPUCCI BOULEVARD';state.objectiveDistance=state.target?Math.round(pos.distanceTo(goal)):0;}
  sound.update({speed:Math.abs(currentCar?.speed||0),inCar:active&&state.inCar,wanted:active?state.wanted:0,playerPosition:player?.mesh.position,policePosition:police.model.mesh.position,velocity:playerVelocity,footSpeed:active&&!currentCar&&!interaction?playerVelocity.length():0,sprinting:keys.has('ShiftLeft'),rpm:state.rpm,gear:state.gear,slip:state.slip||0,policeState:state.policeState,night,active,cameraForward:camera.getWorldDirection(new THREE.Vector3())});
  uiTimer+=dt;miniTimer+=dt;
@@ -579,7 +615,7 @@ canvas.addEventListener('wheel',e=>{if(photo.active){e.preventDefault();photo.ch
 window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);rendering.resize();});
 
 // A read-only diagnostic view keeps real browser verification reproducible.
-Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,shotsFired:handling.shots,shotQueued:handling.queued,lastImpact,recoilPitch:handling.recoilPitch,aimPoint:aimSolution?.point.toArray(),position:player?.mesh.position.toArray(),carPosition:currentCar?.model.mesh.position.toArray(),carHeading:currentCar?.heading,carSpeed:currentCar?.speed,mission,interaction:interaction?{phase:interaction.phase,progress:interaction.elapsed/interaction.duration}:null,animation:player?.mesh.userData.animationState,pose:player?.getPoseInfo?.(),landmarks:world.landmarks,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,driverVisible:!!currentCar&&player?.mesh.visible,driverPosition:currentCar?player.mesh.position.toArray():null,city:simulation?.getDiagnostics?.(),driverAlignment:currentCar?{driver:player.mesh.quaternion.toArray(),cockpit:currentCar.model.getDriverOrientation?.(new THREE.Quaternion()).toArray()}:null,instanceVisibility:world.getInstanceVisibility(),wires:world.getWireStats(),heroVehicle:{driverActive:heroCar.driverActive,driverDownUntil:heroCar.driverDownUntil,driverAnimation:heroCar.driver?.mesh.userData.animationState,driverHead:heroCar.driver?.getHitVolumes?.().spheres[0]?.center.toArray(),evictedDriver:pedestrians.some(p=>p.isDriver&&p.actor===heroCar.driver)?{down:pedestrians.find(p=>p.actor===heroCar.driver).down,animation:heroCar.driver?.mesh.userData.animationState}:null,detail:heroCar.model.getDetailInfo?.(),model:heroCar.model.mesh.userData.model,detailLevels:heroCar.model.mesh.userData.detailLevels,driverSeat:heroCar.model.getDriverSeat?.().toArray(),doorEntry:heroCar.model.getDoorPosition?.().toArray(),doorAngle:heroCar.model.mesh.getObjectByName('driver_door')?.rotation.y},jobCarHealth:heroCar.health,jobCarPosition:heroCar.model.mesh.position.toArray(),characterLODs:[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(c=>c.driver)].filter(Boolean).map(actor=>({...actor.getLODInfo?.(),position:actor.mesh.position.toArray(),visible:actor.mesh.visible})),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,vehicleDetails:vehicles.map(c=>({model:c.model.mesh.userData.model,position:c.model.mesh.position.toArray(),speed:c.speed,...c.model.getDetailInfo?.()})),pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray(),cameraDirection:camera.getWorldDirection(new THREE.Vector3()).toArray(),photo:photo.active?photo.settings:null,renderSize:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()})}});
+Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,shotsFired:handling.shots,shotQueued:handling.queued,lastImpact,policeShots:policeShotHistory.map(shot=>({...shot,origin:[...shot.origin],point:[...shot.point]})),recoilPitch:handling.recoilPitch,aimPoint:aimSolution?.point.toArray(),position:player?.mesh.position.toArray(),carPosition:currentCar?.model.mesh.position.toArray(),carHeading:currentCar?.heading,carSpeed:currentCar?.speed,mission,interaction:interaction?{phase:interaction.phase,progress:interaction.elapsed/interaction.duration}:null,animation:player?.mesh.userData.animationState,pose:player?.getPoseInfo?.(),landmarks:world.landmarks,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,driverVisible:!!currentCar&&player?.mesh.visible,driverPosition:currentCar?player.mesh.position.toArray():null,city:simulation?.getDiagnostics?.(),driverAlignment:currentCar?{driver:player.mesh.quaternion.toArray(),cockpit:currentCar.model.getDriverOrientation?.(new THREE.Quaternion()).toArray()}:null,instanceVisibility:world.getInstanceVisibility(),wires:world.getWireStats(),heroVehicle:{driverActive:heroCar.driverActive,driverDownUntil:heroCar.driverDownUntil,driverAnimation:heroCar.driver?.mesh.userData.animationState,driverHead:heroCar.driver?.getHitVolumes?.().spheres[0]?.center.toArray(),evictedDriver:pedestrians.some(p=>p.isDriver&&p.actor===heroCar.driver)?{down:pedestrians.find(p=>p.actor===heroCar.driver).down,animation:heroCar.driver?.mesh.userData.animationState}:null,detail:heroCar.model.getDetailInfo?.(),model:heroCar.model.mesh.userData.model,detailLevels:heroCar.model.mesh.userData.detailLevels,driverSeat:heroCar.model.getDriverSeat?.().toArray(),doorEntry:heroCar.model.getDoorPosition?.().toArray(),doorAngle:heroCar.model.mesh.getObjectByName('driver_door')?.rotation.y},jobCarHealth:heroCar.health,jobCarPosition:heroCar.model.mesh.position.toArray(),characterLODs:[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(c=>c.driver)].filter(Boolean).map(actor=>({...actor.getLODInfo?.(),evaluation:actor.getEvaluationStats?.(),position:actor.mesh.position.toArray(),visible:actor.mesh.visible})),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,vehicleDetails:vehicles.map(c=>({model:c.model.mesh.userData.model,position:c.model.mesh.position.toArray(),speed:c.speed,...c.model.getDetailInfo?.()})),pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray(),cameraDirection:camera.getWorldDirection(new THREE.Vector3()).toArray(),photo:photo.active?photo.settings:null,renderSize:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()})}});
 
 async function boot(){
  try{
@@ -619,7 +655,7 @@ async function boot(){
   for(let i=0;i<2;i++){const actor=createCharacter({npc:true,police:true,color:0x23374d});actor.setWeapon(true);addContactShadow(actor.mesh,1.2,1.2);actor.mesh.visible=false;scene.add(actor.mesh);officers.push(actor);}
   for(const c of [heroCar,t1,t2]){c.driver=createCharacter({npc:true,color:c===heroCar?0xa78c6a:0x526b7a});c.driverActive=true;addContactShadow(c.driver.mesh,1.2,1.2);scene.add(c.driver.mesh);}
   contactActor=createCharacter({npc:true,color:0x272c3d});contactActor.mesh.position.set(world.landmarks.contact.x-1,0,world.landmarks.contact.z);contactActor.mesh.rotation.y=Math.PI/2;addContactShadow(contactActor.mesh,1.2,1.2);scene.add(contactActor.mesh);
-  simulation=createCitySimulation({vehicles,pedestrians,police,officers,world,moveBody,carsOverlap,onPoliceShot:policeShot,onToast:(a,b)=>ui.toast(a,b)});
+  simulation=createCitySimulation({vehicles,pedestrians,police,officers,world,moveBody,carsOverlap,getPoliceShotGeometry,onPoliceShot:policeShot,onToast:(a,b)=>ui.toast(a,b)});
   job=createMission({landmarks:world.landmarks,getHeroPosition:()=>heroCar.model.mesh.position,onDialogue:dialogue,onToast:(a,b)=>ui.toast(a,b),onComplete:info=>{ui.missionComplete?.(info);sound.notify();}});
   const saved=job.getState();Object.assign(state,saved);mission=saved.mission;
   if(mission>=4){player.mesh.position.set(world.landmarks.safehouse.x,0,world.landmarks.safehouse.z);player.mesh.rotation.y=Math.PI/2;yaw=-Math.PI/2;heroCar.isJobCar=false;}

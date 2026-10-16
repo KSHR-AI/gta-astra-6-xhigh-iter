@@ -18,7 +18,16 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current rendering pass
+## Current combat and animation pass
+
+- Police rounds originate at the current posed muzzle and stop at the first building, ground, vehicle surface or posed actor they strike. Spread changes the visible ray; damage follows its actual impact. The initial warning window aims outside the player's full posed envelope, and shots retain a shared 1.7-second cadence.
+- Normal browser play confirmed that a parked car intercepted rounds without player damage, followed by an exposed torso hit after leaving cover. A separate controlled live-scene fixture confirmed bystander/driver interception, unchanged player crime, fresh moving-car seats and preservation of the driver exit pose. This does not establish extended police-AI fairness or tactical cover behavior.
+- NPC animation clocks and transient reactions still advance with physics. Expensive procedural pose solving happens once per displayed frame, or earlier when muzzle/hit geometry is needed. Player animation retains immediate updates.
+- The final eight-second live sample processed 4,544 NPC advances with 752 pose solves. Sampled character-animation CPU time fell from 23.18 to 8.69 ms per game callback; mean game-callback CPU time fell from 41.46 to 27.94 ms. These are CPU trace observations, not graphics timings.
+- Full-game performance remained effectively unchanged: 5.73 fps at 1039 × 491 internal resolution on llvmpipe, versus 5.74 fps in the preceding pass. Traffic and triangle counts differ. Hardware graphics and release frame pacing remain unproven.
+- Low-cadence contact checks preserve planted-foot stability but retain an existing shallow shoe-floor intersection of roughly 2.7 cm on the female rig. Clothing, hair, facial animation, and the overall character finish still need substantial work.
+
+## Previous rendering pass
 
 - Skip world instances fully hidden behind explicitly registered solid building bodies. Hollow interiors and inflated collision bounds are excluded; shadow casters remain available to light cameras. Unsupported camera/world transforms fall back to ordinary frustum visibility.
 - Give skinned characters conservative pose envelopes for each render camera. Detached/external rigs, morphs, shear and invalid transforms retain the safe always-submit behavior.
@@ -27,7 +36,7 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 - Refresh paused simulation poses once per frame instead of repeating zero-time physics subdivisions; photo camera movement and presentation continue normally.
 - Same-view software-renderer probes show lower scene time from building occlusion and character vertex reuse. Pixel comparisons at the reference camera found no image changes from these optimizations; this does not establish performance or visual coverage across a hardware matrix.
 - The final live sample measured 5.74 fps at 1039 × 491 internal resolution on llvmpipe, compared with 4.83 fps in the previous pass. Traffic and sampling windows differ. Controlled paused-view scene samples improved from roughly 149–152 ms to 135–137 ms with occlusion, then to 125–127 ms with character vertex reuse. These remain far below release frame pacing.
-- A final CPU trace still attributes most sampled game-frame work to character animation. The next performance target is repeated NPC pose evaluation across physics substeps, with fresh muzzle and hit-volume poses retained for combat. Police shots also need actual vehicle/surface traces before cover can be considered reliable.
+- That pass identified repeated NPC pose evaluation and nonphysical police damage as the next targets; the current pass above addresses them and records the remaining limitations.
 
 ## Previous draw batching pass
 

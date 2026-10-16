@@ -1,10 +1,15 @@
 import * as THREE from 'three';
 import { PERSON_RADIUS, insideVehicle, crossesVehicle, vehicleDetour, vehicleEscape, vehiclePenetration, shouldYieldToVehicle, pedestrianSpeedLimit } from './street-navigation.js';
+import { getPoliceAimPoint, POLICE_FIRE, tracePoliceShot } from './police-combat.js';
 
 const clamp = THREE.MathUtils.clamp;
 const turn = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const crossroads = [-90, 0, 90];
+const advanceActor = (actor, dt, options) => {
+  if (typeof actor.advance === 'function') actor.advance(dt, options);
+  else actor.update(dt, options);
+};
 
 /** Segment/AABB visibility in the gameplay plane; shared by witnesses and patrols. */
 export function hasSight(a, b, colliders) {
@@ -21,12 +26,17 @@ export function hasSight(a, b, colliders) {
   return true;
 }
 
-export function createCitySimulation({ vehicles, pedestrians, police, officers = [], world, moveBody, carsOverlap, onPoliceShot, onToast }) {
+export function createCitySimulation({ vehicles, pedestrians, police, officers = [], world, moveBody, carsOverlap,
+  getPoliceShotGeometry, onPoliceShot, onToast, policeRandom = Math.random }) {
   const heat = { wanted: 0, policeState: 'clear', searchProgress: 0, reportProgress: 0, lastKnown: null };
   let reportAt = 0, pendingLevel = 0, lastSeen = -100, engagementStarted = -100, nextShot = 0, lostAt = 0;
   const searchDuration = 12;
   const roadTarget = new THREE.Vector3();
   const delta = new THREE.Vector3();
+  // Keep IDs monotonic across encounter/reset boundaries. Reusing an ID could
+  // swallow the first recoil impulse after returning to a checkpoint.
+  let policeShotSequence = 0;
+  const officerShotIds = new WeakMap();
 
   function reportCrime({ position, level = 1, kind = 'theft', now = 0, force = false }) {
     const seenByPatrol = !police.stolen && !police.occupied && distance(police.model.mesh.position, position) < 62 && hasSight(police.model.mesh.position, position, world.colliders);
@@ -154,11 +164,11 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
       if (p.down) {
         p.streetBehavior = 'down';
         p.detour = null;
-        p.actor.update(dt, { speed: 0, dead: true });
+        advanceActor(p.actor, dt, { speed: 0, dead: true });
         if (time > p.recoverAt) { p.down = false; p.fleeUntil = time + 6; }
         continue;
       }
-      if (p.evictedUntil > time) { p.detour = null; p.actor.update(dt, { speed: 0 }); continue; }
+      if (p.evictedUntil > time) { p.detour = null; advanceActor(p.actor, dt, { speed: 0 }); continue; }
       let speed = 1.1, dx = 0, dz = 0;
       const fleeing = p.fleeUntil > time;
       if (fleeing !== p.wasFleeing) p.detour = null;
@@ -245,7 +255,7 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
       p.velocity.z = (pos.z - previous.z) / Math.max(dt, .001);
       const actualSpeed = Math.hypot(p.velocity.x, p.velocity.z);
       if (actualSpeed < .01 && (p.streetBehavior === 'walking' || p.streetBehavior === 'avoiding')) { p.streetBehavior = 'waiting'; p.yieldReason = 'blocked-path'; }
-      p.actor.update(dt, { speed: actualSpeed, dead: false });
+      advanceActor(p.actor, dt, { speed: actualSpeed, dead: false });
     }
   }
 
@@ -285,7 +295,7 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
     }
     for (let i = 0; i < officers.length; i++) {
       const actor = officers[i];
-      if ((actor.mesh.userData.downUntil || 0) > time) { actor.update(dt, { speed: 0, dead: true }); continue; }
+      if ((actor.mesh.userData.downUntil || 0) > time) { advanceActor(actor, dt, { speed: 0, dead: true }); continue; }
       if (deploy) {
         if (!actor.mesh.visible) {
           actor.mesh.position.copy(patrolPosition).add(new THREE.Vector3(i ? 1.8 : -1.8, 0, 1));
@@ -297,17 +307,27 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
         const speed = d > 14 ? 3.1 : 0;
         if (speed) moveBody(p, delta.x * speed * dt, delta.z * speed * dt, .4);
         actor.mesh.rotation.y = Math.atan2(delta.x, delta.z);
-        const firing = d < 26 && hasSight(p, playerPosition, world.colliders) && time > nextShot;
+        const readyToFire = d < 26 && hasSight(p, playerPosition, world.colliders) && time > nextShot;
+        // Missing collision/target data holds fire; it must never restore the
+        // former random damage path through cover. Snapshot only for a round.
+        const geometry = readyToFire ? getPoliceShotGeometry?.({ shooter: actor, playerPosition, currentCar, time }) : null;
+        const firing = Boolean(geometry?.player);
+        const aimPoint = firing ? getPoliceAimPoint(geometry.player)
+          : playerPosition.clone().add(new THREE.Vector3(0, currentCar ? .8 : 1.28, 0));
+        const aimPitch = Math.atan2(aimPoint.y - p.y - 1.4, Math.max(.1, Math.hypot(aimPoint.x - p.x, aimPoint.z - p.z)));
+        let shotId = officerShotIds.get(actor) ?? 0;
+        if (firing) { shotId = ++policeShotSequence; officerShotIds.set(actor, shotId); nextShot = time + POLICE_FIRE.interval; }
+        // The gun follows the current aiming/turning pose before its world
+        // muzzle is read. Deferred animators flush without advancing time twice.
+        advanceActor(actor, dt, { speed, aiming: true, shooting: firing, shotId, aimPitch });
         if (firing) {
-          nextShot = time + 1.7;
+          actor.flushPose?.();
           const origin = actor.getMuzzlePosition(new THREE.Vector3());
-          const target = playerPosition.clone().add(new THREE.Vector3(0, currentCar ? .8 : 1.1, 0));
-          // Each encounter grants one warning window; additional crimes cannot renew it.
-          const hit = time - engagementStarted > 6 && Math.random() > .45;
-          if (!hit) target.x += 1.2;
-          onPoliceShot?.({ origin, target, hit, damage: currentCar ? 3 : 7 });
+          const shot = tracePoliceShot({ ...geometry, origin,
+            warning: time - engagementStarted <= POLICE_FIRE.grace,
+            spread: POLICE_FIRE.spread + POLICE_FIRE.movingSpread * Math.min(1, speed / 3.1), random: policeRandom });
+          if (shot.fired) onPoliceShot?.({ ...shot, damage: currentCar ? 3 : 7, shotId });
         }
-        actor.update(dt, { speed, aiming: true, shooting: firing });
       } else { actor.mesh.visible = false; }
     }
     return { ...heat };

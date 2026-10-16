@@ -62,11 +62,13 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   let elapsed = phaseOffset * 12;
   let weaponVisible = false;
   let lastHitInput = false;
-  let reloadElapsed = 0;
+  let reloadElapsed = 0, currentReloadProgress = 1;
+  let pendingPose = null, pendingPoseTime = 0;
+  let advanceCount = 0, poseCount = 0;
   const footPlants = ['Right', 'Left'].map((side) => ({
     side, anchor: new THREE.Vector3(), target: new THREE.Vector3(),
     raw: new THREE.Vector3(), previousRaw: new THREE.Vector3(), hip: new THREE.Vector3(),
-    sampled: false, active: false, armed: true, weight: 0,
+    sampled: false, active: false, armed: true, weight: 0, pendingLift: false,
     reach: pose.position(`${side}UpLeg`).distanceTo(pose.position(`${side}Leg`))
       + pose.position(`${side}Leg`).distanceTo(pose.position(`${side}Foot`)),
   }));
@@ -89,7 +91,8 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     point(`${side}Foot`, `${side}ToeBase`, 0, -0.05, 1, weight);
   }
 
-  function update(dt, options = {}) {
+  function advance(dt, options = {}, deferred = true) {
+    advanceCount++;
     const {
       speed = 0, armed = weaponVisible, aiming = false, shooting = false, shotId, dead = false,
       seated = false, steering = 0, jumping = false, verticalVelocity = 0,
@@ -132,7 +135,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       recoil = clamp(recoil + recoilVelocity * recoilStep, -0.008, 0.12);
     }
 
-    mesh.updateWorldMatrix(true, true);
+    mesh.updateWorldMatrix(true, false);
     mesh.getWorldQuaternion(rootRotation);
     inverseRotation.copy(rootRotation).invert();
     mesh.getWorldPosition(worldPosition);
@@ -179,6 +182,36 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     actions.run?.setEffectiveWeight(movingWeight * runningWeight);
     for (const name of ['walk', 'run']) if (actions[name]) actions[name].time = gaitPhase * actions[name].getClip().duration;
     mixer.update(step);
+    // A rendered frame may span an entire foot swing on a slow device. Retain
+    // lift/rearm events from the inexpensive source ankle sample, even when the
+    // expensive procedural pose is deferred past the swing's highest point.
+    if (deferred && movingWeight > .15 && seatedWeight < .001 && airWeight < .05 && !interaction && !dead) {
+      const clearance = THREE.MathUtils.lerp(.52, .78, runningWeight) * Math.sqrt(strideScale);
+      const floor = standingFootHeight + groundLift;
+      for (const plant of footPlants) {
+        pose.position(`${plant.side}Foot`, temp);
+        if ((temp.y - floor) * clearance > .075) plant.pendingLift = true;
+      }
+    }
+
+    reloadElapsed = reloading ? reloadElapsed + step : 0;
+    const reloadT = clamp(reloading ? reloadProgress ?? reloadElapsed / 1.45 : 1, 0, 1);
+    currentReloadProgress = reloadT;
+    pendingPoseTime += step;
+    pendingPose = { interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
+      movingWeight, aiming, shooting, dead, seated, steering, verticalVelocity,
+      reloading, reloadT, aimPitch, interactionPhase };
+    mesh.userData.animationState = dead ? 'down' : interaction ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : landing > 0.08 ? 'landing' : hitReaction > 0.05 ? 'hit' : aiming || shooting ? 'aiming' : motionSpeed > 3.7 ? 'running' : motionSpeed > 0.15 ? 'walking' : carrying ? 'low-ready' : 'idle';
+  }
+
+  function flushPose() {
+    if (!pendingPose) return false;
+    const { interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
+      movingWeight, aiming, shooting, dead, seated, steering, verticalVelocity,
+      reloading, reloadT, aimPitch, interactionPhase } = pendingPose;
+    const step = pendingPoseTime;
+    pendingPose = null; pendingPoseTime = 0; poseCount++;
+    mesh.getWorldQuaternion(rootRotation);
 
     // Remove the source soldier's rifle-ready idle twist from the civilian rig.
     const neutralWeight = Math.max((1 - movingWeight) * 0.94, seatedWeight);
@@ -276,6 +309,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     const canPlant = !interaction && seatedWeight < 0.001 && airWeight < 0.05
       && landing < 0.05 && !dead && deathWeight < 0.03 && movingWeight > 0.15;
     for (const plant of footPlants) {
+      if (plant.pendingLift) { plant.active = false; plant.armed = true; plant.pendingLift = false; }
       plant.previousRaw.copy(plant.raw);
       pose.position(`${plant.side}Foot`, plant.raw);
       const forwardVelocity = plant.sampled && step > 0
@@ -363,8 +397,6 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     reachArm('Left', -0.025, hipY + 0.38 + aimY * 0.46 + recoil * 0.10,
       aimZ * 0.46 - recoil * 0.18, 0.32, hipY + 0.17 + aimY * 0.12, 0.19, aimWeight);
 
-    reloadElapsed = reloading ? reloadElapsed + step : 0;
-    const reloadT = clamp(reloading ? reloadProgress ?? reloadElapsed / 1.45 : 1, 0, 1);
     if (reloadWeight > 0.005 && canUseWeapon) {
       const rack = Math.sin(smooth(reloadT, 0.67, 0.88) * Math.PI);
       reachArm('Right', -0.10, hipY + 0.25 + rack * 0.015, 0.30, -0.34, hipY + 0.08, 0.12, reloadWeight);
@@ -510,14 +542,18 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       magazine.position.add(temp);
     }
     mesh.userData.animationState = dead ? 'down' : interaction ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : landing > 0.08 ? 'landing' : hitReaction > 0.05 ? 'hit' : aiming || shooting ? 'aiming' : motionSpeed > 3.7 ? 'running' : motionSpeed > 0.15 ? 'walking' : carrying ? 'low-ready' : 'idle';
+    return true;
   }
 
+  function update(dt, options = {}) { advance(dt, options, false); flushPose(); }
+
   return {
-    update,
+    update, advance, flushPose,
+    getEvaluationStats: () => ({ advances: advanceCount, poses: poseCount, pending: Boolean(pendingPose), pendingTime: pendingPoseTime }),
     seatOffset,
     seatAnchor: 'pelvis',
-    setWeapon(visible) { weaponVisible = Boolean(visible); weapon.visible = weaponVisible; },
-    reactToHit(strength = 1) { hitReaction = clamp(strength, 0.2, 1); },
-    getPoseInfo() { return { locomotion: { speed: motionSpeed, gaitPhase, strideScale, runningWeight, movementAngle }, state: mesh.userData.animationState, pelvis: pose.position('Hips', new THREE.Vector3()).toArray(), pelvisHeight: initialHipHeight, weaponVisible, armed: Boolean(weapon.visible), aimWeight, readyWeight, reloadWeight, recoil, grip: hands.getGripInfo(), footContacts: footPlants.map((plant) => ({ side: plant.side, planted: plant.active, weight: plant.weight })) }; },
+    setWeapon(visible) { flushPose(); weaponVisible = Boolean(visible); weapon.visible = weaponVisible; },
+    reactToHit(strength = 1) { flushPose(); hitReaction = clamp(strength, 0.2, 1); },
+    getPoseInfo() { flushPose(); return { evaluations: { advances: advanceCount, poses: poseCount }, locomotion: { speed: motionSpeed, gaitPhase, strideScale, runningWeight, movementAngle }, state: mesh.userData.animationState, pelvis: pose.position('Hips', new THREE.Vector3()).toArray(), pelvisHeight: initialHipHeight, weaponVisible, armed: Boolean(weapon.visible), aimWeight, readyWeight, reloadWeight, reloadProgress: currentReloadProgress, landingWeight: landing, hitWeight: hitReaction, airborneWeight: airWeight, deathWeight, recoil, grip: hands.getGripInfo(), footContacts: footPlants.map((plant) => ({ side: plant.side, planted: plant.active, weight: plant.weight, anchor: plant.anchor.toArray() })) }; },
   };
 }
