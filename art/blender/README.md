@@ -61,7 +61,7 @@ After grafting the authored heads and bodies, generate the distance meshes, then
 
 The [MIT-licensed meshoptimizer](https://github.com/zeux/meshoptimizer), pinned to version 0.24.0, runs only during authoring. The simplifier produces `CivilianMaleNatural.lod.json` and `CivilianFemaleNatural.lod.json` in the requested staging directory; no simplifier, encoder, or additional package is shipped to the browser. These index buffers derive from the same credited meshes and retain their original licensing. Source SHA-256 checks in the tests catch stale generated data.
 
-LOD geometry references the original vertices, UVs, normals, joint weights, masks, and skeleton. Mid simplification locks mixed-weight vertices and open boundaries. Far simplification instead measures mixed-weight deformation through sampled poses, while retaining physical body/head-skin boundaries and protected morph vertices. Current male triangle counts are 22,943 / 16,621 / 4,127, and female counts are 22,092 / 12,618 / 4,843. The playable character stays at full quality. NPCs transition at 14 / 30 m apparent distance with 15% hysteresis; camera FOV adjusts that distance, so photo zoom restores detail. Call `updateLOD(camera)` once per presented frame. Inspect both near/far transitions and zoomed photo views after authoring changes.
+LOD geometry references the original vertices, UVs, normals, joint weights, masks, and skeleton. Mid simplification locks mixed-weight vertices and open boundaries. Far simplification instead measures mixed-weight deformation through sampled poses, while retaining physical body/head-skin boundaries and protected morph vertices. Current male triangle counts are 22,943 / 16,625 / 4,127, and female counts are 22,092 / 12,618 / 4,845. The playable character stays at full quality. NPCs transition at 14 / 30 m apparent distance with 15% hysteresis; camera FOV adjusts that distance, so photo zoom restores detail. Call `updateLOD(camera)` once per presented frame. Inspect both near/far transitions and zoomed photo views after authoring changes.
 
 The final index step preserves every original vertex buffer, vertex number, material, skeleton, and triangle. It adds indices to the unindexed body meshes, sharing vertices only when every attribute and morph value matches exactly. The male body then references 5,642 of its 26,313 retained vertices, and the female body 3,540 of 15,900. This reduces repeated skinning work without changing the geometry or the vertex numbers used by sole and hit probes. Opaque and alpha-masked triangle indices are reordered for vertex reuse at every LOD; blended brows and lashes keep their original order.
 
@@ -127,7 +127,7 @@ ASTRA_CHARACTER_ASSET_DIR=/tmp/astra-appearance-stage \
 
 The final candidate is `/tmp/astra-appearance-stage`; `/tmp/astra-appearance-preindex` retains the authored inputs for an independent attribute, surface, material, rig and LOD comparison. Keep both directories until review is complete. The commands above do not replace `public/models` assets. Review candidate rendering through an isolated preview asset mapping before approving promotion of each GLB and its matching sidecar together.
 
-The atlas step also generates an original 1K tangent-space pore map and spatial roughness through `character_head_surface.py`; the solid head uses the normal map while translucent brows/lashes do not. Color/alpha, UVs and morph payloads are retained. Body-specific head proportions live in `character_head_fit.mjs`. Its monotone lower-neck compression pins the existing cut, with a separate female radial contour transition; eyes, hair and eyelid targets stay above the non-affine region. The editable Blender heads precede this final fit.
+The atlas step also generates an original 1K tangent-space pore/strand map and spatial roughness through `character_head_surface.py`; the solid head uses the normal map while translucent brows/lashes do not. Hair keeps its source matte roughness (0.85) and source specular intensity (0.4). The existing roughness image is RGBA: G remains roughness, A supplies `KHR_materials_specular.specularTexture`, and skin/eyes retain A=1. Both scalar bindings use the same linear texture; the separate color atlas remains sRGB. Unchanged soft brows/lashes omit the extension. Color/alpha, UVs and morph payloads are retained. No new draw batch or texture image is added, although the solid head now uses the physical shader branch. Source specular color/textures must be baked explicitly before this atlas workflow; unsupported source data fails rather than being silently discarded. Body-specific head proportions live in `character_head_fit.mjs`. Its monotone lower-neck compression pins the existing cut, with a separate female radial contour transition; eyes, hair and eyelid targets stay above the non-affine region. The editable Blender heads precede this final fit.
 
 The body directory contains staged `CivilianMale.glb` and `Michelle-crowd.glb` with their original rig contracts and the current authored clothing. Keep `--body-dir` explicit: omitting it loads the original body sources under `public/models`, losing the staged tailoring, denim and facing strips. Keep `--output-dir` explicit too; its default writes directly into `public/models`.
 
@@ -142,7 +142,7 @@ node --test tests/character-morph-pipeline.test.js tests/character-indices.test.
   tests/character-lod.test.js tests/character-lod-far.test.js
 ```
 
-The current authored assets contain male 22,943 / 16,621 / 4,127 and female 22,092 / 12,618 / 4,843 triangles at near/mid/far distance, each in three material batches. Far geometry now compacts the simplifier working set before reducing triangles. This removes unused duplicate vertices that otherwise appear to be complex seams. Returned indices map back to original vertex IDs, keeping all shipped skin weights, UVs, normals, masks, rig data, and morph attributes exact. True geometric open boundaries remain locked for the body and head skin; alpha hair surfaces use the normal/UV/posed-error metric rather than blanket border locks. Male neck cut normals and bone weights match the interpolated body contour, fading smoothly back to authored head values above the cut.
+The current authored assets contain male 22,943 / 16,625 / 4,127 and female 22,092 / 12,618 / 4,845 triangles at near/mid/far distance, each in three material batches. Far geometry now compacts the simplifier working set before reducing triangles. This removes unused duplicate vertices that otherwise appear to be complex seams. Returned indices map back to original vertex IDs, keeping all shipped skin weights, UVs, normals, masks, rig data, and morph attributes exact. True geometric open boundaries remain locked for the body and head skin; alpha hair surfaces use the normal/UV/posed-error metric rather than blanket border locks. Male neck cut normals and bone weights match the interpolated body contour, fading smoothly back to authored head values above the cut.
 
 ### Far-only character rebuild
 
@@ -160,4 +160,30 @@ Far simplification targets 18% of source triangles with a maximum .018 normalize
 
 **Historical far-only evidence:** the preceding candidate was independently sampled in 22 actual procedural poses per sex (including aiming, reload, airborne, seated, downed, split support and step transitions), using vertices, edge midpoints, and triangle centroids against the opposite triangle surface in both directions. Maximum observed surface deviations were 38.17 mm male / 15.29 mm female, with silhouette support changes 22.23 / 12.52 mm. Visible shoe-floor changes introduced no downward penetration; true body/head-skin boundary edges were unchanged. This is dense sampled evidence, not an exhaustive Hausdorff bound. These figures describe the preceding assets and are not evidence for a later appearance rebuild. Re-run posed geometry and browser checks after changing the assets, locomotion, or simplification policy.
 
-The current proportion/apparel rebuild was independently sampled across 44 actual procedural poses with rest-stature normalization. The near/far comparison used 3,915,604 bidirectional vertex, edge-midpoint and triangle-centroid samples: maximum surface errors were 37.73 mm male / 15.03 mm female, and maximum 110-direction silhouette support differences were 26.55 / 13.28 mm. The later ankle fix changed only packed skin-mask pixels; an independent identity audit confirmed all geometry, morph and LOD data stayed exact, so those geometric measurements still apply. These are sampled errors, not exhaustive bounds or frame-rate evidence.
+The preceding proportion/apparel rebuild was independently sampled across 44 actual procedural poses with rest-stature normalization. The near/far comparison used 3,915,604 bidirectional vertex, edge-midpoint and triangle-centroid samples: maximum surface errors were 37.73 mm male / 15.03 mm female, and maximum 110-direction silhouette support differences were 26.55 / 13.28 mm. The later ankle fix changed only packed skin-mask pixels; an independent identity audit confirmed all geometry, morph and LOD data stayed exact, so those geometric measurements still applied to that mask-only revision. The subsequent surface finish repacks head UVs and regenerates the distance indices, changing four male mid triangles and two female far triangles; those prior dense measurements are historical evidence, not a new measurement of these exact sidecars. These are sampled errors, not exhaustive bounds or frame-rate evidence.
+
+### Character surface finish previews
+
+`character_clothing_textures.py` also authors the male footwear through
+`character_shoe_surface.py`, preserving its exact geometry, UVs and rig. The
+body map contract remains shirt mask R / roughness G / exposed skin B; authored
+footwear stays outside shirt/skin tint masks. Regenerate the complete staged
+body → head graft → LOD → index sequence above after changing either surface
+pipeline, keeping the preindex inputs for independent comparison.
+
+For fixed-light, fixed-camera source head comparisons, retain a previous head
+atlas directory and run:
+
+```sh
+blender --background --factory-startup --threads 2 --python art/blender/character_surface_preview.py -- /tmp/previous-heads /tmp/astra-face-stage /tmp/astra-surface-preview
+ASTRA_CHARACTER_ASSET_DIR=/tmp/astra-appearance-stage node --test tests/character-surface-assets.test.js tests/character-face-assets.test.js
+```
+
+The source previews import both GLBs with their actual glTF materials and render
+identical studio illumination. They do not establish browser appearance or GPU
+cost. Review direct sun, shade, male/female hair, the shoes, all distance meshes
+and preserved eyelid animation in the running game before shipping. The surface
+tests verify actual atlas channels at rendered UVs and the runtime loader's
+shared scalar-map/color-space behavior.
+
+Hair atlas guards are 32 pixels around base hairstyles and 96 pixels around the narrow crown ribbons, with deterministic packing retries retaining the 2K resolution. This prevents ordinary bilinear mip footprints crossing the base-hair tile through mip 4 and narrow ribbons through mip 6. It is not an all-distance isolation guarantee: extremely coarse mips can still mix atlas regions. Existing filtered rendering remains enabled; raw source UVs, color pixels and geometry are preserved while packed UV placement changes. `tests/character-hair-mips.test.js` checks the real shipped atlas and visible ribbon minification.

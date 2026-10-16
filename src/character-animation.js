@@ -109,6 +109,17 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     reach: pose.position(`${side}UpLeg`).distanceTo(pose.position(`${side}Leg`))
       + pose.position(`${side}Leg`).distanceTo(pose.position(`${side}Foot`)),
   }));
+  // Borrowed presentation data: readers never flush animation or reskin the
+  // character. Grounded samples are filled by the existing final IK check.
+  const contactSurfaces = { revision: 0, valid: false, state: 'idle', airborneWeight: 0,
+    rootMatrixWorld: new THREE.Matrix4(),
+    feet: footPlants.map(plant => {
+      plant.contactProbes = plant.probes.filter(probe => !probe.footprintOnly);
+      plant.contactSurface = { side: plant.side, points: plant.contactProbes.map(() => new THREE.Vector3()),
+        forward: new THREE.Vector3(0, 0, 1), planted: false, weight: 0 };
+      return plant.contactSurface;
+    }) };
+  const contactAnkle = new THREE.Vector3(), contactToe = new THREE.Vector3();
 
   for (const name of ['walk', 'run']) actions[name]?.play().setEffectiveWeight(0).setEffectiveTimeScale(0);
   if (actions.idle) actions.idle.time = phaseOffset * actions.idle.getClip().duration;
@@ -595,8 +606,8 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       // Root and skinned-mesh matrices are current from the update above.
       // Reuse the inverse instead of updating/inverting ancestors per probe.
       actorInverse.copy(mesh.matrixWorld).invert();
-      const sampleSoleHeight = (probes = soleProbes, bounds) => {
-        let height = Infinity;
+      const sampleSoleHeight = (probes = soleProbes, bounds, contact) => {
+        let height = Infinity, contactIndex = 0;
         bounds?.makeEmpty();
         for (const probe of probes) {
           // Upper shoe extrema expand the terrain footprint once per pose;
@@ -604,6 +615,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
           if (probe.footprintOnly && !bounds) continue;
           probe.object.getVertexPosition(probe.index, temp);
           temp.applyMatrix4(probe.object.matrixWorld);
+          if (contact && !probe.footprintOnly) contact.points[contactIndex++]?.copy(temp);
           bounds?.expandByPoint(temp);
           temp.applyMatrix4(actorInverse);
           height = Math.min(height, temp.y);
@@ -679,7 +691,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
             foot.quaternion.copy(footParentInverse).multiply(plant.rotation);
           }
           bones[`${plant.side}UpLeg`]?.updateWorldMatrix(true, true);
-          const height = sampleSoleHeight(plant.probes.length ? plant.probes : soleProbes) - plant.floor;
+          const height = sampleSoleHeight(plant.probes.length ? plant.probes : soleProbes, undefined, plant.contactSurface) - plant.floor;
           plant.soleHeight = height;
           if (height >= .0009) break;
           plant.corrected.y += .001 - height;
@@ -694,6 +706,29 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     presentedAim = aim;
     presentWeapon(aim, step);
     mesh.userData.animationState = dead ? 'down' : interaction ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : landing > 0.08 ? 'landing' : hitReaction > 0.05 ? 'hit' : aiming || shooting ? 'aiming' : motionSpeed > 3.7 ? 'running' : motionSpeed > 0.15 ? 'walking' : carrying ? 'low-ready' : 'idle';
+    contactSurfaces.revision++;
+    contactSurfaces.rootMatrixWorld.copy(mesh.matrixWorld);
+    contactSurfaces.state = mesh.userData.animationState;
+    contactSurfaces.airborneWeight = airWeight;
+    contactSurfaces.valid = !dead && deathWeight < .03 && !interaction && !seated
+      && footPlants.every(plant => plant.contactProbes.length >= 3);
+    if (contactSurfaces.valid) for (const plant of footPlants) {
+      const contact = plant.contactSurface;
+      // Airborne poses skip grounding. Sample only the same sparse outsole
+      // vertices so contact can fade with real lift instead of retaining the
+      // previous planted footprint; never evaluate the full skinned body.
+      if (airborne) for (let index = 0; index < plant.contactProbes.length; index++) {
+        const probe = plant.contactProbes[index], point = contact.points[index];
+        probe.object.getVertexPosition(probe.index, point); point.applyMatrix4(probe.object.matrixWorld);
+      }
+      const foot = bones[`${plant.side}Foot`], toe = bones[`${plant.side}ToeBase`];
+      if (foot && toe) {
+        foot.getWorldPosition(contactAnkle); toe.getWorldPosition(contactToe);
+        contactToe.sub(contactAnkle); contactToe.y = 0;
+        if (contactToe.lengthSq() > 1e-8) contact.forward.copy(contactToe).normalize();
+      }
+      contact.planted = plant.active; contact.weight = plant.weight;
+    }
     return true;
   }
 
@@ -871,6 +906,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     setWeapon(visible) { flushPose(); weaponVisible = Boolean(visible); weapon.visible = weaponVisible; },
     reactToHit(strength = 1) { flushPose(); hitReaction = clamp(strength, 0.2, 1); },
     getPoseInfo() { flushPose(); return { evaluations: { advances: advanceCount, poses: poseCount }, locomotion: { speed: motionSpeed, gaitPhase, strideScale, runningWeight, movementAngle }, state: mesh.userData.animationState, pelvis: pose.position('Hips', new THREE.Vector3()).toArray(), pelvisHeight: initialHipHeight, surfaceOffset, neutralPelvisLift, standingWeight, weaponVisible, armed: Boolean(weapon.visible), aimWeight, readyWeight, reloadWeight, reloadProgress: currentReloadProgress, landingWeight: landing, hitWeight: hitReaction, airborneWeight: airWeight, deathWeight, recoil, aim: getAimState(), grip: hands.getGripInfo(), footContacts: footPlants.map((plant) => ({ side: plant.side, planted: plant.active, weight: plant.weight, anchor: plant.anchor.toArray(), ankleHeight: plant.height, floor: plant.floor, soleClearance: plant.soleHeight, probes: plant.probes.length })) }; },
+    getFootContactSurfaces() { return contactSurfaces; },
   };
 }
 

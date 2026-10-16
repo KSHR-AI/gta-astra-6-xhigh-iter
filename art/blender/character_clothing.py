@@ -310,6 +310,9 @@ for sex,filename,x in [('male','CivilianMale.glb',-.65),('female','Michelle-crow
     mat['normalTexture']={'index':source.texture(textures/f'{sex}-normal.png'),'scale':.85}
     mat.setdefault('extras',{}).update(clothingAuthored=True,trousersAuthored=True,apparelShapeAuthored=True,clothingMaskChannel='metallicRoughnessTexture.R',clothRoughnessChannel='metallicRoughnessTexture.G',skinMaskChannel='metallicRoughnessTexture.B',normalConvention='retain source convention; runtime normalScale.y=-1' if male else 'retain source glTF normal convention',clothingSource='art/blender/character_clothing.py')
     mat['extras']['shirtDyeLuminance']=texture_report['shirt_dye_linear_luminance_median']
+    if texture_report.get('footwear',{}).get('authored'):
+        mat['extras']['footwearAuthored']=True
+        mat['extras']['footwearSource']='art/blender/character_shoe_surface.py'
     assert source.j['nodes']==original_json['nodes'] and source.j['skins']==original_json['skins'],'Original rig changed'
     source.save(OUT/filename)
     report.append({'source':filename,'originalTriangles':len(body_triangles),'addedTriangles':(len(indices)//3-len(body_triangles)),'materialBatches':1,'originalVertexIdsPreserved':original_count,'authoredSourceVertices':shaping['editedSourceVertices'],'maximumApparelDisplacementMetres':shaping['maximumWorldDisplacementMetres'],'newVertices':len(attributes['POSITION'])-original_count,'strips':[s['label'] for s in strips],'bytes':(OUT/filename).stat().st_size,'rigNodesAndInverseBindsUnchanged':True,'sourceSkinInfluencesAndUVsExact':True,'shapingReport':f'{sex}-apparel-shaping.json'})

@@ -7,7 +7,7 @@ from io import BytesIO
 import json,struct,sys,collections
 import numpy as np
 from PIL import Image
-from character_head_surface import author_surface_maps
+from character_head_surface import author_surface_maps, resize_scalar_channels
 ROOT=Path(sys.argv[1]) if len(sys.argv)>1 else Path(__file__).resolve().parent
 SIZE=2048;PADDING=8
 DTYPES={5126:np.dtype('<f4'),5125:np.dtype('<u4'),5123:np.dtype('<u2'),5121:np.dtype('u1')}
@@ -57,11 +57,13 @@ def components(count,indices):
     for i in range(count):groups[find(i)].append(i)
     return [np.array(ids,dtype=np.int32) for ids in groups.values()]
 
-def pack(items,size):
+def pack(items,size,order='side',placement='short'):
     free=[(0,0,size,size)];placements={}
-    for k,w,h in sorted(items,key=lambda p:(max(p[1:]),p[1]*p[2]),reverse=True):
-        fits=[(min(fw-w,fh-h),max(fw-w,fh-h),y,x,j) for j,(x,y,fw,fh) in enumerate(free) if w<=fw and h<=fh]
-        if not fits:raise ValueError(f'Atlas {size} cannot fit {k} {w}x{h}')
+    rank={'side':lambda p:(max(p[1:]),p[1]*p[2]),'area':lambda p:(p[1]*p[2],max(p[1:])),
+          'height':lambda p:(p[2],p[1]),'width':lambda p:(p[1],p[2])}[order]
+    for k,w,h in sorted(items,key=rank,reverse=True):
+        fits=[((fw*fh-w*h) if placement=='area' else min(fw-w,fh-h),max(fw-w,fh-h),y,x,j) for j,(x,y,fw,fh) in enumerate(free) if w<=fw and h<=fh]
+        if not fits:raise ValueError(f'Atlas {size} cannot fit {k} {w}x{h}; total allocated area={sum(p[1]*p[2] for p in items)}')
         _,_,y,x,_=min(fits);placements[k]=(x,y,w,h);new=[]
         for fx,fy,fw,fh in free:
             if x>=fx+fw or x+w<=fx or y>=fy+fh or y+h<=fy:new.append((fx,fy,fw,fh));continue
@@ -101,35 +103,58 @@ for sex in ['male','female']:
             image[:,:,3]=np.rint(image[:,:,3]*factor[3]).astype(np.uint8)
             if is_skin:image[:,:,3]=255
             kind='skin' if is_skin else 'eye' if is_eye else 'hair' if is_hair else 'other'
-            surface_normal,surface_roughness=author_surface_maps(image.shape[1],image.shape[0],kind,731 if sex=='male' else 947)
-            part={'surface_normal':surface_normal,'surface_roughness':surface_roughness,'name':name,'attrs':attrs,'indices':indices,'uv':attrs['TEXCOORD_0'].copy(),'image':image,'skin':is_skin,'hair':is_hair or is_brow or is_lash,'tiles':[],'morphs':read_morphs(g,buf,mesh,prim,len(attrs['POSITION']),node_weights)}
+            surface_normal,surface_roughness=author_surface_maps(image.shape[1],image.shape[0],kind,731 if sex=='male' else 947,pbr.get('roughnessFactor',.85))
+            specular=mat.get('extensions',{}).get('KHR_materials_specular',{})
+            assert 'specularTexture' not in specular and 'specularColorTexture' not in specular, 'Bake textured source specular before atlas merging'
+            assert np.allclose(specular.get('specularColorFactor',[1,1,1]),[1,1,1]), 'Colored source specular needs a separate color atlas'
+            specular_factor=float(specular.get('specularFactor',1))
+            assert np.isfinite(specular_factor) and 0<=specular_factor<=1, 'Invalid source specular intensity'
+            part={'surface_normal':surface_normal,'surface_roughness':surface_roughness,'specular_factor':specular_factor,'name':name,'attrs':attrs,'indices':indices,'uv':attrs['TEXCOORD_0'].copy(),'image':image,'skin':is_skin,'hair':is_hair or is_brow or is_lash,'tiles':[],'morphs':read_morphs(g,buf,mesh,prim,len(attrs['POSITION']),node_weights)}
             # Keep overlapping hair strip UVs together; isolate other UV islands.
             groups=[np.arange(len(attrs['POSITION']))] if is_hair else components(len(attrs['POSITION']),indices)
             height,width=image.shape[:2]
+            # Millimetre-wide crown ribbons span an entire source texture in U.
+            # At a one-pixel screen width they can select mip 6, far beyond an
+            # ordinary 8px atlas gutter. Keep filtered skin out of those taps.
+            padding=(96 if width<256 else 32) if is_hair else PADDING
+            part['padding']=padding
             for ids in groups:
                 uv=part['uv'][ids];minimum=np.floor(uv.min(axis=0)*[width,height]).astype(int)-1;maximum=np.ceil(uv.max(axis=0)*[width,height]).astype(int)+1
                 key=(len(parts),*minimum,*maximum)
                 if key not in tilekeys:
-                    ti=len(tiles);tilekeys[key]=ti;tiles.append({'key':ti,'part':len(parts),'minimum':minimum,'maximum':maximum,'w':int(maximum[0]-minimum[0]+2*PADDING),'h':int(maximum[1]-minimum[1]+2*PADDING)})
+                    ti=len(tiles);tilekeys[key]=ti;tiles.append({'key':ti,'part':len(parts),'minimum':minimum,'maximum':maximum,'w':int(maximum[0]-minimum[0]+2*padding),'h':int(maximum[1]-minimum[1]+2*padding)})
                 part['tiles'].append((tilekeys[key],ids))
             parts.append(part)
-    positions=pack([(t['key'],t['w'],t['h']) for t in tiles],SIZE)
-    atlas=np.zeros((SIZE,SIZE,4),dtype=np.uint8);roughness=np.zeros((SIZE,SIZE,3),dtype=np.uint8);roughness[:,:,0]=255;roughness[:,:,1]=163
+    items=[(t['key'],t['w'],t['h']) for t in tiles]
+    for order,placement in [('side','short'),('area','short'),('height','short'),('width','short'),('area','area'),('side','area'),('height','area'),('width','area')]:
+        try:positions=pack(items,SIZE,order,placement);break
+        except ValueError:
+            if (order,placement)==('width','area'):raise
+    for key,(x,y,w,h) in positions.items():
+        assert x>=0 and y>=0 and x+w<=SIZE and y+h<=SIZE, 'Atlas tile exceeds its image'
+        for other,(ox,oy,ow,oh) in positions.items():
+            assert key==other or x+w<=ox or ox+ow<=x or y+h<=oy or oy+oh<=y, 'Atlas guard bands overlap'
+    atlas=np.zeros((SIZE,SIZE,4),dtype=np.uint8);roughness=np.zeros((SIZE,SIZE,4),dtype=np.uint8);roughness[:,:,0]=255;roughness[:,:,1]=163;roughness[:,:,3]=255
     normal_atlas=np.empty((SIZE,SIZE,3),dtype=np.uint8);normal_atlas[:]=[128,128,255]
     for t in tiles:
         x,y,w,h=positions[t['key']];part=parts[t['part']];source=part['image'];minimum=t['minimum'];maximum=t['maximum']
         # Repeat-wrap source pixels including the border: source hair extends a few
         # texels past V=0. This reproduces the original sampler at those vertices.
-        xs=np.arange(minimum[0]-PADDING,maximum[0]+PADDING)%source.shape[1];ys=np.arange(minimum[1]-PADDING,maximum[1]+PADDING)%source.shape[0]
+        padding=part['padding']
+        xs=np.arange(minimum[0]-padding,maximum[0]+padding)%source.shape[1];ys=np.arange(minimum[1]-padding,maximum[1]+padding)%source.shape[0]
         atlas[y:y+h,x:x+w]=source[ys[:,None],xs[None,:]]
         roughness[y:y+h,x:x+w,1]=part['surface_roughness'][ys[:,None],xs[None,:]]
+        # glTF samples specular intensity from alpha, independent of the
+        # roughness G channel. Reuse this existing image and sampler so the
+        # original .4 hair intensity does not require another texture/batch.
+        roughness[y:y+h,x:x+w,3]=round(part['specular_factor']*255)
         normal_atlas[y:y+h,x:x+w]=part['surface_normal'][ys[:,None],xs[None,:]]
     all_pos=[];all_norm=[];all_uv=[];all_idx=[];skin=[];hair=[];offset=0;max_error=0
     for part in parts:
         out_uv=part['uv'].copy();height,width=part['image'].shape[:2]
         for ti,ids in part['tiles']:
-            t=tiles[ti];x,y,_,_=positions[ti];out_uv[ids]=(part['uv'][ids]*[width,height]-t['minimum']+[x+PADDING,y+PADDING])/SIZE
-            restored=(out_uv[ids]*SIZE-[x+PADDING,y+PADDING]+t['minimum'])/[width,height]
+            t=tiles[ti];x,y,_,_=positions[ti];padding=part['padding'];out_uv[ids]=(part['uv'][ids]*[width,height]-t['minimum']+[x+padding,y+padding])/SIZE
+            restored=(out_uv[ids]*SIZE-[x+padding,y+padding]+t['minimum'])/[width,height]
             max_error=max(max_error,float(np.max(np.abs(restored-part['uv'][ids]))))
         n=len(part['attrs']['POSITION']);all_pos.append(part['attrs']['POSITION']);all_norm.append(part['attrs']['NORMAL']);all_uv.append(out_uv);all_idx.append(part['indices']+offset);skin.append(np.full((n,1),int(part['skin']),dtype=np.float32));hair.append(np.full((n,1),int(part['hair']),dtype=np.float32));offset+=n
     target_names=list(dict.fromkeys(name for part in parts for name in part['morphs']))
@@ -141,11 +166,19 @@ for sex in ['male','female']:
         semantics=set(key for part in parts for key in part['morphs'].get(name,{}).get('attrs',{}))
         morph_targets.append({key:np.concatenate([part['morphs'].get(name,{}).get('attrs',{}).get(key,np.zeros((len(part['attrs']['POSITION']),3),dtype=np.float32)) for part in parts]) for key in sorted(semantics)})
     attrs={'POSITION':np.concatenate(all_pos),'NORMAL':np.concatenate(all_norm),'TEXCOORD_0':np.concatenate(all_uv),'_SKIN_MASK':np.concatenate(skin),'_HAIR_MASK':np.concatenate(hair)};indices=np.concatenate(all_idx).reshape((-1,1))
-    atlas_image=Image.fromarray(atlas);rough_image=Image.fromarray(roughness).resize((1024,1024),Image.Resampling.BOX)
+    atlas_image=Image.fromarray(atlas)
+    # These are independent scalar channels, not color with opacity. Pillow's
+    # RGBA filtering premultiplies RGB by A and would bias roughness by specular.
+    rough_image=resize_scalar_channels(roughness,(1024,1024))
     normal_image=Image.fromarray(normal_atlas).resize((1024,1024),Image.Resampling.BOX)
     normal_image.save(ROOT/f'{sex}_head_normal.png')
     atlas_image.save(ROOT/f'{sex}_head_atlas.png');rough_image.save(ROOT/f'{sex}_head_roughness.png')
     output={'asset':{'version':'2.0','generator':'Original head atlas optimizer, CC0 MakeHuman inputs'},'scene':0,'scenes':[{'nodes':[0]}],'nodes':[{'mesh':0,'name':sex+'_head'}],'meshes':[{'name':sex+'_head_atlas','primitives':[{'attributes':{},'material':0}]}],'materials':[{'name':sex+'_head_atlas','alphaMode':'MASK','alphaCutoff':.3,'doubleSided':True,'normalTexture':{'index':2,'scale':.45},'pbrMetallicRoughness':{'baseColorTexture':{'index':0},'metallicRoughnessTexture':{'index':1},'metallicFactor':0,'roughnessFactor':1}}],'textures':[{'sampler':0,'source':0},{'sampler':0,'source':1},{'sampler':0,'source':2}],'samplers':[{'magFilter':9729,'minFilter':9987,'wrapS':33071,'wrapT':33071}],'images':[],'accessors':[],'bufferViews':[],'buffers':[{}]};binary=bytearray()
+    output['extensionsUsed']=['KHR_materials_specular']
+    output['materials'][0]['extensions']={'KHR_materials_specular':{'specularFactor':1,'specularTexture':{'index':1}}}
+    output['materials'][0]['extras']={'hairAtlasGuards':[{'name':parts[t['part']]['name'],
+        'bounds':list(positions[t['key']]),'paddingPixels':parts[t['part']]['padding'],
+        'atlasSize':SIZE} for t in tiles if '_hair_' in parts[t['part']]['name']]}
     def add_blob(blob,target=None):
         binary.extend(b'\0'*((-len(binary))%4));view={'buffer':0,'byteOffset':len(binary),'byteLength':len(blob)}
         if target:view['target']=target
@@ -167,6 +200,9 @@ for sex in ['male','female']:
     result=struct.pack('<III',0x46546C67,2,28+len(js)+len(binary))+struct.pack('<II',len(js),0x4E4F534A)+js+struct.pack('<II',len(binary),0x004E4942)+binary
     path=ROOT/f'optimized_{sex}_head.glb';path.write_bytes(result)
     reports[sex]={'file':path.name,'bytes':len(result),'vertices':len(attrs['POSITION']),'triangles':len(indices)//3,'materials':1,'color_atlas':[SIZE,SIZE],'roughness_atlas':[1024,1024],'normal_atlas':[1024,1024],'normal_scale':.45,'normal_png_bytes':len(png_bytes(normal_image)),'normal_gpu_rgba8_mip_bytes':5592404,'surface_authorship':'Original seeded UV-space pores and strand roughness; no diffuse-derived relief','uv_islands':len(tiles),'max_uv_roundtrip_error':max_error,'skin_vertices':int(attrs['_SKIN_MASK'].sum()),'hair_vertices':int(attrs['_HAIR_MASK'].sum()),'sources':[p['name'] for p in parts],'morph_targets':target_names}
+    reports[sex]['surface_authorship']='Unchanged skin pores; original directional hair relief and source-calibrated matte roughness; no diffuse-derived normals'
+    reports[sex]['specular_atlas']={'image':'shared roughness RGBA','channel':'A','sources':{p['name']:p['specular_factor'] for p in parts},'extension':'KHR_materials_specular'}
+    reports[sex]['tiles']=[{'name':parts[t['part']]['name'],'bounds':list(positions[t['key']]),'padding':parts[t['part']]['padding'],'source_minimum':t['minimum'].tolist(),'source_maximum':t['maximum'].tolist()} for t in tiles]
     print(json.dumps(reports[sex],indent=2))
 (ROOT/'atlas-report.json').write_text(json.dumps(reports,indent=2))
 
@@ -174,11 +210,17 @@ for sex in ['male','female']:
 # files above remain strict MASK .3 as requested. Both variants share the atlas.
 for sex in ['male','female']:
     source,source_buf=load_glb(ROOT/f'{sex}_head.glb');g,binary_source=load_glb(ROOT/f'optimized_{sex}_head.glb');binary=bytearray(binary_source[:g['buffers'][0]['byteLength']]);primitive=g['meshes'][0]['primitives'][0];indices=accessor(g,binary,primitive['indices']).reshape((-1,3));offset=0;solid=[];soft=[]
+    soft_specular=[]
     for mesh in source['meshes']:
         for prim in mesh['primitives']:
             count=source['accessors'][prim['indices']]['count']//3
             (soft if 'eyebrow' in mesh['name'] or 'eyelash' in mesh['name'] else solid).append(indices[offset:offset+count]);offset+=count
+            if 'eyebrow' in mesh['name'] or 'eyelash' in mesh['name']:
+                soft_specular.append(source['materials'][prim['material']].get('extensions',{}).get('KHR_materials_specular',{}).get('specularFactor',1))
     soft_material=json.loads(json.dumps(g['materials'][0]));soft_material['name']=sex+'_head_soft_brows';soft_material['alphaMode']='BLEND';soft_material.pop('alphaCutoff',None);soft_material.pop('normalTexture',None);g['materials'].append(soft_material)
+    # Unchanged brows/lashes have default specular. They need neither the
+    # physical-material branch nor a redundant specular texture sample.
+    if all(value==1 for value in soft_specular):soft_material.pop('extensions',None)
     primitives=[]
     for material,arrays in enumerate([solid,soft]):
         array=np.concatenate(arrays).astype('<u4');binary.extend(b'\0'*((-len(binary))%4));view={'buffer':0,'byteOffset':len(binary),'byteLength':array.nbytes,'target':34963};g['bufferViews'].append(view);binary.extend(array.tobytes());g['accessors'].append({'bufferView':len(g['bufferViews'])-1,'componentType':5125,'count':array.size,'type':'SCALAR'});primitives.append({'attributes':primitive['attributes'],'indices':len(g['accessors'])-1,'material':material,**({'targets':primitive['targets']} if 'targets' in primitive else {})})

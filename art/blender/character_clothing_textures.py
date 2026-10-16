@@ -1,9 +1,9 @@
 """Author original cloth surface detail on the civilian source UV layouts.
 
-Authorship: source skin, shoes, shirt albedo and untouched atlas pixels remain
+Authorship: source skin, female shoes, shirt albedo and untouched atlas pixels remain
 derived from the checked-in CivilianMale/Michelle models and retain their
 existing attribution. Denim color, twill, seams, pockets, fly, compression
-folds and their relief/roughness are original deterministic project work; no
+folds, male charcoal footwear and their relief/roughness are original deterministic project work; no
 additional photographs or downloaded textures are used. Resampling Michelle's
 512px source to 1024px adds coverage for seams, not photographic skin detail.
 
@@ -16,7 +16,7 @@ is an offline geometry guide, not an extra runtime texture or draw batch.
 """
 from pathlib import Path
 from io import BytesIO
-import json,struct,sys,importlib.util
+import json,struct,sys,importlib.util,hashlib
 if importlib.util.find_spec('scipy') is None:
     sys.path.insert(0,'/tmp/astra-cloth-python')
 import numpy as np
@@ -26,6 +26,8 @@ try:
 except ImportError:
     sys.path.insert(0,'/tmp/astra-cloth-python')
     from scipy import ndimage
+
+from character_shoe_surface import author_male_shoes, write_shoe_preview
 
 ROOT=Path(__file__).resolve().parents[2]
 OUT=Path(sys.argv[1]) if len(sys.argv)>1 else Path('/tmp/astra-clothing-stage/textures')
@@ -327,6 +329,30 @@ for sex,name in [('male','CivilianMale.glb'),('female','Michelle-crowd.glb')]:
         ankle,ankle_report=female_ankle_skin(positions,uv,indices,size,valid,gutter_distance,gutter_nearest)
         assert not np.any(ankle&(dye_mask|trousers|binding)), 'Ankle mask overlaps fabric'
     runtime_skin=skin|ankle
+    footwear_report={'authored':False,'physical_uv_pixels':0,'reason':'Female source footwear retained; this pass targets the male patterned shoes only.'}
+    if sex=='male':
+        physical_shoes,shoe_gutter,shoe_color,shoe_normal,shoe_roughness,footwear_report=author_male_shoes(
+            positions,uv,indices,points,valid,image,mask|trousers|binding|runtime_skin,
+            rasterize,gutter_distance,gutter_nearest)
+        shoe_authored=physical_shoes|shoe_gutter
+        before_shoes=diffuse.copy()
+        def preserved_hash(array):
+            return hashlib.sha256(np.rint(np.clip(array[~shoe_authored],0,1)*255).astype(np.uint8).tobytes()).hexdigest()
+        before_hashes={name:preserved_hash(array) for name,array in [('diffuse',diffuse),('normal',normal),('roughness_G',roughness)]}
+        diffuse[physical_shoes]=shoe_color;normal[physical_shoes]=shoe_normal;roughness[physical_shoes]=shoe_roughness
+        for array in [diffuse,normal,roughness]:
+            array[shoe_gutter]=array[gutter_nearest[0][shoe_gutter],gutter_nearest[1][shoe_gutter]]
+        after_hashes={name:preserved_hash(array) for name,array in [('diffuse',diffuse),('normal',normal),('roughness_G',roughness)]}
+        assert before_hashes==after_hashes,'Shoe authoring changed non-shoe texture pixels'
+        assert not np.any(shoe_authored&(dye_mask|runtime_skin)),'Shoe textures overlap shirt dye or exposed skin'
+        footwear_report['non_shoe_pixels_preserved_exactly']=True
+        footwear_report['non_shoe_sha256_before']=before_hashes
+        footwear_report['non_shoe_sha256_after']=after_hashes
+        footwear_report['shirt_skin_mask_overlap_pixels']=0
+        authored_mask|=shoe_authored
+        Image.fromarray((physical_shoes*255).astype(np.uint8),'L').save(OUT/'male-footwear-physical-mask.png')
+        Image.fromarray((shoe_authored*255).astype(np.uint8),'L').save(OUT/'male-footwear-mask.png')
+        write_shoe_preview(OUT/'male-footwear-review.png',positions,uv,indices,before_shoes,diffuse)
     mr=np.zeros((*size[::-1],3),np.float32);mr[:,:,0]=dye_mask;mr[:,:,1]=roughness;mr[:,:,2]=runtime_skin
     save_rgb(f'{sex}-diffuse.png',diffuse);save_rgb(f'{sex}-normal.png',normal);save_rgb(f'{sex}-roughness.png',mr)
     Image.fromarray((dye_mask*255).astype(np.uint8),'L').save(OUT/f'{sex}-clothing-mask.png')
@@ -347,6 +373,9 @@ for sex,name in [('male','CivilianMale.glb'),('female','Michelle-crowd.glb')]:
     anchor=np.unravel_index(np.argmax(ndimage.distance_transform_edt(mask)),mask.shape)
     report[sex]={'skin_pixels':int(skin.sum()),'fabric_uv_anchor_gltf':[(anchor[1]+.5)/size[0],(anchor[0]+.5)/size[1]],'fabric_uv_anchor_blender':[(anchor[1]+.5)/size[0],1-(anchor[0]+.5)/size[1]],'source':name,'source_resolution':list(source_diffuse.size),'output_resolution':list(size),'fabric_pixels':int(mask.sum()),'fabric_fraction_of_texture':float(mask.mean()),'collar_pixels':int(collar.sum()),'cuff_pixels':int(cuff.sum()),'stitch_seam_pixels':int(seam.sum()),'normalized_hem_height':hem,'normalized_upper_garment':top,'cloth_height_quantiles':np.quantile(yn[mask],[0,.05,.5,.95,1]).tolist(),'outside_mask_diffuse_max_delta':float(np.max(np.abs(diffuse[~authored_mask]-image[~authored_mask]))),'outside_mask_normal_max_delta':float(np.max(np.abs(normal[~authored_mask]-original_normal[~authored_mask]))),'normal_detail_green_sign':-1 if sex=='male' else 1,'normal_convention':'No global channel flip. Preserve existing runtime normalScale convention; authored trousers replace source patch normals.','roughness_channel':'R=exact 0/1 shirt dye mask (trousers excluded), G=authored linear roughness, B=exact 0/1 exposed skin mask; metallicFactor must remain 0; fabric values .70-.91','construction':'UV geometry lookup + albedo fabric selection; garment/skin contact seams, world-position waist/armpit folds, deterministic directional warp/weft, no random noise.','trousers':trouser_report,'authored_surface_mask':'Physical shirt OR physical trousers OR crop-top rib binding OR empty UV trouser/binding gutters; outside-mask checks use this union.','binding_pixels':int(binding.sum()),'binding_gutter_pixels':int(binding_gutter.sum()),'trouser_gutter_pixels':int(trouser_gutter.sum()),'shirt_dye_linear_luminance_median':float(np.median(srgb_to_linear(diffuse[mask])@np.array([.2126,.7152,.0722]))),'shirt_dye_linear_luminance_mean':float(np.mean(srgb_to_linear(diffuse[mask])@np.array([.2126,.7152,.0722])))}
     assert report[sex]['outside_mask_diffuse_max_delta']==0 and report[sex]['outside_mask_normal_max_delta']==0
+    report[sex]['footwear']=footwear_report
+    if footwear_report['authored']:
+        report[sex]['authored_surface_mask']+=' Male footwear and its empty UV gutters are included.'
     if ankle_report is not None:
         report[sex]['ankle_skin']=ankle_report
         report[sex]['runtime_skin_pixels']=int(runtime_skin.sum())

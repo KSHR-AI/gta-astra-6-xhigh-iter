@@ -311,13 +311,15 @@ test('repeating the transform is byte-stable and stale optimization metadata is 
 });
 
 // Reviewed appearance baseline: fitted head/neck proportions, authored apparel,
-// head micro-surface maps, and exposed-ankle skin masks. PRE-index exports were
+// matte hair/specular maps with wider atlas guards, original footwear surfaces,
+// and exposed-ankle skin masks. Head atlas UV placements deliberately changed;
+// all other vertex/morph payloads and near geometry remain exact. PRE-index exports were
 // independently compared with production; rig fingerprints remain unchanged.
 // Index order and exact duplicate references may change, while altered skinning,
 // seams, morphs, surface winding, textures or rigs still fail these assertions.
 const baselines = {
-  Male: { attributes: 'b7db6715521d74700c346f7c51a0e189fc1fdd0aeb6157c8b718a43f9246c0b7', orientedSurfaces: '2ffa337ea86fdc71ece9587da14f853aeb730565024a3d43fa7df8e333451617', blendOrder: '0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260', rig: '3f7087b99cde7bc508fa63461ab37154f8d50f08898ec328186d771dac561be9', materials: '90d5586564658d00c31d9db010d44dfc426b1fc02670f4afc646d5dfb57bdf3b' },
-  Female: { attributes: 'c3f013f8f8b30f2922c4b2fc285104d58e671521e4e336db66678d604ecfb8ef', orientedSurfaces: '0dc950a667875bfedc26306be58a57ffa0e548b8fbd553d49afb9189397df769', blendOrder: '1b2397b4b23db70f8447e687c207a8e9b48d074d3f7b4d08cf64e6107b802669', rig: '5e66e1d0f0590a9ee999c3fa40a25722f5cc371a3a825686e1a4a803d36a52f4', materials: '58823dfd0b3fcb809bf8826a797fc41e9244012a3c2a043255a689e00896fec6' },
+  Male: { attributes: 'bca207ca1fe7b2c75be8421322ea321e8ca19856611b615b874c20f61fd5de5c', orientedSurfaces: 'b25c779941f394d1a5546eefb8626e07c60cb2549ceb99d6b6d4aaaf4153107c', blendOrder: '0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260', rig: '3f7087b99cde7bc508fa63461ab37154f8d50f08898ec328186d771dac561be9', materials: '0effadcf551aa41ea923c358c1a456bf87b8478b18dd252df8dc3dee215e64c4' },
+  Female: { attributes: '0334ecbae07fdbc1cfb60ac8827d117b149818a22a0a16ea7e8e2bf9bd13ae2c', orientedSurfaces: 'd717f9ced7be2dd9d9d5c08fb8407555f19badef7f45bed13eda37c3c45e3f15', blendOrder: '1b2397b4b23db70f8447e687c207a8e9b48d074d3f7b4d08cf64e6107b802669', rig: '5e66e1d0f0590a9ee999c3fa40a25722f5cc371a3a825686e1a4a803d36a52f4', materials: '5afd8ddd8e3a8672a79ed71a6e2a7c7ed0dc052ee3ee706f47f04960868fcbd5' },
 };
 for (const sex of ['Male', 'Female']) test(`${sex}: production asset retains its authored surfaces, vertex payloads, materials and rig`, async () => {
   const bytes = await readFile(new URL(`../public/models/Civilian${sex}Natural.glb`, import.meta.url));

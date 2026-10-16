@@ -22,7 +22,7 @@ function prepareCharacterMaterial(original, { civilian, male, natural, skinTint,
   const authoredCloth = Boolean(original.userData.clothingAuthored && material.roughnessMap);
   const authoredTrousers = authoredCloth && Boolean(original.userData.trousersAuthored);
   // Retain the source's baked textile, seams and normal maps at oblique angles.
-  for (const texture of [material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.specularColorMap]) {
+  for (const texture of new Set([material.map, material.normalMap, material.roughnessMap, material.metalnessMap, material.specularColorMap, material.specularIntensityMap])) {
     if (!texture) continue;
     texture.anisotropy = 8;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
@@ -516,6 +516,7 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
     setWeapon: animator.setWeapon,
     reactToHit: animator.reactToHit,
     getPoseInfo: animator.getPoseInfo,
+    getFootContactSurfaces: animator.getFootContactSurfaces,
     getAimState: animator.getAimState,
     applyShot: animator.applyShot,
     getFaceInfo: face.getInfo,
@@ -655,6 +656,7 @@ function createFallbackCharacter({ npc, color, police }) {
     setVisible(visible) { mesh.visible = Boolean(visible); },
     reactToHit(strength = 1) { hitWeight = strength; },
     getPoseInfo() { return { state: mesh.userData.animationState, pelvis: [0, 0.94 + visual.position.y, 0], aim:{...aimState}, recoil }; },
+    getFootContactSurfaces() { return null; },
     getFaceInfo() { return { supported: false, meshes: 0, active: false, blinkLeft: 0, blinkRight: 0, samples: 0, writes: 0 }; },
     getHitVolumes() {
       const scale = visual.getWorldScale(new THREE.Vector3());

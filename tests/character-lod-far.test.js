@@ -50,15 +50,17 @@ test('far simplifier receives posed error channels and restores original IDs wit
   assert.throws(() => simplifyFarCharacter({ simplifier, positions, indices: new Uint32Array([1, 2, 3]), attributes, morphLocks: new Uint8Array(4), poses: new Float32Array(3) }), /nine finite/);
 });
 
-// Pin the deliberately rebuilt mid LOD for the reviewed head/apparel appearance.
+// Pin the deliberately rebuilt mid LOD after the reviewed hair atlas guard
+// repack. Raw geometry is unchanged; new packed UV coordinates can change
+// simplifier tie choices, so the complete appearance pipeline was regenerated.
 // Near GLB surfaces have independent fingerprints; these protect the approved
 // mid data during subsequent far-only rebuilds.
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 const midFingerprints = {
-  Male: '8e5058dea5f3b3d89fb0eeba4d8f21a78331ee07b0a140a2d7959d5057aa4b12',
-  Female: 'b90e593cb21e24f1763ea0980317ae62dc07f4b14c8a88fc2bb68d0103d7ffb3',
+  Male: '89ae6c1bb70903a1943a685b710553c99ec197ea45367db4fe8967f287e00651',
+  Female: 'a37d2b2a756755281553dbfe9371db6b53044c0a03931d026ab1b59ed19bbe72',
 };
 for (const sex of ['Male', 'Female']) test(`${sex}: far rebuild preserves authored near/mid data and meets bounded geometry budget`, async () => {
   const directory = process.env.ASTRA_CHARACTER_ASSET_DIR ?? resolve(import.meta.dirname, '../public/models');

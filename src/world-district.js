@@ -356,6 +356,16 @@ export function addAuthoredDistrict(api) {
 
   // SUNLINE DINER: low polished storefront and a covered corner dining terrace.
   floor(tiles, 32.2, 29, 29.5, 27);
+  // Join the existing sidewalks to the facade; the old half-metre setback
+  // exposed the lower base paving directly outside the windows. Meet the
+  // perpendicular pavement at z=15.75 without overlapping its top surface.
+  const dinerPaving = api.walkableBox ?? box;
+  dinerPaving(m.sidewalk, 17.2, .10, 29.125, .5, .24, 26.75, 0, false, 'sidewalk-apron');
+  // A stone entrance tread and contrasting rubber nosing mark the single
+  // 18.55 cm step down into the original tiled room. Adjacent pieces share an
+  // edge, never a coplanar overlay; neither adds a collision wall to the door.
+  dinerPaving(cream, 17.62, .12725, 30.5, .34, .1855, 4.5, 0, false, 'doorway-threshold');
+  dinerPaving(m.dark, 17.82, .12725, 30.5, .06, .1855, 4.5, 0, false, 'doorway-threshold');
   wall(m.brick, 46.8, 29, .4, 27, 4.1);
   wall(m.brick, 32.2, 42.3, 29.5, .4, 4.1);
   wall(m.brick, 32.2, 15.7, 29.5, .4, 4.1);
