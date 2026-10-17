@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Godot's official stable Linux x86_64 editor and matching web export templates.
+# Release and SHA-256 digests: https://github.com/godotengine/godot-builds/releases/tag/4.7.2-stable
+# Confirmed against the official release API on 2026-10-15.
+GODOT_VERSION='4.7.2'
+GODOT_EDITOR_SHA256='cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4'
+GODOT_TEMPLATES_SHA256='f298490b8d44d934be425a5a65a51bf15f422428b229a06a6e11d9ffea248011'
+GODOT_INSTALL_DIR="${GODOT_INSTALL_DIR:-/opt/godot-${GODOT_VERSION}}"
+GODOT_DOWNLOAD_CACHE="${GODOT_DOWNLOAD_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/godot-downloads}"
+GODOT_TEMPLATES_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/godot/export_templates/${GODOT_VERSION}.stable"
+GODOT_EDITOR_ARCHIVE="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+GODOT_TEMPLATES_ARCHIVE="Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+GODOT_RELEASE_URL="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable"
+
+if [[ "$(uname -m)" != 'x86_64' ]]; then
+  echo 'This pinned Godot installer supports Linux x86_64 only.' >&2
+  exit 1
+fi
+
+if [[ -x "$GODOT_INSTALL_DIR/godot" && -f "$GODOT_INSTALL_DIR/.verified-install" && -f "$GODOT_TEMPLATES_DIR/web_release.zip" && -f "$GODOT_TEMPLATES_DIR/web_debug.zip" ]]; then
+  ln -sfn "$GODOT_INSTALL_DIR/godot" /usr/local/bin/godot
+  "$GODOT_INSTALL_DIR/godot" --headless --version
+  exit 0
+fi
+
+mkdir -p "$GODOT_INSTALL_DIR" "$GODOT_DOWNLOAD_CACHE" "$GODOT_TEMPLATES_DIR"
+fetch_verified() {
+  local archive="$1" digest="$2" destination="$GODOT_DOWNLOAD_CACHE/$1"
+  if [[ ! -f "$destination" ]] || ! printf '%s  %s\n' "$digest" "$destination" | sha256sum --check --status; then
+    curl --fail --location --silent --show-error --retry 3 --connect-timeout 20 --max-time 900 \
+      "$GODOT_RELEASE_URL/$archive" --output "$destination.part"
+    printf '%s  %s\n' "$digest" "$destination.part" | sha256sum --check --status
+    mv "$destination.part" "$destination"
+  fi
+}
+fetch_verified "$GODOT_EDITOR_ARCHIVE" "$GODOT_EDITOR_SHA256"
+fetch_verified "$GODOT_TEMPLATES_ARCHIVE" "$GODOT_TEMPLATES_SHA256"
+
+python3 - "$GODOT_DOWNLOAD_CACHE/$GODOT_EDITOR_ARCHIVE" "$GODOT_DOWNLOAD_CACHE/$GODOT_TEMPLATES_ARCHIVE" "$GODOT_INSTALL_DIR" "$GODOT_TEMPLATES_DIR" <<'PY'
+from pathlib import Path
+import sys, zipfile
+editor_archive, templates_archive, install_dir, templates_dir = sys.argv[1:]
+with zipfile.ZipFile(editor_archive) as source:
+    binary = next(n for n in source.namelist() if n.endswith('linux.x86_64'))
+    target = Path(install_dir) / 'godot'
+    target.write_bytes(source.read(binary))
+    target.chmod(0o755)
+with zipfile.ZipFile(templates_archive) as source:
+    for entry in source.namelist():
+        name = Path(entry).name
+        if name == 'version.txt' or (name.startswith('web_') and name.endswith('.zip')):
+            (Path(templates_dir) / name).write_bytes(source.read(entry))
+    for name in ['web_release.zip', 'web_debug.zip']:
+        if not (Path(templates_dir) / name).is_file():
+            raise RuntimeError(f'Missing official web template: {name}')
+PY
+ln -sfn "$GODOT_INSTALL_DIR/godot" /usr/local/bin/godot
+"$GODOT_INSTALL_DIR/godot" --headless --version
+printf '%s\n%s\n' "$GODOT_EDITOR_SHA256" "$GODOT_TEMPLATES_SHA256" > "$GODOT_INSTALL_DIR/.verified-install"
+echo "Godot $GODOT_VERSION installed; matching web templates: $GODOT_TEMPLATES_DIR"

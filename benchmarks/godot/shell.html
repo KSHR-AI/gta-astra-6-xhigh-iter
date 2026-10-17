@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Godot · Grand Theft Astra engine benchmark</title>
+<style>
+html,body{margin:0;background:#9db6cd;overflow:hidden;width:960px;height:540px}
+canvas{display:block;width:960px;height:540px;outline:none}
+#status{position:absolute;left:16px;bottom:16px;font:12px system-ui;color:#fff;background:#17202dcc;padding:8px 12px;border-radius:4px}
+</style>
+$GODOT_HEAD_INCLUDE
+</head>
+<body>
+<canvas id="canvas" width="960" height="540" tabindex="0"></canvas>
+<div id="status">Loading Godot…</div>
+<script>
+const astraBootStart = performance.now();
+let astraPending;
+window.__ENGINE_BENCH__ = {
+  ready: false, info: null,
+  begin(options = {}) {
+    if (!this.ready) return Promise.reject(new Error('Godot scene is not ready'));
+    if (astraPending) return Promise.reject(new Error('A Godot benchmark is already running'));
+    return new Promise((resolve, reject) => {
+      astraPending = {resolve, reject};
+      try { window.__astraGodotBegin(JSON.stringify(options)); }
+      catch (error) { astraPending = null; reject(error); }
+    });
+  }
+};
+window.__astraGodotReady = function(info) {
+  const bench = window.__ENGINE_BENCH__;
+  bench.ready = true;
+  bench.info = info;
+  bench.loadMs = performance.now() - astraBootStart;
+  document.getElementById('status').hidden = true;
+  window.parent.postMessage({type:'astra-godot-ready', info, loadMs:bench.loadMs}, location.origin);
+};
+window.__astraGodotFinish = function(result) {
+  result.loadMs = window.__ENGINE_BENCH__.loadMs;
+  window.__ENGINE_BENCH__.lastResult = result;
+  if (astraPending) { astraPending.resolve(result); astraPending = null; }
+  window.parent.postMessage({type:'astra-godot-result', ...result}, location.origin);
+};
+window.__astraGodotError = function(error) {
+  const message = error?.message || String(error);
+  window.__ENGINE_BENCH__.error = message;
+  document.getElementById('status').textContent = message;
+  window.parent.postMessage({type:'astra-godot-error', error:message}, location.origin);
+  if (astraPending) { astraPending.reject(new Error(message)); astraPending = null; }
+  console.error(error);
+};
+</script>
+<script src="$GODOT_URL"></script>
+<script>
+const godotConfig = $GODOT_CONFIG;
+godotConfig.canvas = document.getElementById('canvas');
+godotConfig.canvasResizePolicy = 0;
+const godotEngine = new Engine(godotConfig);
+const missingFeatures = Engine.getMissingFeatures({threads:false});
+if (missingFeatures.length) window.__astraGodotError('Missing: ' + missingFeatures.join(', '));
+else godotEngine.startGame().catch(window.__astraGodotError);
+</script>
+</body>
+</html>

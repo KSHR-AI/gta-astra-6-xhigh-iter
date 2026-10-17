@@ -1,0 +1,58 @@
+{
+  "asset": "BeachParasol",
+  "author": "Original project-authored asset for Grand Theft Astra",
+  "source": "art/blender/beach_parasol.py and beach_parasol.blend",
+  "externalInputs": [],
+  "units": "metres",
+  "up": "Y",
+  "groundOrigin": [
+    0,
+    0,
+    0
+  ],
+  "canopyDiameter": 3.0,
+  "crownHeight": 2.61,
+  "buriedSpigot": -0.08,
+  "canopyMaterial": "Parasol / woven ivory canvas",
+  "instancing": "Three identity-transform meshes, one shared material per mesh. Tint Canopy only.",
+  "exports": [
+    {
+      "file": "BeachParasol.glb",
+      "bytes": 135560,
+      "parts": {
+        "BeachParasol_Canopy": {
+          "vertices": 2104,
+          "triangles": 3632
+        },
+        "BeachParasol_Frame": {
+          "vertices": 656,
+          "triangles": 1244
+        },
+        "BeachParasol_Hardware": {
+          "vertices": 144,
+          "triangles": 276
+        }
+      },
+      "triangles": 5152
+    },
+    {
+      "file": "BeachParasol-lod.glb",
+      "bytes": 27744,
+      "parts": {
+        "BeachParasol_Canopy": {
+          "vertices": 200,
+          "triangles": 216
+        },
+        "BeachParasol_Frame": {
+          "vertices": 240,
+          "triangles": 412
+        },
+        "BeachParasol_Hardware": {
+          "vertices": 96,
+          "triangles": 180
+        }
+      },
+      "triangles": 808
+    }
+  ]
+}

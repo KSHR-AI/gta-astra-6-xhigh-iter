@@ -1,0 +1,8 @@
+{
+  "name": "astra-engine-benchmarks",
+  "private": true,
+  "type": "module",
+  "scripts": {"dev": "vite --host 0.0.0.0 --port 3100", "build": "vite build", "serve": "node server.mjs", "measure-builds": "node measure-builds.mjs"},
+  "dependencies": {"three": "0.180.0", "@babylonjs/core": "9.31.0", "@babylonjs/loaders": "9.31.0", "playcanvas": "2.23.3"},
+  "devDependencies": {"vite": "7.1.9"}
+}

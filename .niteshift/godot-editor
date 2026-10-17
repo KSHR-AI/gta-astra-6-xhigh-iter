@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+godot_pid=''
+cleanup() {
+  trap - EXIT INT TERM
+  if [[ -n "$godot_pid" ]]; then
+    # The editor and any native play session share this dedicated process group.
+    kill -TERM -- "-$godot_pid" 2>/dev/null || true
+    wait "$godot_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+trap 'exit 0' INT TERM
+
+# DISPLAY and software rendering settings come from services.yaml.
+# Dummy avoids probing an ALSA device that the cloud desktop does not provide.
+setsid godot --editor --path benchmarks/godot \
+  --rendering-method gl_compatibility --audio-driver Dummy &
+godot_pid=$!
+wait "$godot_pid"

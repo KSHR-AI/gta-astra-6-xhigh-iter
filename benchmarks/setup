@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+lock=benchmarks/engines/package-lock.json
+installed=benchmarks/engines/node_modules/.package-lock.json
+if [[ ! -f "$installed" || "$lock" -nt "$installed" ]]; then
+  npm --prefix benchmarks/engines ci --no-audit --no-fund
+fi
+python3 benchmarks/prepare.py
