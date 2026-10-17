@@ -126,9 +126,21 @@ export function createUtilityWires(segments, sourceMaterial) {
   tubes.onBeforeRender = updatePassUniforms;
   ribbons.onBeforeRender = updatePassUniforms;
   const localView = new THREE.Matrix4(), aView = new THREE.Vector3(), bView = new THREE.Vector3();
-  let selected = [], stats = { segments: segments.length, tubeSegments: segments.length, filteredSegments: segments.length };
+  let selected = matrices.map((_, index) => index);
+  let stats = { segments: segments.length, tubeSegments: segments.length, filteredSegments: 0 };
   return {
     root,
+    restoreWires() {
+      // Cube-camera capture needs every physical span. Per-pass shader widths
+      // still choose tubes or ribbons; the next camera update compacts again.
+      if (selected.length !== matrices.length) {
+        for (let index = 0; index < matrices.length; index++) tubes.setMatrixAt(index, matrices[index]);
+        tubes.instanceMatrix.needsUpdate = true;
+        selected = matrices.map((_, index) => index);
+      }
+      tubes.count = matrices.length;
+      stats = { segments: segments.length, tubeSegments: segments.length, filteredSegments: 0 };
+    },
     updateWires(camera, renderSize) {
       if (!camera?.isPerspectiveCamera || !renderSize || renderSize.x <= 0 || renderSize.y <= 0) return;
       camera.updateWorldMatrix(true, false); root.updateWorldMatrix(true, false);

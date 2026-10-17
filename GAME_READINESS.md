@@ -18,7 +18,16 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current coastal water and complexion pass
+## Current photo lighting and touch input pass
+
+- Add one lazily allocated 1024-square character depth map for close daylight photos. Correct receiver-plane comparisons preserve chin, neck and arm contact without the earlier constant-bias cloth stripes. Reuse the captured map while the pose is frozen; select one visible near-detail face and restore original materials on exit or selection changes. This feature does not change gameplay lighting.
+- Make the fifteen registered pedestrians and active drivers available to the free photo camera while retaining native frustum culling and FOV-aware detail. Snapshot gameplay visibility, preserve frozen poses and inactive officers, and restore the visibility flags on exit/reset. A distant civilian previously invisible to the photo camera now renders at close range; simulation time and pose evaluations stay unchanged.
+- Discard a queued touch shot when its pointer is cancelled or capture is lost. Ordinary quick taps still survive release and fire once. Native Chrome touch input verifies cancellation, quick tap and held FIRE; physical phones remain untested.
+- Runtime inspection covers player/civilian/female selection, look-away/reselection, sunlit aiming/profile views, zero auxiliary draws across twelve frozen frames, and day/night/quality gates. The armed close-photo capture submits six depth draws and 32,163 triangles once, then reuses that map; its 1024-square color/depth target is approximately 8 MiB. These are resource counts, not hardware timing measurements.
+- Own and rebuild day, night and vehicle environment maps after actual WebGL context loss. Repeated street-photo restores preserve lighting, actor poses, camera and exposure; the night before/after images are pixel-identical. A close armed coastal photo also retains its sky, water reflection and recaptured character shadow. Active gameplay freezes during loss and resumes without consuming the rebuild duration; aiming and firing work afterward. Capture restores all dynamic visibility and full wire instances, and graphics initialization errors keep Start disabled.
+- Gameplay lighting balance, dynamic body shadows on software renderers, hard hairlines, coarse garment/arm seams and facial acting remain open. The 360-degree-per-second turn-step experiment and deadline-aware input scheduling remain staged until browser acceptance.
+
+## Previous coastal water and complexion pass
 
 - Replace the old water pattern with coherent directional swells, filtered ripples, a rough sun reflection and broken coastal foam. Keep analytic fragment normals after rejecting an interpolated variant that saved little time and introduced up to 2.26° normal error. Use an owned small lighting-sky copy and release owned resources safely.
 - Correct both sand slabs to end at X=-150, matching the ocean edge instead of extending five metres into wave troughs. Playable bounds and all existing beach/boardwalk heights remain unchanged.

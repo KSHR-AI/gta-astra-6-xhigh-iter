@@ -305,10 +305,10 @@ export function createUI(callbacks = {}) {
   }));
   root.querySelectorAll('[data-code]').forEach((button) => {
     button.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); button.setPointerCapture(event.pointerId); button.classList.add('is-held'); button.heldCode = button.dataset.code; call('onMobile', button.heldCode, true); });
-    const release = (event) => { event.preventDefault(); event.stopPropagation(); button.classList.remove('is-held'); if (button.heldCode) call('onMobile', button.heldCode, false); button.heldCode = null; };
+    const release = (event) => { event.preventDefault(); event.stopPropagation(); button.classList.remove('is-held'); if (button.heldCode) call('onMobile', button.heldCode, false, event.type === 'pointercancel'); button.heldCode = null; };
     button.addEventListener('pointerup', release);
     button.addEventListener('pointercancel', release);
-    button.addEventListener('lostpointercapture', () => { button.classList.remove('is-held'); if (button.heldCode) call('onMobile', button.heldCode, false); button.heldCode = null; });
+    button.addEventListener('lostpointercapture', () => { button.classList.remove('is-held'); if (button.heldCode) call('onMobile', button.heldCode, false, true); button.heldCode = null; });
   });
   const aimButton = elements['mobile-aim'];
   const beginAim = () => {

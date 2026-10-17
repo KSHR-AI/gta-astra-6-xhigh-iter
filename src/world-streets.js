@@ -165,5 +165,5 @@ export function addStreetDetails(api) {
   }
   const wires = createUtilityWires(wireSegments, m.blackMetal);
   api.root.add(wires.root);
-  return { updateWires: wires.updateWires, getWireStats: wires.getWireStats };
+  return { updateWires: wires.updateWires, restoreWires: wires.restoreWires, getWireStats: wires.getWireStats };
 }

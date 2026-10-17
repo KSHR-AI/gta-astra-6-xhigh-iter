@@ -80,3 +80,50 @@ test('wire callbacks use each render-pass viewport and camera without touching i
   assert.deepEqual(ribbons.material.uniforms.viewport.value.toArray(), [1039, 491]);
   assert.ok(ribbons.material.uniforms.focalPixels.value > 400);
 });
+
+
+test('reflection capture restores original full wire transforms and the next camera update compacts again', () => {
+  const spans = [
+    [[-2, 0, -40], [2, 0, -40]],
+    [[-2, 0, -1], [2, 0, -1]],
+    [[-2, 0, 1], [2, 0, 1]],
+  ];
+  const wires = createUtilityWires(spans, material());
+  const [tubes, ribbons] = wires.root.children;
+  const originals = tubes.instanceMatrix.array.slice();
+  const camera = new THREE.PerspectiveCamera(55, 2, .1, 500);
+  const size = new THREE.Vector2(1000, 500);
+  const initialVersion = tubes.instanceMatrix.version;
+  wires.restoreWires();
+  assert.equal(tubes.instanceMatrix.version, initialVersion, 'already-full geometry needs no redundant upload');
+  wires.updateWires(camera, size);
+  assert.equal(tubes.count, 1);
+  assert.deepEqual(tubes.instanceMatrix.array.slice(0, 16), originals.slice(16, 32));
+  const compactVersion = tubes.instanceMatrix.version;
+  wires.restoreWires();
+  assert.equal(tubes.count, 3);
+  assert.deepEqual(tubes.instanceMatrix.array, originals, 'restore every original matrix in original order');
+  assert.equal(tubes.instanceMatrix.version, compactVersion + 1);
+  assert.deepEqual(wires.getWireStats(), { segments: 3, tubeSegments: 3, filteredSegments: 0 });
+  const fullVersion = tubes.instanceMatrix.version;
+  const cubeFace = new THREE.PerspectiveCamera(90, 1, .2, 350);
+  for (const part of [tubes, ribbons]) part.onBeforeRender({ getCurrentViewport: target => target.set(0, 0, 128, 128) }, null, cubeFace);
+  wires.restoreWires();
+  assert.equal(tubes.instanceMatrix.version, fullVersion, 'cube pass and repeated restore retain uploaded matrices');
+  wires.updateWires(camera, size);
+  assert.equal(tubes.count, 1);
+  assert.deepEqual(tubes.instanceMatrix.array.slice(0, 16), originals.slice(16, 32));
+  assert.equal(tubes.instanceMatrix.version, fullVersion + 1, 'same gameplay view must recompact after a full restore');
+  camera.rotation.y = Math.PI;
+  wires.updateWires(camera, size);
+  assert.equal(tubes.count, 1);
+  assert.deepEqual(tubes.instanceMatrix.array.slice(0, 16), originals.slice(32, 48));
+});
+
+test('empty wire collections restore without uploads or invalid counts', () => {
+  const wires = createUtilityWires([], material());
+  const tubes = wires.root.children[0], version = tubes.instanceMatrix.version;
+  wires.restoreWires(); wires.restoreWires();
+  assert.equal(tubes.count, 0); assert.equal(tubes.instanceMatrix.version, version);
+  assert.deepEqual(wires.getWireStats(), { segments: 0, tubeSegments: 0, filteredSegments: 0 });
+});

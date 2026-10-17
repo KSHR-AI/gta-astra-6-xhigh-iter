@@ -737,7 +737,7 @@ export function createWorld(scene) {
       instanceVisibility.update(camera, { ...options, occlusion: buildingOcclusion });
       beachParasols.update(camera);
     },
-    restoreInstances() { instanceVisibility.restore(); beachParasols.restore(); },
+    restoreInstances() { instanceVisibility.restore(); beachParasols.restore(); streetDetails.restoreWires(); },
     getInstanceVisibility: () => ({ ...instanceVisibility.getStats(), occluders: buildingOcclusion.getStats(), beachParasols: beachParasols.getStats() }),
     updateWires: streetDetails.updateWires,
     getWireStats: streetDetails.getWireStats,
