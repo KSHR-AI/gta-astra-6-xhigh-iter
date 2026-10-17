@@ -11,6 +11,38 @@ function setup(bounds = [box()]) {
   return { camera, occlusion };
 }
 
+test('classification revision is stable only while all cone inputs remain unchanged', () => {
+  const { camera, occlusion } = setup();
+  let revision = occlusion.getRevision();
+  occlusion.update(camera); assert.equal(occlusion.getRevision(), revision);
+  for (const change of [
+    () => { camera.position.x = 1; },
+    () => { camera.fov = 90; camera.updateProjectionMatrix(); },
+    () => { camera.coordinateSystem = THREE.WebGPUCoordinateSystem; },
+    () => { camera.scale.z = 2; },
+    () => { camera.scale.z = 1; },
+  ]) {
+    change(); occlusion.update(camera);
+    assert.ok(occlusion.getRevision() > revision); revision = occlusion.getRevision();
+    occlusion.update(camera); assert.equal(occlusion.getRevision(), revision);
+  }
+  occlusion.update(camera, { enabled: false }); assert.ok(occlusion.getRevision() > revision);
+  revision = occlusion.getRevision(); occlusion.update(camera, { enabled: false }); assert.equal(occlusion.getRevision(), revision);
+  occlusion.update(camera); assert.ok(occlusion.getRevision() > revision);
+});
+
+test('a near-plane edit updates cone stability even before the projection matrix is rebuilt', () => {
+  const bounds = new THREE.Box3(new THREE.Vector3(-5, -5, -12), new THREE.Vector3(5, 5, -10));
+  const { camera, occlusion } = setup([bounds]);
+  const candidate = sphere(0, 0, -20, 1), revision = occlusion.getRevision();
+  assert.equal(occlusion.isOccluded(candidate), true);
+  camera.near = 6; occlusion.update(camera);
+  assert.ok(occlusion.getRevision() > revision);
+  assert.equal(occlusion.isOccluded(candidate), false);
+  const fresh = createBuildingOcclusion([bounds]); fresh.update(camera);
+  assert.equal(occlusion.isOccluded(candidate), fresh.isOccluded(candidate));
+});
+
 test('only whole spheres beyond a solid building silhouette are hidden', () => {
   const { occlusion } = setup();
   assert.equal(occlusion.isOccluded(sphere(0, 0, -20)), true);

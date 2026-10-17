@@ -9,6 +9,8 @@ import { createCityProps } from './world-props.js';
 import { createInstanceVisibility } from './instance-visibility.js';
 import { createBuildingOcclusion } from './building-occlusion.js';
 import { createWalkableGround } from './world-ground.js';
+import { applyBeachSurface } from './beach-surface.js';
+import { createBeachParasols } from './beach-parasols.js';
 
 // Everything in the district is real geometry. Repeated architectural details
 // share instanced meshes, so the dense streetscape stays inexpensive to render.
@@ -119,6 +121,7 @@ export function createWorld(scene) {
     return texture;
   }
   const { ready: materialReady } = applyCityMaterials(materials, canvasTexture, random);
+  const { ready: beachReady } = applyBeachSurface(materials.sand);
   const shrub = createShrubBuilder({ instance, materials, canvasTexture, random, range });
   const breeze = { value: 0 };
   materials.leaves.onBeforeCompile = shader => {
@@ -594,7 +597,6 @@ export function createWorld(scene) {
   }
   const cityProps = createCityProps(root);
   colliders.push(...cityProps.colliders);
-  const ready = Promise.all([materialReady, cityProps.ready]);
 
   // Billboard is part of the city, with a real support structure and floodlights.
   const billboardTexture = canvasTexture(1024, 512, (ctx, w, h) => {
@@ -618,9 +620,10 @@ export function createWorld(scene) {
   }
 
   // Beach, boardwalk, lifeguard stations and breakwaters.
-  box(materials.pale, -109, 0.1, -20, 13, 0.2, 465, 0, false);
+  // The visible slab tops are the support planes for feet and contact shadows.
+  walkableBox(materials.pale, -109, 0.1, -20, 13, 0.2, 465, 0, false, 'boardwalk');
   for (let z = -245; z < 213; z += 2.8) box(materials.concrete, -109, 0.21, z, 12.7, 0.012, 0.025, 0, false);
-  box(materials.sand, -135, -0.08, -20, 40, 0.16, 465, 0, false);
+  walkableBox(materials.sand, -135, -0.08, -20, 40, 0.16, 465, 0, false, 'sand');
   for (let z = -205; z < 200; z += 25) {
     bench(-109, z, Math.PI / 2);
     cylinder(materials.white, -115, 0.7, z, 0.09, 1.2);
@@ -634,14 +637,16 @@ export function createWorld(scene) {
     sign('LIFEGUARD', -134, 2.07, z + 1.72, 2.8, 0.5, 0, { background: '#578e88', border: false, fontSize: 65 });
     for (let i = 0; i < 6; i++) box(materials.white, -134, 0.3 + i * 0.22, z + 2.6 - i * 0.23, 1.1, 0.12, 0.4);
   }
+  const parasolPlacements = [];
+  const parasolCanvas = ['#ffffff', '#d2a294', '#9fb5af'];
   for (let i = 0; i < 22; i++) {
-    const x = range(-144, -123), z = range(-210, 190);
-    box(i % 2 ? materials.teal : materials.blush, x, 0.08, z, 1.2, 0.035, 2.5, range(-0.3, 0.3), false);
-    if (i % 3 === 0) {
-      cylinder(materials.white, x + 1.1, 1.2, z, 0.025, 2.5);
-      instance(coneGeometry, i % 2 ? materials.white : materials.blush, [x + 1.1, 2.4, z], [1.5, 0.6, 1.5]);
-    }
+    const x = range(-144, -123), z = range(-210, 190), towelYaw = range(-0.3, 0.3);
+    box(i % 2 ? materials.teal : materials.blush, x, 0.005, z, 1.2, 0.01, 2.5, towelYaw, false);
+    if (i % 3 === 0) parasolPlacements.push({ x: x + 1.1, y: 0, z,
+      yaw: towelYaw + i * .37, canvasColor: parasolCanvas[(i / 3) % parasolCanvas.length] });
   }
+  const beachParasols = createBeachParasols(root, parasolPlacements);
+  const ready = Promise.all([materialReady, beachReady, cityProps.ready, beachParasols.ready]);
   const ocean = createOcean();
   root.add(ocean.mesh);
 
@@ -730,9 +735,10 @@ export function createWorld(scene) {
       // scaled district keeps frustum culling but skips these static occluders.
       buildingOcclusion.update(camera, { enabled: root.matrixWorld.equals(occlusionWorldIdentity) });
       instanceVisibility.update(camera, { ...options, occlusion: buildingOcclusion });
+      beachParasols.update(camera);
     },
-    restoreInstances: instanceVisibility.restore,
-    getInstanceVisibility: () => ({ ...instanceVisibility.getStats(), occluders: buildingOcclusion.getStats() }),
+    restoreInstances() { instanceVisibility.restore(); beachParasols.restore(); },
+    getInstanceVisibility: () => ({ ...instanceVisibility.getStats(), occluders: buildingOcclusion.getStats(), beachParasols: beachParasols.getStats() }),
     updateWires: streetDetails.updateWires,
     getWireStats: streetDetails.getWireStats,
     setSky: data => ocean.setSky(data),

@@ -24,7 +24,8 @@ export function createBuildingOcclusion(boxes, { maxOccluders = 8 } = {}) {
   const cameraPosition = new THREE.Vector3(), forward = new THREE.Vector3();
   const viewPoint = new THREE.Vector3(), center = new THREE.Vector3();
   const projection = new THREE.Matrix4(), frustum = new THREE.Frustum();
-  let volumes = [], cached = false;
+  let volumes = [], cached = false, revision = 0;
+  let lastCoordinateSystem, lastNear;
   const lastView = new THREE.Matrix4(), lastProjection = new THREE.Matrix4();
   const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
   function hull(points) {
@@ -42,14 +43,21 @@ export function createBuildingOcclusion(boxes, { maxOccluders = 8 } = {}) {
     lower.pop(); upper.pop();
     return lower.concat(upper);
   }
+  function clear() {
+    if (cached || volumes.length) revision++;
+    volumes = []; cached = false;
+  }
   function update(camera, { enabled = true } = {}) {
-    if (!enabled || !camera.isPerspectiveCamera) { volumes = []; cached = false; return; }
+    if (!enabled || !camera.isPerspectiveCamera) { clear(); return; }
     camera.updateWorldMatrix(true, false);
     // Cone depths are world metres. Scaled, reflected or sheared camera frames
     // cannot safely mix view-space depth with world-space sphere distances.
-    if (!isRigidCamera(camera)) { volumes = []; cached = false; return; }
-    if (cached && lastView.equals(camera.matrixWorldInverse) && lastProjection.equals(camera.projectionMatrix)) return;
+    if (!isRigidCamera(camera)) { clear(); return; }
+    if (cached && lastCoordinateSystem === camera.coordinateSystem && lastNear === camera.near
+      && lastView.equals(camera.matrixWorldInverse) && lastProjection.equals(camera.projectionMatrix)) return;
     cached = true; lastView.copy(camera.matrixWorldInverse); lastProjection.copy(camera.projectionMatrix);
+    lastCoordinateSystem = camera.coordinateSystem; lastNear = camera.near;
+    revision++;
     volumes = [];
     camera.getWorldPosition(cameraPosition); camera.getWorldDirection(forward);
     projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -103,5 +111,5 @@ export function createBuildingOcclusion(boxes, { maxOccluders = 8 } = {}) {
     }
     return false;
   }
-  return { update, isOccluded, getStats: () => ({ registered: candidates.length, active: volumes.length }) };
+  return { update, isOccluded, getRevision: () => revision, getStats: () => ({ registered: candidates.length, active: volumes.length }) };
 }

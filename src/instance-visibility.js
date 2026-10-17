@@ -13,6 +13,10 @@ export function createInstanceVisibility() {
   const worldSphere = new THREE.Sphere();
   let totalInstances = 0, visibleInstances = 0, totalTriangles = 0, visibleTriangles = 0;
   let cameraOccludedInstances = 0, cameraOccludedTriangles = 0;
+  let selectionKey = null, selectionGeneration = 0;
+  const work = { reusedBatches: 0, classifiedBatches: 0, classifiedInstances: 0, occlusionQueries: 0 };
+  const resetWork = () => { for (const key of Object.keys(work)) work[key] = 0; };
+  const invalidate = () => { selectionKey = null; selectionGeneration++; };
 
   function add(mesh, { padding = 0 } = {}) {
     if (!mesh.isInstancedMesh || mesh.morphTexture) return;
@@ -36,12 +40,15 @@ export function createInstanceVisibility() {
     batches.push({ mesh, count: mesh.count, matrices: mesh.instanceMatrix.array.slice(),
       colors: mesh.instanceColor?.array.slice(), spheres, triangles,
       selected: Int32Array.from({ length: mesh.count }, (_, index) => index),
-      next: new Int32Array(mesh.count), selectedCount: mesh.count });
+      next: new Int32Array(mesh.count), selectedCount: mesh.count,
+      generation: -1, worldMatrix: new THREE.Matrix4(), castShadow: false, occludedCount: 0 });
     totalInstances += mesh.count; totalTriangles += mesh.count * triangles;
     visibleInstances = totalInstances; visibleTriangles = totalTriangles;
+    invalidate();
   }
 
   function restore() {
+    invalidate(); resetWork();
     for (const batch of batches) {
       if (batch.selectedCount === batch.count) continue;
       batch.mesh.instanceMatrix.array.set(batch.matrices);
@@ -66,14 +73,39 @@ export function createInstanceVisibility() {
     if (preserveShadows && !cullShadows) { restore(); return; }
     camera.updateWorldMatrix(true, false);
     projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    // Exact reuse is safe only when the provider explicitly versions its
+    // classification. An arbitrary callback may change without moving camera.
+    const revision = typeof occlusion?.getRevision === 'function' ? occlusion.getRevision() : undefined;
+    const cacheable = !occlusion || Number.isSafeInteger(revision) && revision >= 0;
+    const key = [...projection.elements, camera.coordinateSystem, occlusion, revision, cullShadows];
+    if (cullShadows) {
+      key.push(shadowFrusta.length);
+      for (const lightFrustum of shadowFrusta) {
+        key.push(lightFrustum.planes.length);
+        for (const plane of lightFrustum.planes) key.push(plane.normal.x, plane.normal.y, plane.normal.z, plane.constant);
+      }
+    }
+    if (!cacheable || !selectionKey || key.length !== selectionKey.length
+      || key.some((value, i) => value !== selectionKey[i])) {
+      selectionGeneration++; selectionKey = cacheable ? key : null;
+    }
+    resetWork();
     visibleInstances = 0; visibleTriangles = 0;
     cameraOccludedInstances = 0; cameraOccludedTriangles = 0;
     for (const batch of batches) {
       const { mesh, spheres } = batch;
       mesh.updateWorldMatrix(true, false);
+      if (cacheable && batch.generation === selectionGeneration
+        && batch.worldMatrix.equals(mesh.matrixWorld) && batch.castShadow === Boolean(mesh.castShadow)) {
+        work.reusedBatches++;
+        visibleInstances += batch.selectedCount; visibleTriangles += batch.selectedCount * batch.triangles;
+        cameraOccludedInstances += batch.occludedCount; cameraOccludedTriangles += batch.occludedCount * batch.triangles;
+        continue;
+      }
+      work.classifiedBatches++; work.classifiedInstances += batch.count;
       localProjection.multiplyMatrices(projection, mesh.matrixWorld);
       frustum.setFromProjectionMatrix(localProjection, camera.coordinateSystem);
-      let count = 0;
+      let count = 0, occludedCount = 0;
       for (let index = 0; index < batch.count; index++) {
         const offset = index * 4;
         sphere.center.set(spheres[offset], spheres[offset + 1], spheres[offset + 2]);
@@ -81,8 +113,9 @@ export function createInstanceVisibility() {
         let visible = frustum.intersectsSphere(sphere);
         if (visible && occlusion) {
           worldSphere.copy(sphere).applyMatrix4(mesh.matrixWorld);
+          work.occlusionQueries++;
           if (occlusion.isOccluded(worldSphere)) {
-            visible = false; cameraOccludedInstances++; cameraOccludedTriangles += batch.triangles;
+            visible = false; occludedCount++;
           }
         }
         if (!visible && cullShadows && mesh.castShadow) {
@@ -106,8 +139,12 @@ export function createInstanceVisibility() {
         mesh.instanceMatrix.needsUpdate = true;
         if (batch.colors) mesh.instanceColor.needsUpdate = true;
       }
+      batch.generation = selectionGeneration;
+      batch.worldMatrix.copy(mesh.matrixWorld); batch.castShadow = Boolean(mesh.castShadow);
+      batch.occludedCount = occludedCount;
+      cameraOccludedInstances += occludedCount; cameraOccludedTriangles += occludedCount * batch.triangles;
       visibleInstances += count; visibleTriangles += count * batch.triangles;
     }
   }
-  return { add, update, restore, getStats: () => ({ totalInstances, visibleInstances, totalTriangles, visibleTriangles, cameraOccludedInstances, cameraOccludedTriangles }) };
+  return { add, update, restore, getStats: () => ({ totalInstances, visibleInstances, totalTriangles, visibleTriangles, cameraOccludedInstances, cameraOccludedTriangles, work: { ...work } }) };
 }

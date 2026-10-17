@@ -38,6 +38,29 @@ blender --background --factory-startup --threads 2 --python-exit-code 1 --python
 
 Each generator saves its editable `.blend` beside the script and its GLB under `public/models/`. The city generator also creates its original sign/newspaper/fabric atlas through `city_textures.py`. The vehicle generator exports both near and simplified far meshes. Runtime integration lives in `src/vehicles.js`, `src/world-props.js`, and `src/characters.js`. Keep the named wheel, door, grip, and muzzle attachment conventions when editing assets. Preview changes in-game, including door/steering motion and the seated driver, before committing exports.
 
+## Original beach parasols
+
+`beach_parasol.blend` retains the original eight-panel cloth canopy, scalloped valance, folded seams, bowed ribs, stretchers, mast and hardware. The generator also authors a small woven-canvas normal map; there are no external inputs.
+
+```sh
+blender --background --factory-startup --threads 2 --python-exit-code 1 \
+  --python art/blender/beach_parasol.py -- /tmp/astra-parasol-stage --preview
+```
+
+Near/far GLBs remain staged until reviewed. The exports contain 5,152 / 808 triangles and three materials each, in Y-up metres with a ground origin at zero. The [full authoring guide](beach_parasol_README.md) covers dimensions, mesh names and rebuild details. Runtime loading and instancing live in `src/beach-parasols.js`; inspect near/far silhouettes, under-canopy structure, tint, ground contact and load fallbacks in-game before copying reviewed GLBs and their JSON record into `public/models/city/`.
+
+## Original coastal sand
+
+The sand maps are original deterministic NumPy/Pillow artwork; no Blender scene or external photographs are required. Stage a rebuild explicitly:
+
+```sh
+OPENBLAS_NUM_THREADS=1 python3 art/blender/beach_surfaces.py \
+  --output-dir /tmp/astra-beach-rebuild \
+  --preview /tmp/astra-beach-rebuild/contact-sheet.png
+```
+
+The two 1024² color/OpenGL normal maps and 512² roughness map represent a seamless 2.4 m surface. Fine grain and shallow wind ripples remain in the repeated tile; broad deposits and the damp shoreline are applied in world space by `src/beach-surface.js`. The generator reports file hashes, seam statistics, normal bounds and estimated texture memory. Inspect near-ground detail, the dry/wet boundary and grazing-angle filtering in the browser before copying the three `sand-*.jpg` outputs into `public/textures/beach/`. The source terrain and collision geometry are unchanged; registered walkable sand/boardwalk heights match their visible slab tops.
+
 ## Civilian head rebuild
 
 `character_humans.blend` contains the editable MakeHuman male/female head collections, fitted eyes, brows, lashes, primary hairstyles, and packed textures. The hidden hairstyle alternatives remain available for editing. These are third-party CC0 graphical assets; their [provenance](character_sources/PROVENANCE.md) and [license](character_sources/LICENSE-MAKEHUMAN-CC0.md) are separate from the original project-authored Blender models above.

@@ -21,6 +21,7 @@ function authoredGround() {
   const box = (material, x, y, z, width, height, depth, rotation = 0) => boxes.push({ material, x, y, z, width, height, depth, rotation });
   const walkableBox = new Function('box', 'ground', `${section('  function walkableBox(', '  function panel(')}\nreturn walkableBox;`)(box, ground);
   new Function('materials', 'walkableBox', 'box', section('  walkableBox(materials.sand,', '  // Painted turn arrows'))(materials, walkableBox, box);
+  new Function('materials', 'walkableBox', 'box', section('  // Beach, boardwalk,', '  for (let z = -205;'))(materials, walkableBox, box);
   const noop = () => {};
   addAuthoredDistrict({ materials, box, walkableBox, panel: noop, cylinder: noop,
     line: noop, instance: noop, canvasTexture: () => new THREE.Texture(), colliders,
@@ -100,4 +101,31 @@ test('local diner paving preserves the repair driveway and adjoining exterior', 
     assert.ok(b.minX >= 16.95 - 1e-10 && b.maxX <= 17.85 + 1e-10);
     assert.ok(b.minZ >= 15.75 - 1e-10 && b.maxZ <= 42.5 + 1e-10);
   }
+});
+
+
+test('production beach and boardwalk support match their rendered slab tops', () => {
+  for (const [x, z, expected] of [[-130, 12, 0], [-148, -238, 0], [-123, 194, 0],
+    [-109, 12, .2], [-109, -90, .2], [-109, 90, .2]]) {
+    const visible = scene.boxes.filter(b => x >= b.x - b.width / 2 && x <= b.x + b.width / 2
+      && z >= b.z - b.depth / 2 && z <= b.z + b.depth / 2 && b.height >= .05);
+    const top = Math.max(...visible.map(b => b.y + b.height / 2));
+    close(top, expected, 'Visible production beach slab');
+    close(scene.ground.heightAt(x, z), top, `Feet at ${x},${z}`);
+  }
+  assert.equal(scene.ground.sample(-130, 12).kind, 'sand');
+  assert.equal(scene.ground.sample(-109, 12).kind, 'boardwalk');
+});
+
+test('production sand-boardwalk-pavement joins follow visible steps without a hidden trench', () => {
+  for (const z of [-220, 12, 180]) {
+    close(scene.ground.heightAt(-115.5 - 1e-5, z), 0, 'Sand before boardwalk');
+    close(scene.ground.heightAt(-115.5, z), .2, 'West boardwalk edge');
+    close(scene.ground.heightAt(-115.5 + 1e-5, z), .2, 'Boardwalk above sand overlap');
+    close(scene.ground.heightAt(-111 - 1e-5, z), .2, 'Old underlying paving seam');
+    close(scene.ground.heightAt(-111 + 1e-5, z), .2, 'No false height change inside walkway');
+    close(scene.ground.heightAt(-102.5, z), .2, 'East boardwalk edge');
+    close(scene.ground.heightAt(-102.5 + 1e-5, z), .025, 'Adjoining existing pavement');
+  }
+  close(scene.ground.heightAt(-130, -252.5 - 1e-5), -.065, 'Distant unraised sand remains unchanged');
 });

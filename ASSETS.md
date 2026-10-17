@@ -74,6 +74,14 @@ The service pistol, articulated offline fallback, sedans/patrol vehicles, and au
 
 No Grand Theft Auto game files, characters, logos, or Rockstar assets are included.
 
+## Original beach sand surface
+
+- **Author/source:** original deterministic NumPy/Pillow artwork for this project, with no photographs, downloaded texture inputs or external model files.
+- **Rebuild:** `OPENBLAS_NUM_THREADS=1 python3 art/blender/beach_surfaces.py --output-dir /tmp/astra-beach-rebuild --preview /tmp/astra-beach-rebuild/contact-sheet.png`. Review staged maps in the game before replacing the runtime files.
+- **Files:** `public/textures/beach/sand-{color,normal}.jpg` (1024 × 1024) and `sand-rough.jpg` (512 × 512), totaling 565,670 bytes. The maps represent a seamless 2.4 m square; the normal map uses the OpenGL tangent convention.
+- **Appearance:** fine mineral grain, sparse pale shell flecks and shallow broken wind ripples. Millimetre relief is encoded in normals rather than baked directional shading. `src/beach-surface.js` adds broad world-space deposits and a damp, roughness-reduced band beside the existing ocean edge. It adds no geometry or draw calls; the three maps consume approximately 12 MiB as RGBA textures with mipmaps.
+- **Ground:** the existing visible sand and boardwalk slabs retain their geometry and now register their top surfaces with the walkable-ground query, so actor feet and contact shadows use the same heights as the rendered surfaces.
+
 ## Original road and cast-iron surfaces
 
 - **Author/source:** original deterministic texture artwork and runtime geometry for this project. No photographs, downloaded texture inputs or external model files are used.
@@ -130,7 +138,10 @@ All assets below are original project-authored geometry and artwork. They use no
 | --- | --- | --- |
 | Meridian sedan and patrol variant | `art/blender/vehicle_meridian.blend`, `vehicle_meridian.py` | `public/models/vehicles/meridian.glb`, `meridian-lod.glb` |
 | Bus shelter, news kiosk, cafe furniture and parasol | `art/blender/city_streetscape.blend`, `city_streetscape.py`, `city_textures.py` | `public/models/city/city-streetscape.glb`, original `city-atlas.png` |
+| Eight-panel beach parasol | `art/blender/beach_parasol.blend`, `beach_parasol.py` | `public/models/city/BeachParasol.glb`, `BeachParasol-lod.glb` |
 | Compact sidearm | `art/blender/character_sidearm.blend`, `character_sidearm.py` | `public/models/character_sidearm.glb` |
+
+The beach parasol replaces the beach's plain cone canopies with eight curved cloth panels, a scalloped valance, narrow rolled hems, bowed ribs, stretchers and mast hardware. The original 64² woven-canvas normal is embedded in each GLB; no third-party inputs are used. Near/far exports contain 5,152 / 808 triangles and three shared material batches per active level, totaling 163,304 bytes. Eight placements preserve the previous positions and use restrained cloth tints. A camera-size-aware detail switch retains a single level per placement; the far export and a curved procedural canopy provide progressively simpler load fallbacks. The [parasol authoring guide](art/blender/beach_parasol_README.md) documents source regeneration and inspection.
 
 The Meridian includes a curved body with open wheel arches, cabin, articulated driver door, wheels/brakes, lamps, and original police livery/equipment. Sedan geometry is 34,184 triangles near / 11,806 far; the police variant adds 1,096 triangles. The streetscape library uses 6,606 source triangles and 21 shared material batches across eight placements. The sidearm uses 3,732 triangles and four PBR materials; its grip and muzzle anchors drive hand articulation and effects. The gameplay sports car now uses the original Astra Aurora asset; the Ferrari licensing caveat applies only to the historical benchmark fixture above.
 
