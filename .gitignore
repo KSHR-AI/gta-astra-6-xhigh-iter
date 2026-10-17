@@ -7,3 +7,6 @@ dist/
 *.blend2
 benchmarks/engines/.build-metrics/
 benchmarks/.*-build-sha
+
+# Blender/Python authoring cache
+__pycache__/

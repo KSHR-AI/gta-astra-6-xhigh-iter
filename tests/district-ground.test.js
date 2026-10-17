@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { createWalkableGround } from '../src/world-ground.js';
 import { addAuthoredDistrict } from '../src/world-district.js';
+import { createOcean } from '../src/world-ocean.js';
 
 // Run the real terrain declarations and walkableBox helper without constructing
 // the browser's textures, renderer, traffic or asynchronous decorative assets.
@@ -128,4 +129,20 @@ test('production sand-boardwalk-pavement joins follow visible steps without a hi
     close(scene.ground.heightAt(-102.5 + 1e-5, z), .025, 'Adjoining existing pavement');
   }
   close(scene.ground.heightAt(-130, -252.5 - 1e-5), -.065, 'Distant unraised sand remains unchanged');
+});
+
+test('both land slabs stop at the ocean edge instead of intersecting wave troughs', () => {
+  const ocean = createOcean();
+  ocean.mesh.updateMatrixWorld(true);
+  const positions = ocean.mesh.geometry.attributes.position, vertex = new THREE.Vector3();
+  let shoreX = -Infinity;
+  for (let i = 0; i < positions.count; i++) {
+    vertex.fromBufferAttribute(positions, i).applyMatrix4(ocean.mesh.matrixWorld);
+    shoreX = Math.max(shoreX, vertex.x);
+  }
+  const slabs = scene.boxes.filter(b => b.width > 30 && b.depth > 400 && b.x < 0);
+  assert.equal(slabs.length, 2, 'Base land and raised beach');
+  for (const slab of slabs) close(slab.x - slab.width / 2, shoreX, 'Sand ends at the water');
+  for (const z of [-238, 0, 194]) close(scene.ground.heightAt(-148, z), 0, 'Playable beach preserved');
+  ocean.dispose();
 });

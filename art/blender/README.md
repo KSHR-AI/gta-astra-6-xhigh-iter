@@ -68,11 +68,12 @@ The two 1024² color/OpenGL normal maps and 512² roughness map represent a seam
 Export the head library from the repository root with Blender 4.5, Python 3 with **Pillow** and **NumPy**, and the project's installed Node dependencies (including `three`). The complete current character rebuild, including authored clothing and staged graft/LOD outputs, is documented [below](#deliberate-appearance-rebuild-with-facial-morphs).
 
 ```sh
-blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/character_humans.py -- /tmp/astra-head-export
-python3 art/blender/character_head_atlas.py /tmp/astra-head-export
+blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/character_humans.py -- /tmp/astra-head-raw
+python3 art/blender/character_complexion.py --source /tmp/astra-head-raw --output /tmp/astra-head-export
+python3 art/blender/character_head_atlas.py /tmp/astra-head-export/after
 ```
 
-The exporter opens the packed `.blend` without modifying it and writes the original head cages to the temporary directory; preview subdivision is omitted. The atlas step preserves geometry and face texture density while packing a 2048-pixel color atlas and 1024-pixel roughness and normal maps. It produces both one-material `optimized_*_head.glb` files and the final two-material `soft_*_head.glb` variants: skin/eyes/hair use alpha masking, while fine brows/lashes use blending. Custom `_SKIN_MASK` and `_HAIR_MASK` attributes support runtime appearance variations. These commands leave all runtime exports in `/tmp/astra-head-export`.
+The exporter opens the packed `.blend` without modifying it and writes the original head cages to the temporary directory; preview subdivision is omitted. The atlas step preserves geometry and face texture density while packing a 2048-pixel color atlas and 1024-pixel roughness and normal maps. It produces both one-material `optimized_*_head.glb` files and the final two-material `soft_*_head.glb` variants: skin/eyes/hair use alpha masking, while fine brows/lashes use blending. Custom `_SKIN_MASK` and `_HAIR_MASK` attributes support runtime appearance variations. The complexion step adds original anatomical pigment variation to the male skin map, fading to the unchanged neck; it preserves geometry, alpha and the female source. These commands leave the atlas exports in `/tmp/astra-head-export/after`. See the [complexion guide](character_complexion_README.md) for its scope and review requirements.
 
 The current graft uses the staged, authored `CivilianMale.glb` and `Michelle-crowd.glb` body inputs through `--body-dir`, and writes `CivilianMaleNatural.glb` and `CivilianFemaleNatural.glb` through an explicit `--output-dir`. It replaces visible heads and blends the new necks into the retained bodies, preserving the original skeleton nodes, hierarchy, and inverse bind matrices. The reviewed characters have three material batches each and 28,991 male / 22,092 female near triangles. MakeHuman head assets are CC0; the male body retains EmoPreben's CC0 terms, while Michelle's body and the Mixamo locomotion retain their separate Adobe terms. See [asset credits](../../ASSETS.md).
 
@@ -136,9 +137,10 @@ python3 art/blender/character_shirt_textures.py /tmp/astra-clothing-stage/textur
 blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/character_clothing.py -- /tmp/astra-clothing-stage
 node art/blender/character_clothing_validate.mjs /tmp/astra-clothing-stage
 
-blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/character_humans.py -- /tmp/astra-face-stage
-python3 art/blender/character_head_atlas.py /tmp/astra-face-stage
-node art/blender/character_humans.mjs /tmp/astra-face-stage \
+blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/character_humans.py -- /tmp/astra-face-raw
+python3 art/blender/character_complexion.py --source /tmp/astra-face-raw --output /tmp/astra-face-stage
+python3 art/blender/character_head_atlas.py /tmp/astra-face-stage/after
+node art/blender/character_humans.mjs /tmp/astra-face-stage/after \
   --body-dir /tmp/astra-clothing-stage --output-dir /tmp/astra-appearance-preindex
 node art/blender/character_lod.mjs \
   /tmp/astra-lod-tool/node_modules/meshoptimizer/meshopt_simplifier.module.js \

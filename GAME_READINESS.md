@@ -18,13 +18,22 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current beach and stationary visibility pass
+## Current coastal water and complexion pass
+
+- Replace the old water pattern with coherent directional swells, filtered ripples, a rough sun reflection and broken coastal foam. Keep analytic fragment normals after rejecting an interpolated variant that saved little time and introduced up to 2.26° normal error. Use an owned small lighting-sky copy and release owned resources safely.
+- Correct both sand slabs to end at X=-150, matching the ocean edge instead of extending five metres into wave troughs. Playable bounds and all existing beach/boardwalk heights remain unchanged.
+- Author restrained male cheek/nose warmth and jaw stubble in the existing color atlas. Promote the rebuilt GLB and matching LOD/index proof together. Geometry, skeleton, morphs, female files and texture count remain unchanged; the male download grows by 13,816 bytes. This does not fix the hard hairline or add facial acting.
+- Isolated native-resolution software-GPU observations put the new water draw around 13–16 ms versus 8–10 ms for the previous water in the same paused view. No-contribution foam/night branches avoid unnecessary work, but this is a quality/cost tradeoff, not a performance improvement. A separate stationary shoreline camera at gameplay resolution (1039 × 491) measured 4.26/4.10 ms for the new draw around a 5.35 ms old-water sample, with no GPU disjoint event. These are view-specific draw timings, not full-scene frame rates. Hardware frame pacing remains unverified.
+- A 14.7-second normal-input browser recording covers a 12.08 m shoreline walk in both directions and a 0.837 m jump across 170 displayed samples, returning to supported idle on sand. Day/night photos and a six-frame frozen simulation check exercise the final surface.
+- The straight shoreline, calm water repetition, sparse activity, soft garments, limited face shading and absent expressions remain visible. Player turn steps, shot-cancellation changes and close photo self-shadows are staged for subsequent browser acceptance; they are not part of this checkpoint.
+
+## Previous beach and stationary visibility pass
 
 - Replace the flat sand finish with original physical-scale color, normal and roughness maps, broad deposits and a damp shoreline. Add eight original Blender parasols with bowed cloth, seams, ribs and near/far meshes, retaining placement randomness and shared material batches. The editable sources and reproducible export steps are included.
 - Register the visible sand and boardwalk as walking surfaces and place thin towels directly on sand. A normal-input browser recording crosses sand at 0 m, boardwalk at 0.2 m and pavement at 0.025 m in both directions across 176 displayed samples, with zero root/ground discrepancy. The jump reaches 0.825 m; foot-contact patches disappear in the air and return after landing.
 - Reuse static instance selections only when camera, batch transform, occlusion revision and shadow bounds match exactly. In the browser, a stationary photo view reuses all 127 batches with zero classifications; all eight moving-camera samples immediately classify 34,473 instances, then all five settled samples reuse their selections. This proves skipped work, not an overall frame-rate improvement.
 - Browser close-ups show the cloth canopy and underside supports. Blocking the near asset retains the authored far model; blocking both models and sand maps still loads a usable procedural parasol and flat sand. Restoring requests returns all eight authored parasols and the sand finish without unhandled application errors.
-- The sea, hard character hairlines, soft garments and sparse beach activity remain visibly limited. Photo self-shadows, complexion changes and turning experiments are still under evaluation and are not part of this completed checkpoint.
+- The sea, hard character hairlines, soft garments and sparse beach activity remained visibly limited at this checkpoint. The subsequent water and complexion pass is described above; close photo shadows and turning remain under evaluation.
 
 ## Previous character attention, garment and lighting pass
 

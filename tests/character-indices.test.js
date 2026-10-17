@@ -313,6 +313,8 @@ test('repeating the transform is byte-stable and stale optimization metadata is 
 // Reviewed appearance baseline: authored v14 crew-shirt/upper-arm replacement, rebuilt male hair and appended
 // eye joints deliberately change the male surfaces and both rigs. The original
 // joint prefixes and protected hands/soles are independently checked elsewhere.
+// The anatomical male complexion pass changes only its embedded color image;
+// every geometry, rig, morph, LOD and other image payload remains exact.
 // These fingerprints pin the reviewed combined exports after exact indexing.
 const baselines = {
   "Male": {
@@ -320,7 +322,7 @@ const baselines = {
     "orientedSurfaces": "039193013193cda370679ae4632531bdb1a182c4dc68b2a90ec4321d19fa6d27",
     "blendOrder": "0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260",
     "rig": "ce7952a79ec49cc6b9d7e6394e221745ee9fe8ac717ad0b76907eed6cbcd334a",
-    "materials": "638cdd0f1f44198da7c359af68e55288cd716ab029d8edd0a7c907e5758988ba"
+    "materials": "c9a64895d554db80fcb14ddf8a99cbe0a6fd6a9e9fe052c94b2cb6cdee03b1c4"
   },
   "Female": {
     "attributes": "691de62401c798f0502c8a41d68627574ac203648bec6e29e206eb7566cb9170",

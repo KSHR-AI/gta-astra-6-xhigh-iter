@@ -142,7 +142,7 @@ export function createWorld(scene) {
   // Terrain and street grid. Pavements sit above the roads, with actual curbs.
   // End the land at the beach; a flat slab under the waves would cut through
   // their troughs and expose large triangular patches of sand offshore.
-  walkableBox(materials.sand, -7.5, -0.24, -25, 295, 0.35, 1200, 0, false, 'sand');
+  walkableBox(materials.sand, -5, -0.24, -25, 290, 0.35, 1200, 0, false, 'sand');
   walkableBox(materials.sidewalk, 51, -0.10, -25, 324, 0.25, 540, 0, false, 'base-paving');
   const roads = [
     { x: 0, z: -20, width: 22, length: 440, axis: 'z' },
@@ -623,7 +623,7 @@ export function createWorld(scene) {
   // The visible slab tops are the support planes for feet and contact shadows.
   walkableBox(materials.pale, -109, 0.1, -20, 13, 0.2, 465, 0, false, 'boardwalk');
   for (let z = -245; z < 213; z += 2.8) box(materials.concrete, -109, 0.21, z, 12.7, 0.012, 0.025, 0, false);
-  walkableBox(materials.sand, -135, -0.08, -20, 40, 0.16, 465, 0, false, 'sand');
+  walkableBox(materials.sand, -132.5, -0.08, -20, 35, 0.16, 465, 0, false, 'sand');
   for (let z = -205; z < 200; z += 25) {
     bench(-109, z, Math.PI / 2);
     cylinder(materials.white, -115, 0.7, z, 0.09, 1.2);
