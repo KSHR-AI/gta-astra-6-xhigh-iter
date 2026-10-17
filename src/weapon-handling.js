@@ -10,6 +10,8 @@ export function createWeaponHandling() {
   let shots = 0;
   return {
     get queued() { return pending; },
+    // The original request lifetime is immutable; the frame scheduler may visit its final eligible instant.
+    get pendingDeadline() { return pending ? expiresAt : null; },
     get shots() { return shots; },
     get recoilPitch() { return pitch; },
     get recoilYaw() { return yaw; },

@@ -89,3 +89,21 @@ Clay and actual-material idle, aim, head-turn and minified studies establish
 source appearance, but browser playtesting remains required. A faint upper-arm
 complexion/shape transition and small shoulder/clavicle creases at full aim
 remain; these models are authored game meshes, not scanned humans.
+
+## Final rear-surface repair
+
+After the natural-head graft, LOD build and initial exact indexing, run
+`character_garment_finish.sh` as documented in the combined appearance pipeline.
+It repairs inward upper-arm bridge winding and lower-neck cloth coverage during
+head turns, filters oversized sampled knit, and pads proven skin-mask UV seams.
+No new vertices, triangles, UVs, texture images or material batches are added.
+The head and all skin positions/influences remain exact; only the small garment
+panel receives matched lower-neck influences. Its final rigged Blender archive
+is `character_garment_finish.blend`.
+
+The packed B repair guards every touched pixel against retained non-skin UV
+triangles and preserves R/G/alpha, albedo and normal maps. Fine cotton fibers
+cannot be resolved by this atlas; the broad shirt uses averaged low-contrast
+response rather than enlarged yarn loops. Fresh near/mid/far indices accompany
+the final GLB. Preserve the pre-repair indexed assets when rebuilding; applying
+the fitting pass repeatedly is rejected.

@@ -19,6 +19,8 @@ import { createCharacterContactShadow } from './character-contact-shadow.js';
 import { createPhotoCharacterShadow } from './photo-character-shadow.js';
 import { createPosedActorCollider, getAimPoint, traceShot } from './combat.js';
 import { createWeaponHandling, PISTOL } from './weapon-handling.js';
+import { createShotFrameScheduler } from './shot-frame-scheduler.js';
+import { createEffectMaterialPool } from './effect-material-pool.js';
 import { advanceGroundedPosition } from './character-grounding.js';
 import './style.css';
 
@@ -79,6 +81,7 @@ let yaw=0,pitch=0.07,jumpVelocity=0,lastShot=-100,lastCrime=-100,wantedSince=-10
 let lastFrame=performance.now(),frameCount=0,fpsTimer=0,uiTimer=0,miniTimer=0,mouseDown=false;
 const aimRay=new THREE.Raycaster();
 const handling=createWeaponHandling();
+const advanceFrameSimulation=createShotFrameScheduler({getTime:()=>elapsed,advance:updateGame,handling});
 let aimSolution=null,lastImpact=null,lastDryFire=-100,renderFrame=0;
 let playerMoveSpeed=0;
 const contactLookTarget=new THREE.Vector3(),playerLookTarget=new THREE.Vector3();
@@ -92,6 +95,14 @@ function nearbyFaceTarget(actor,other,target){
 }
 const policeShotHistory=[];
 const vehicles=[],pedestrians=[],effects=[],officers=[];
+// Lazy factories run after asset initialization; the owner exists before any
+// asynchronous load so teardown cannot leave later-created materials behind.
+const effectMaterials=createEffectMaterialPool({
+ flash:()=>new THREE.SpriteMaterial({map:flashTexture,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}),
+ shell:()=>new THREE.MeshStandardMaterial({color:0xc29c54,metalness:.75,roughness:.38}),
+ tracer:()=>new THREE.LineBasicMaterial({color:0xffe5b5,transparent:true,depthWrite:false}),
+ particle:()=>new THREE.MeshBasicMaterial({transparent:true}),
+});
 const photoActorVisibility=createPhotoActorVisibility({pedestrians,vehicles});
 // A single local depth map adds face/limb contact only in close daylight photos.
 const photoShadowActors=()=>[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(car=>car.driver)].filter(Boolean);
@@ -99,7 +110,7 @@ const localSelfShadow=createPhotoCharacterShadow({renderer,camera,scene,sun,getA
 const environmentLighting=createEnvironmentLighting({renderer,captureVehicleCube,apply:applyEnvironmentMaps});
 let lastEnvironmentBuild=0,environmentError=null;
 function disposePhotoCharacterShadow(){
- localSelfShadow.dispose();photoActorVisibility.dispose();environmentLighting.dispose();window.removeEventListener('pagehide',onPhotoPageHide);
+ localSelfShadow.dispose();photoActorVisibility.dispose();environmentLighting.dispose();effectMaterials.dispose();window.removeEventListener('pagehide',onPhotoPageHide);
 }
 function onPhotoPageHide(event){
  localSelfShadow.release('page-hidden');
@@ -194,7 +205,7 @@ function restart(fresh=false){
  for(let i=pedestrians.length-1;i>=0;i--)if(pedestrians[i].isDriver)pedestrians.splice(i,1);
  for(const c of vehicles){c.model.mesh.position.copy(c.home);c.heading=c.homeHeading;c.model.mesh.rotation.set(0,c.heading,0);c.speed=0;c.steer=0;c.health=100;c.occupied=false;c.stolen=false;c.traffic=c.homeTraffic;c.routeIndex=c.homeRouteIndex;c.closeDoorAt=0;c.physics=null;c.model.setDoor(false);c.model.setDamage?.(100);c.model.update(1,0,0);c.driverActive=!!c.driver;c.driverDownUntil=0;c.driverTrafficBeforeHit=false;}
  for(const p of pedestrians){p.actor.mesh.position.copy(p.home);groundActor(p.actor);p.actor.resetGrounding?.();setActorShadow(p.actor,true);p.direction=p.homeDirection;p.down=false;p.recoverAt=0;p.fleeUntil=0;p.actor.mesh.rotation.set(0,p.direction<0?Math.PI:0,0);p.actor.update(1,{speed:0,dead:false});}
- for(const e of effects){scene.remove(e.mesh);if(!e.mesh.isSprite)e.mesh.geometry?.dispose();e.mesh.material.dispose();}effects.length=0;
+ for(const e of effects){scene.remove(e.mesh);if(!e.mesh.isSprite)e.mesh.geometry?.dispose();effectMaterials.release(e.mesh.material);}effects.length=0;
  heroCar.isJobCar=job.getState().mission<4;
  marker.visible=false;cameraLook.copy(player.mesh.position).add(new THREE.Vector3(0,1.2,-3));camera.position.copy(player.mesh.position).add(new THREE.Vector3(0,3.6,5.8));sound.start();
  pause(false);setMap(false);ui.toast(fresh?'A FRESH START':'BACK ON YOUR FEET',fresh?'Mara has a job waiting for you.':'Your mission checkpoint is ready.');
@@ -344,7 +355,7 @@ function reload(){
  if(!weapon||currentCar||reloading||interaction||state.ammo===PISTOL.capacity||state.reserve===0)return;handling.cancel();reloading=true;reloadRemaining=PISTOL.reloadTime;sound.reload({duration:PISTOL.reloadTime});
 }
 function spawnEffect(position,color=0xffca76,count=8){
- for(let i=0;i<count;i++){const mesh=new THREE.Mesh(new THREE.SphereGeometry(.025+Math.random()*.035,4,4),new THREE.MeshBasicMaterial({color,transparent:true}));mesh.position.copy(position);scene.add(mesh);effects.push({mesh,vel:new THREE.Vector3((Math.random()-.5)*6,Math.random()*4,(Math.random()-.5)*6),life:.5,max:.5});}
+ for(let i=0;i<count;i++){const material=effectMaterials.acquire('particle',{color});if(!material)return;const mesh=new THREE.Mesh(new THREE.SphereGeometry(.025+Math.random()*.035,4,4),material);mesh.position.copy(position);scene.add(mesh);effects.push({mesh,vel:new THREE.Vector3((Math.random()-.5)*6,Math.random()*4,(Math.random()-.5)*6),life:.5,max:.5});}
 }
 // Camera convergence chooses the reticle target; the physical shot starts at
 // the hand, so a shoulder camera cannot shoot through nearby cover or a car.
@@ -393,7 +404,8 @@ function fireShot(spread,geometry){
  muzzleEffect(origin,direction);
  if(hit.distance>2){
   const start=origin.clone().addScaledVector(direction,.5),end=origin.clone().addScaledVector(direction,Math.min(hit.distance,6));
-  const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([start,end]),new THREE.LineBasicMaterial({color:0xffe5b5,transparent:true,opacity:.36,depthWrite:false}));scene.add(line);effects.push({mesh:line,life:.045,max:.045,opacity:.36,born:renderFrame});
+  const material=effectMaterials.acquire('tracer',{opacity:.36});
+  if(material){const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([start,end]),material);scene.add(line);effects.push({mesh:line,life:.045,max:.045,opacity:.36,born:renderFrame});}
  }
  if(hit.kind==='actor'){
   handling.confirmHit();incapacitateActor(hit.object);
@@ -408,8 +420,9 @@ const flashContext=flashCanvas.getContext('2d'),flashGradient=flashContext.creat
 flashGradient.addColorStop(0,'rgba(255,255,245,1)');flashGradient.addColorStop(.18,'rgba(255,228,155,.95)');flashGradient.addColorStop(.5,'rgba(255,156,48,.32)');flashGradient.addColorStop(1,'rgba(255,125,30,0)');flashContext.fillStyle=flashGradient;flashContext.fillRect(0,0,64,64);
 const flashTexture=new THREE.CanvasTexture(flashCanvas);
 function muzzleEffect(origin,direction){
- const flash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTexture,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));flash.position.copy(origin).addScaledVector(direction,.035);flash.scale.set(.14,.10,1);scene.add(flash);effects.push({mesh:flash,life:.04,max:.04,born:renderFrame});
- const shell=new THREE.Mesh(new THREE.CylinderGeometry(.007,.007,.024,6),new THREE.MeshStandardMaterial({color:0xc29c54,metalness:.75,roughness:.38}));shell.position.copy(origin).addScaledVector(direction,-.10);shell.rotation.z=Math.PI/2;scene.add(shell);
+ const material=effectMaterials.acquire('flash');if(!material)return;
+ const flash=new THREE.Sprite(material);flash.position.copy(origin).addScaledVector(direction,.035);flash.scale.set(.14,.10,1);scene.add(flash);effects.push({mesh:flash,life:.04,max:.04,born:renderFrame});
+ const shell=new THREE.Mesh(new THREE.CylinderGeometry(.007,.007,.024,6),effectMaterials.acquire('shell'));shell.position.copy(origin).addScaledVector(direction,-.10);shell.rotation.z=Math.PI/2;scene.add(shell);
  const right=new THREE.Vector3(-Math.cos(player.mesh.rotation.y),0,Math.sin(player.mesh.rotation.y));
  effects.push({mesh:shell,vel:right.multiplyScalar(1.5).add(new THREE.Vector3(0,1.1,0)),spin:new THREE.Vector3(8,12,5),life:.65,max:.65,born:renderFrame});
 }
@@ -441,7 +454,13 @@ function updatePlayer(dt){
  const pos=player.mesh.position,previous=pos.clone();
  moveBody(pos,playerVelocity.x*dt,0,.35);if(hitsVehicle(pos.x,pos.z))pos.x=previous.x;
  moveBody(pos,0,playerVelocity.z*dt,.35);if(hitsVehicle(pos.x,pos.z))pos.z=previous.z;
- if(playerVelocity.length()>.15||raised){const target=raised?yaw+Math.PI:Math.atan2(playerVelocity.x,playerVelocity.z);player.mesh.rotation.y+=angleDiff(player.mesh.rotation.y,target)*Math.min(1,dt*11);}
+ if(playerVelocity.length()>.15||raised){
+  const target=raised?yaw+Math.PI:Math.atan2(playerVelocity.x,playerVelocity.z);
+  const wantedTurn=angleDiff(player.mesh.rotation.y,target)*Math.min(1,dt*11);
+  // Let the feet support a raised turn while camera and reticle intent stay free.
+  const turnLimit=raised?THREE.MathUtils.degToRad(360)*dt:Infinity;
+  player.mesh.rotation.y+=clamp(wantedTurn,-turnLimit,turnLimit);
+ }
  const support=advanceGroundedPosition(pos,previous,jumpVelocity,dt,world.heightAt);jumpVelocity=support.verticalVelocity;
  playerMoveSpeed=Math.hypot(pos.x-previous.x,pos.z-previous.z)/Math.max(dt,.001);
  setActorShadow(player,support.height<.3);state.nearCar=!!nearestCar();state.speed=0;state.gear='N';state.rpm=0;
@@ -497,9 +516,11 @@ function getPoliceShotGeometry({shooter}){
 function policeShot({origin,target,hit,damage,impact,warning,shotId}){
  const direction=target.clone().sub(origin).normalize(),distance=origin.distanceTo(target);
  if(distance>.05){
-  const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([origin.clone().addScaledVector(direction,Math.min(.5,distance*.25)),origin.clone().addScaledVector(direction,Math.min(distance,6))]),new THREE.LineBasicMaterial({color:0xffe5b5,transparent:true,opacity:.3,depthWrite:false}));scene.add(line);effects.push({mesh:line,life:.045,max:.045,opacity:.3,born:renderFrame});
+  const material=effectMaterials.acquire('tracer',{opacity:.3});
+  if(material){const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([origin.clone().addScaledVector(direction,Math.min(.5,distance*.25)),origin.clone().addScaledVector(direction,Math.min(distance,6))]),material);scene.add(line);effects.push({mesh:line,life:.045,max:.045,opacity:.3,born:renderFrame});}
  }
- const flash=new THREE.Sprite(new THREE.SpriteMaterial({map:flashTexture,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));flash.position.copy(origin);flash.scale.set(.12,.09,1);scene.add(flash);effects.push({mesh:flash,life:.04,max:.04,born:renderFrame});
+ const flashMaterial=effectMaterials.acquire('flash');
+ if(flashMaterial){const flash=new THREE.Sprite(flashMaterial);flash.position.copy(origin);flash.scale.set(.12,.09,1);scene.add(flash);effects.push({mesh:flash,life:.04,max:.04,born:renderFrame});}
  sound.shoot?.({position:origin});
  const healthBefore=state.health,vehicle=impact.kind==='vehicle'?impact.object:null,vehicleHealthBefore=vehicle?.health;
  if(hit){state.health=Math.max(0,state.health-damage);player.reactToHit?.(.65);damageFlash=.3;}
@@ -602,7 +623,7 @@ function updateGame(dt){
  if(job){const progress=job.getState();Object.assign(state,progress);mission=progress.mission;if(progress.target){goal.set(progress.target.x,0,progress.target.z);marker.position.copy(goal);}marker.visible=!!progress.target&&state.started;const close=progress.target&&player.mesh.position.distanceTo(goal)<4;markerBeam.visible=!close;markerDiamond.visible=!close;markerRing.scale.setScalar(close?.5:1);}
  const context=player&&job?contextAction():null;
  Object.assign(state,{interactionVisible:!!context&&!interaction,interactionTitle:context?.title||'',interactionName:context?.name||'',interactionKey:'E'});
- for(let i=effects.length-1;i>=0;i--){const e=effects[i];if(e.born!==renderFrame)e.life-=simDt;if(e.life<=0){scene.remove(e.mesh);if(!e.mesh.isSprite)e.mesh.geometry?.dispose();e.mesh.material.dispose();effects.splice(i,1);}else{if(e.vel){e.vel.y-=9*simDt;e.mesh.position.addScaledVector(e.vel,simDt);}if(e.spin){e.mesh.rotation.x+=e.spin.x*simDt;e.mesh.rotation.y+=e.spin.y*simDt;e.mesh.rotation.z+=e.spin.z*simDt;}e.mesh.material.opacity=(e.opacity??1)*e.life/e.max;}}
+ for(let i=effects.length-1;i>=0;i--){const e=effects[i];if(e.born!==renderFrame)e.life-=simDt;if(e.life<=0){scene.remove(e.mesh);if(!e.mesh.isSprite)e.mesh.geometry?.dispose();effectMaterials.release(e.mesh.material);effects.splice(i,1);}else{if(e.vel){e.vel.y-=9*simDt;e.mesh.position.addScaledVector(e.vel,simDt);}if(e.spin){e.mesh.rotation.x+=e.spin.x*simDt;e.mesh.rotation.y+=e.spin.y*simDt;e.mesh.rotation.z+=e.spin.z*simDt;}e.mesh.material.opacity=(e.opacity??1)*e.life/e.max;}}
  if(!active)updateCamera(simDt);
 }
 
@@ -777,7 +798,7 @@ function frame(now){
  if(fpsTimer>1){state.fps=Math.round(frameCount/fpsTimer);frameCount=0;fpsTimer=0;}
  // A paused simulation has no elapsed time to subdivide. Refresh the frozen
  // pose once while the photo camera and presentation keep their frame cadence.
- const steps=state.paused||state.mapOpen?1:Math.max(1,Math.ceil(dt/.033));for(let i=0;i<steps;i++)updateGame(dt/steps);photo.update(dt,keys);updatePresentation(dt);world.updateWires(camera,renderer.getDrawingBufferSize(drawingSize));const refreshShadows=renderer.shadowMap.enabled&&(renderer.shadowMap.autoUpdate||renderer.shadowMap.needsUpdate);
+ advanceFrameSimulation(dt,state.paused||state.mapOpen);photo.update(dt,keys);updatePresentation(dt);world.updateWires(camera,renderer.getDrawingBufferSize(drawingSize));const refreshShadows=renderer.shadowMap.enabled&&(renderer.shadowMap.autoUpdate||renderer.shadowMap.needsUpdate);
  if(refreshShadows){sun.updateWorldMatrix(true,false);sun.target.updateWorldMatrix(true,false);sun.shadow.updateMatrices(sun);}
  world.updateInstanceVisibility(camera,{preserveShadows:refreshShadows,shadowFrusta:refreshShadows?[sun.shadow.getFrustum()]:undefined});localSelfShadow.update({photoActive:photo.active,night,started:state.started});rendering.render();photo.afterRender();requestAnimationFrame(frame);
 }

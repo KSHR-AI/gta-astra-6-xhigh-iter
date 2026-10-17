@@ -148,11 +148,15 @@ node art/blender/character_lod.mjs \
 node art/blender/character_indices.mjs \
   /tmp/astra-lod-tool/node_modules/meshoptimizer/meshopt_encoder.module.js \
   --input-dir /tmp/astra-appearance-preindex --output-dir /tmp/astra-appearance-stage
-ASTRA_CHARACTER_ASSET_DIR=/tmp/astra-appearance-stage \
-  node --test tests/character-face-assets.test.js
+# Apply the final rear garment/skin-seam repair to the indexed appearance.
+# This preserves head/rig payloads and rebuilds matching LOD/index proofs.
+art/blender/character_garment_finish.sh "$PWD" /tmp/astra-appearance-stage \
+  /tmp/astra-garment-finish-stage /tmp/astra-lod-tool/node_modules/meshoptimizer
+ASTRA_CHARACTER_ASSET_DIR=/tmp/astra-garment-finish-stage/final \
+  node --test tests/character-shirt.test.js tests/character-face-assets.test.js
 ```
 
-The final candidate is `/tmp/astra-appearance-stage`; `/tmp/astra-appearance-preindex` retains the authored inputs for an independent attribute, surface, material, rig and LOD comparison. Keep both directories until review is complete. The commands above do not replace `public/models` assets. Review candidate rendering through an isolated preview asset mapping before approving promotion of each GLB and its matching sidecar together.
+The final candidate is `/tmp/astra-garment-finish-stage/final`; `/tmp/astra-appearance-stage` retains the indexed input before the bounded garment repair; `/tmp/astra-appearance-preindex` retains the authored inputs for an independent attribute, surface, material, rig and LOD comparison. Keep both directories until review is complete. The commands above do not replace `public/models` assets. Review candidate rendering through an isolated preview asset mapping before approving promotion of each GLB and its matching sidecar together.
 
 The atlas step also generates an original 1K tangent-space pore/strand map and spatial roughness through `character_head_surface.py`; the solid head uses the normal map while translucent brows/lashes do not. Hair keeps its source matte roughness (0.85) and source specular intensity (0.4). The existing roughness image is RGBA: G remains roughness, A supplies `KHR_materials_specular.specularTexture`, and skin/eyes retain A=1. Both scalar bindings use the same linear texture; the separate color atlas remains sRGB. Unchanged soft brows/lashes omit the extension. Color/alpha, UVs and morph payloads are retained. No new draw batch or texture image is added, although the solid head now uses the physical shader branch. Source specular color/textures must be baked explicitly before this atlas workflow; unsupported source data fails rather than being silently discarded. Body-specific head proportions live in `character_head_fit.mjs`. Its monotone lower-neck compression pins the existing cut, with a separate female radial contour transition; eyes, hair and eyelid targets stay above the non-affine region. The editable Blender heads precede this final fit.
 
@@ -214,3 +218,32 @@ tests verify actual atlas channels at rendered UVs and the runtime loader's
 shared scalar-map/color-space behavior.
 
 Hair atlas guards are 32 pixels around base hairstyles and 96 pixels around the narrow crown ribbons, with deterministic packing retries retaining the 2K resolution. This prevents ordinary bilinear mip footprints crossing the base-hair tile through mip 4 and narrow ribbons through mip 6. It is not an all-distance isolation guarantee: extremely coarse mips can still mix atlas regions. Existing filtered rendering remains enabled; raw source UVs, color pixels and geometry are preserved while packed UV placement changes. `tests/character-hair-mips.test.js` checks the real shipped atlas and visible ribbon minification.
+
+### Rear garment and skin-seam finishing
+
+`character_garment_finish.sh` runs after the indexed natural-head assembly. It
+corrects 39 inward-facing upper-arm skin triangles, fits 120 upper-back cloth
+vertices around the actual lower-neck graft, and transfers nearby lower-neck
+influences to 210 cloth vertices. Skin positions/influences, head geometry,
+morphs, head images, skeleton nodes/binds, UVs and existing topology stay exact.
+This supports the fitted shirt during head turns without enlarging the body.
+
+The original sampled knit loops span roughly 16.77 × 8.32 mm at runtime. The
+cotton pass reduces that oversized pattern to subdued diffuse/normal/roughness
+variation. Skin-mask padding changes only packed B inside proven skin-only
+boundaries and empty gutters, with no occupied non-skin overlap. All 406 audited
+split skin seam groups now sample B=1; three tiny non-seam cases remain imperfect.
+
+The script stages a complete editable `primary/garment_surface.blend` and final
+GLB/LOD files. The retained source archive is `character_garment_finish.blend`.
+Use fresh indexed appearance inputs: the fit rejects already-repaired input.
+The pure `optimizeCharacterAsset` entry point validates the regenerated LOD hash
+and surface equivalence for this intentionally indexed source; it does not
+bypass the appearance review or stale-proof checks. Female files are copied
+byte-for-byte. Run `character_garment_proof.py` against the retained indexed input
+to verify preserved rig, head/morph/image and skin data.
+
+Rear, oblique, full-aim and both head-turn offline studies cover these repairs;
+normal gameplay/photo checks in the browser remain required before promotion.
+The original full-aim shoulder/clavicle crease and broader character quality
+limits remain. No optional extra cuff topology was promoted.

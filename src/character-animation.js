@@ -1,3 +1,4 @@
+import { createStandingTurnSteps, convexFootprint } from './character-turn-step.js';
 import * as THREE from 'three';
 import { createPoseTools } from './character-pose.js';
 import { createHandPoseController } from './character-grip.js';
@@ -10,6 +11,12 @@ const smooth = THREE.MathUtils.smoothstep;
 /** Layered skeletal performance over the locally stored motion-capture clips. */
 export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, weapon, magazine, soleProbes, restPose, bindHeadOrientation, npc, phaseOffset = 0, groundHeightAt }) {
   const pose = createPoseTools(mesh, bones);
+  const turnSteps = createStandingTurnSteps();
+  let turnShapes = null;
+  let turnFeet = null, turnWeight = 0, turnPelvisYaw = 0, turnBlend = 0;
+  const turnPosition = new THREE.Vector3();
+  const turnHipsWorld = new THREE.Quaternion(), turnSpineWorld = new THREE.Quaternion(), turnBoneParent = new THREE.Quaternion(), turnQuaternion = new THREE.Quaternion();
+  const turnSamples = { Left: new THREE.Vector3(), Right: new THREE.Vector3() };
   const chooseElbowPole = createElbowPoleSolver(pose);
   const hands = createHandPoseController({ mesh, bones, restPose });
   const rootRotation = new THREE.Quaternion();
@@ -513,6 +520,57 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       }
     }
 
+    const turnEligible = !npc && movingWeight < .02 && motionSpeed < .08 && !interaction && !seated
+      && !dead && deathWeight < .03 && airWeight < .05 && landing < .05 && feetCalibrated;
+    if (turnEligible && !turnSteps.isInitialized()) for (const plant of footPlants)
+      bones[`${plant.side}Foot`].getWorldPosition(turnSamples[plant.side]);
+    if (turnEligible && !turnShapes) {
+      mesh.updateMatrixWorld(true);
+      turnShapes = Object.fromEntries(footPlants.map(plant => [plant.side, convexFootprint(plant.probes.map(probe => {
+        const vertex = new THREE.Vector3(); probe.object.getVertexPosition(probe.index, vertex);
+        probe.object.localToWorld(vertex); vertex.sub(turnSamples[plant.side]).applyAxisAngle(UP, -mesh.rotation.y);
+        return vertex;
+      }))]));
+    }
+    const nextTurnFeet = turnSteps.update({ dt: step, enabled: turnEligible, position: turnEligible ? mesh.getWorldPosition(turnPosition) : turnPosition,
+      yaw: mesh.rotation.y, samples: turnSamples, shapes: turnShapes });
+    turnBlend = nextTurnFeet ? 1 : THREE.MathUtils.damp(turnBlend, 0, 18, step);
+    if (nextTurnFeet) turnFeet = nextTurnFeet;
+    else if (turnBlend < .005) turnFeet = null;
+    turnWeight = THREE.MathUtils.damp(turnWeight, turnFeet && Object.values(turnFeet).some(foot => foot.lifted) ? turnBlend : 0, 12, step);
+    const desiredPelvisYaw = turnFeet ? clamp(Object.values(turnFeet).reduce((sum, foot) =>
+      sum + Math.atan2(Math.sin(foot.yaw - mesh.rotation.y), Math.cos(foot.yaw - mesh.rotation.y)), 0) * .5, -.6, .6) * turnBlend : 0;
+    turnPelvisYaw = THREE.MathUtils.damp(turnPelvisYaw, desiredPelvisYaw, 15, step);
+    if (Math.abs(turnPelvisYaw) > .0001 && bones.Hips && bones.Spine) {
+      bones.Hips.getWorldQuaternion(turnHipsWorld); bones.Spine.getWorldQuaternion(turnSpineWorld);
+      turnQuaternion.setFromAxisAngle(actorUp, turnPelvisYaw);
+      bones.Hips.parent.getWorldQuaternion(turnBoneParent).invert();
+      bones.Hips.quaternion.copy(turnBoneParent).multiply(turnQuaternion).multiply(turnHipsWorld);
+      bones.Hips.updateWorldMatrix(false, true);
+      bones.Spine.parent.getWorldQuaternion(turnBoneParent).invert();
+      bones.Spine.quaternion.copy(turnBoneParent).multiply(turnSpineWorld);
+      bones.Spine.updateWorldMatrix(false, true);
+    }
+    if (turnFeet) for (const plant of footPlants) {
+      const foot = turnFeet[plant.side];
+      plant.target.copy(foot.position); mesh.worldToLocal(plant.target);
+      // The terrain solver remains authoritative for height. Only the stepping
+      // foot adds deliberate swing clearance before the final sole correction.
+      plant.target.y = plant.height + plant.floor + foot.lift;
+      const sign = plant.side === 'Right' ? -1 : 1;
+      // Bend toward this shoe's retained heading without letting a delayed
+      // support foot twist the knee all the way away from the pelvis. The pole
+      // is a point relative to the actual hip/ankle segment, not actor origin.
+      pose.position(`${plant.side}UpLeg`, plant.hip);
+      const soleYaw = foot.yaw - mesh.rotation.y - turnPelvisYaw;
+      const kneeYaw = turnPelvisYaw + clamp(Math.atan2(Math.sin(soleYaw), Math.cos(soleYaw)), -1.1, 1.1) * .75;
+      direction.set(0, 0, .30).applyAxisAngle(UP, kneeYaw);
+      temp.set(sign * .12, 0, 0).applyAxisAngle(UP, turnPelvisYaw);
+      direction.add(temp).addScaledVector(plant.hip, .5).addScaledVector(plant.target, .5);
+      pose.reach(`${plant.side}UpLeg`, `${plant.side}Leg`, `${plant.side}Foot`, plant.target, direction, turnBlend);
+      orientSole(plant, turnBlend, foot.yaw - mesh.rotation.y);
+    }
+
     if (seatedWeight > 0.001) {
       // The root is the seat/pelvis anchor. Hands meet the wheel, feet reach the
       // pedal well; the hips and knees remain genuinely articulated on the rig.
@@ -685,7 +743,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       // posture before gait/contact detection would change touchdown timing.
       // The final leg solve extends toward these same targets, preserving both
       // soles; terrain penetration never feeds into the averaged source hips.
-      const postureLift = neutralPelvisLift * standingInfluence;
+      const postureLift = neutralPelvisLift * standingInfluence * (1 - turnWeight * .3);
       let lowerPelvis = 0;
       for (const plant of footPlants) {
         const soleHeight = sampleSoleHeight(plant.probes.length ? plant.probes : soleProbes, plant.bounds);
@@ -698,7 +756,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
         if (plant.floor < previousFloor - .03 && height > .04) {
           plant.active = false; plant.armed = true;
         }
-        const support = Math.max(relaxed, plant.active ? (plant.weight + smooth(plant.weight, 0, 1)) * .5 * movingWeight : 0);
+        const support = Math.max(relaxed * (turnFeet?.[plant.side]?.lifted ? 1 - turnBlend : 1), plant.active ? (plant.weight + smooth(plant.weight, 0, 1)) * .5 * movingWeight : 0);
         pose.position(`${plant.side}Foot`, plant.corrected);
         plant.corrected.y += (.001 - height) * (height < .001 ? 1 : support);
         bones[`${plant.side}Foot`]?.getWorldQuaternion(plant.rotation);
@@ -758,7 +816,8 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
         contactToe.sub(contactAnkle); contactToe.y = 0;
         if (contactToe.lengthSq() > 1e-8) contact.forward.copy(contactToe).normalize();
       }
-      contact.planted = plant.active; contact.weight = plant.weight;
+      const turnSupport = turnFeet && !turnFeet[plant.side].lifted ? turnBlend : 0;
+      contact.planted = plant.active || turnSupport > .95; contact.weight = Math.max(plant.weight, turnSupport);
     }
     return true;
   }
@@ -901,7 +960,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     // anatomical yaw/pitch limits, so a 180-degree request cannot fire sideways.
     Object.assign(aimState, { ready: Boolean(weapon.visible && !reloading && reloadWeight < .05
       && !context.dead && !context.interaction && seatedWeight < .001 && aimWeight >= .94
-      && angleError <= Math.PI / 60 && !context.reachLimited), raised: aimWeight,
+      && angleError <= Math.PI / 60 && !context.reachLimited && !context.yawClamped), raised: aimWeight,
     angleError, yaw: context.yaw, pitch: context.pitch, yawClamped: context.yawClamped,
     reachLimited: context.reachLimited, recoil, iterations });
   }
@@ -923,6 +982,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   function resetGrounding() {
     lastAdvanceInput = null;
     surfaceOffset = 0;
+    turnSteps.reset(); turnFeet = null; turnWeight = 0; turnPelvisYaw = 0; turnBlend = 0;
     mesh.getWorldPosition(previousPosition);
     for (const plant of footPlants) {
       plant.active = false; plant.armed = true; plant.sampled = false;
@@ -938,7 +998,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     seatAnchor: 'pelvis',
     setWeapon(visible) { flushPose(); weaponVisible = Boolean(visible); weapon.visible = weaponVisible; },
     reactToHit(strength = 1) { flushPose(); hitReaction = clamp(strength, 0.2, 1); lastAdvanceInput = null; },
-    getPoseInfo() { flushPose(); return { evaluations: { advances: advanceCount, poses: poseCount }, locomotion: { speed: motionSpeed, gaitPhase, strideScale, runningWeight, movementAngle }, state: mesh.userData.animationState, pelvis: pose.position('Hips', new THREE.Vector3()).toArray(), pelvisHeight: initialHipHeight, surfaceOffset, neutralPelvisLift, standingWeight, weaponVisible, armed: Boolean(weapon.visible), aimWeight, readyWeight, reloadWeight, reloadProgress: currentReloadProgress, landingWeight: landing, hitWeight: hitReaction, airborneWeight: airWeight, deathWeight, recoil, aim: getAimState(), grip: hands.getGripInfo(), footContacts: footPlants.map((plant) => ({ side: plant.side, planted: plant.active, weight: plant.weight, anchor: plant.anchor.toArray(), ankleHeight: plant.height, floor: plant.floor, soleClearance: plant.soleHeight, probes: plant.probes.length })) }; },
+    getPoseInfo() { flushPose(); return { evaluations: { advances: advanceCount, poses: poseCount }, locomotion: { turnFeet: turnFeet && Object.fromEntries(Object.entries(turnFeet).map(([side, foot]) => [side, {position: foot.position.toArray(),yaw: foot.yaw,lift: foot.lift,phase:foot.phase,lifted:foot.lifted}])), speed: motionSpeed, gaitPhase, strideScale, runningWeight, movementAngle }, state: mesh.userData.animationState, pelvis: pose.position('Hips', new THREE.Vector3()).toArray(), pelvisHeight: initialHipHeight, surfaceOffset, neutralPelvisLift, standingWeight, weaponVisible, armed: Boolean(weapon.visible), aimWeight, readyWeight, reloadWeight, reloadProgress: currentReloadProgress, landingWeight: landing, hitWeight: hitReaction, airborneWeight: airWeight, deathWeight, recoil, aim: getAimState(), grip: hands.getGripInfo(), footContacts: footPlants.map((plant) => ({ side: plant.side, planted: plant.active || Boolean(turnFeet && !turnFeet[plant.side].lifted && turnBlend > .95), weight: Math.max(plant.weight, turnFeet && !turnFeet[plant.side].lifted ? turnBlend : 0), anchor: turnFeet && !turnFeet[plant.side].lifted ? turnFeet[plant.side].position.toArray() : plant.anchor.toArray(), ankleHeight: plant.height, floor: plant.floor, soleClearance: plant.soleHeight, probes: plant.probes.length })) }; },
     getFootContactSurfaces() { return contactSurfaces; },
   };
 }

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
+import { createShotFrameScheduler } from '../src/shot-frame-scheduler.js';
+import { createWeaponHandling } from '../src/weapon-handling.js';
 
 // Execute the real main entry points with a renderer boundary fixture. Browser
 // restoration still verifies the actual WebGL uploads and resulting lighting.
@@ -72,6 +74,10 @@ test('actual frame gate freezes simulation while unavailable and charges no sync
     renderer: { shadowMap: { enabled: false }, getDrawingBufferSize: value => value },
     world: { updateWires() {}, updateInstanceVisibility() {} }, localSelfShadow: { update() {} }, rendering: { render() {} },
   };
+  context.advanceFrameSimulation = createShotFrameScheduler({
+    getTime: () => updates.reduce((sum, dt) => sum + dt, 0),
+    advance: context.updateGame, handling: createWeaponHandling(),
+  });
   vm.createContext(context); vm.runInContext(main.slice(frameStart, frameEnd), context);
   context.frame(100); context.frame(200);
   assert.deepEqual(updates, []); assert.equal(context.renderFrame, 0); assert.equal(context.lastFrame, 200);

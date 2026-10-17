@@ -315,14 +315,17 @@ test('repeating the transform is byte-stable and stale optimization metadata is 
 // joint prefixes and protected hands/soles are independently checked elsewhere.
 // The anatomical male complexion pass changes only its embedded color image;
 // every geometry, rig, morph, LOD and other image payload remains exact.
+// The rear garment repair deliberately corrects upper-arm winding/normals,
+// lower-neck cloth clearance/influences and body texture sampling. Head, skin
+// anatomy, UVs, original rig and female payloads remain protected independently.
 // These fingerprints pin the reviewed combined exports after exact indexing.
 const baselines = {
   "Male": {
-    "attributes": "630918a3b1af41e93b8b9c798c1ee41a7ac66c0f6a3c18e8b648a7c813f3037c",
-    "orientedSurfaces": "039193013193cda370679ae4632531bdb1a182c4dc68b2a90ec4321d19fa6d27",
-    "blendOrder": "0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260",
-    "rig": "ce7952a79ec49cc6b9d7e6394e221745ee9fe8ac717ad0b76907eed6cbcd334a",
-    "materials": "c9a64895d554db80fcb14ddf8a99cbe0a6fd6a9e9fe052c94b2cb6cdee03b1c4"
+      "attributes": "a2f6c55654603f5a80cea3fb704890e17395d674e7959143a70423903485ad7d",
+      "orientedSurfaces": "e0c011a5b75b59405082c97c8283327beaf096c2031bbac3580b55ddcafa7bb2",
+      "blendOrder": "0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260",
+      "rig": "ce7952a79ec49cc6b9d7e6394e221745ee9fe8ac717ad0b76907eed6cbcd334a",
+      "materials": "098bd5f487e8bab2e72922ff1cf82b9348265909274a99a37c1dd4e245d2abcf"
   },
   "Female": {
     "attributes": "691de62401c798f0502c8a41d68627574ac203648bec6e29e206eb7566cb9170",

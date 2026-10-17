@@ -53,12 +53,13 @@ test('far simplifier receives posed error channels and restores original IDs wit
 // Pin the reviewed combined garment/hair/eye rebuild. The fitted male shirt
 // intentionally adds surface topology; all original joint prefixes remain
 // protected by the appearance/eye tests. Later far-only changes must preserve
-// this reviewed near/mid data.
+// this reviewed near/mid data. The rear garment repair intentionally regenerates
+// male indices after correcting winding and upper-back cloth influences.
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 const midFingerprints = {
-  Male: 'fd35414f36a8c6262fc67ba47b1ded29e2df606a20bee294d849f12ef78955e1',
+  Male: '07db999ed39c7ac23955a0930edb855e15be9795c80bb05961616b1e2d491837',
   Female: 'a37d2b2a756755281553dbfe9371db6b53044c0a03931d026ab1b59ed19bbe72',
 };
 for (const sex of ['Male', 'Female']) test(`${sex}: far rebuild preserves authored near/mid data and meets bounded geometry budget`, async () => {
