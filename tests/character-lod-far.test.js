@@ -50,16 +50,15 @@ test('far simplifier receives posed error channels and restores original IDs wit
   assert.throws(() => simplifyFarCharacter({ simplifier, positions, indices: new Uint32Array([1, 2, 3]), attributes, morphLocks: new Uint8Array(4), poses: new Float32Array(3) }), /nine finite/);
 });
 
-// Pin the deliberately rebuilt mid LOD after the reviewed hair atlas guard
-// repack. Raw geometry is unchanged; new packed UV coordinates can change
-// simplifier tie choices, so the complete appearance pipeline was regenerated.
-// Near GLB surfaces have independent fingerprints; these protect the approved
-// mid data during subsequent far-only rebuilds.
+// Pin the reviewed combined garment/hair/eye rebuild. The fitted male shirt
+// intentionally adds surface topology; all original joint prefixes remain
+// protected by the appearance/eye tests. Later far-only changes must preserve
+// this reviewed near/mid data.
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 const midFingerprints = {
-  Male: '89ae6c1bb70903a1943a685b710553c99ec197ea45367db4fe8967f287e00651',
+  Male: 'fd35414f36a8c6262fc67ba47b1ded29e2df606a20bee294d849f12ef78955e1',
   Female: 'a37d2b2a756755281553dbfe9371db6b53044c0a03931d026ab1b59ed19bbe72',
 };
 for (const sex of ['Male', 'Female']) test(`${sex}: far rebuild preserves authored near/mid data and meets bounded geometry budget`, async () => {
@@ -68,7 +67,7 @@ for (const sex of ['Male', 'Female']) test(`${sex}: far rebuild preserves author
   const data = JSON.parse(await readFile(resolve(directory, `Civilian${sex}Natural.lod.json`)));
   assert.equal(createHash('sha256').update(bytes).digest('hex'), data.sha256);
   assert.equal(createHash('sha256').update(JSON.stringify(data.meshes.map(mesh => mesh.levels[0]))).digest('hex'), midFingerprints[sex]);
-  assert.ok(data.meshes.reduce((sum, mesh) => sum + mesh.levels[1].triangles, 0) < 5000);
+  assert.ok(data.meshes.reduce((sum, mesh) => sum + mesh.levels[1].triangles, 0) < (sex === 'Male' ? 5300 : 5000));
   for (const mesh of data.meshes) {
     const far = mesh.levels[1];
     assert.ok(far.indices.every(index => Number.isInteger(index) && index >= 0 && index < mesh.vertices));

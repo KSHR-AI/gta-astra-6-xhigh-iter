@@ -30,6 +30,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   const wantedLook = new THREE.Quaternion();
   const headWorld = new THREE.Quaternion();
   const headParentInverse = new THREE.Quaternion();
+  const attentionDirection = new THREE.Vector3(), attentionOrigin = new THREE.Vector3();
   const footWorld = new THREE.Quaternion();
   const footParentInverse = new THREE.Quaternion();
   const footYaw = new THREE.Quaternion();
@@ -57,6 +58,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   let presentedAim = null;
   let lastAppliedShotId = -Infinity;
   let headInitialized = false;
+  let attentionMode = 'idle';
   const seatOffset = pose.position('Hips', new THREE.Vector3()).multiplyScalar(-1);
   const initialHipHeight = -seatOffset.y;
   const previousHeading = { value: mesh.rotation.y };
@@ -92,6 +94,8 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   let reloadElapsed = 0, currentReloadProgress = 1;
   let pendingPose = null, pendingPoseTime = 0;
   let advanceCount = 0, poseCount = 0;
+  let lastAdvanceInput = null;
+  const lastAdvanceWorld = new THREE.Matrix4();
   const restRotations = new Map(Object.entries(bones).map(([name, bone]) => [bone, restPose[name]]));
   function restFrame(bone) {
     const chain = [];
@@ -174,10 +178,24 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     const {
       speed = 0, armed = weaponVisible, aiming = false, shooting = false, shotId, dead = false,
       seated = false, steering = 0, jumping = false, verticalVelocity = 0,
-      reloading = false, reloadProgress, aimPitch = 0, aimYaw = 0, aimTarget = null,
+      reloading = false, reloadProgress, aimPitch = 0, aimYaw = 0, aimTarget = null, lookTarget = null,
       interactionProgress = 0, interactionPhase = '', hit = false,
     } = options;
     const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.25);
+    const input = [speed, armed, weaponVisible, aiming, shooting, shotId, dead, seated, steering,
+      jumping, verticalVelocity, reloading, reloadProgress, aimPitch, aimYaw,
+      aimTarget?.x, aimTarget?.y, aimTarget?.z, lookTarget?.x, lookTarget?.y, lookTarget?.z,
+      interactionProgress, interactionPhase, hit];
+    mesh.updateWorldMatrix(true, false);
+    // Mixer.update(0) may leave unchanged source tracks unwritten. Reapplying
+    // procedural blends would then blend the previous solved pose again, so a
+    // paused NPC's neck/body keep settling despite its frozen simulation clock.
+    // Keep the displayed pose for identical deferred inputs; changed seats,
+    // roots and explicit immediate updates still request a real pose refresh.
+    if (deferred && step === 0 && lastAdvanceInput && lastAdvanceWorld.equals(mesh.matrixWorld)
+      && input.every((value, index) => Object.is(value, lastAdvanceInput[index]))) return;
+    lastAdvanceInput = input;
+    lastAdvanceWorld.copy(mesh.matrixWorld);
     elapsed += step;
     const interaction = interactionPhase === 'enter' || interactionPhase === 'exit';
     const canUseWeapon = !interaction && !seated && !dead;
@@ -213,7 +231,6 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       recoil = clamp(recoil + recoilVelocity * recoilStep, -0.008, 0.12);
     }
 
-    mesh.updateWorldMatrix(true, false);
     mesh.getWorldQuaternion(rootRotation);
     inverseRotation.copy(rootRotation).invert();
     mesh.getWorldPosition(worldPosition);
@@ -289,7 +306,8 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     pendingPoseTime += step;
     pendingPose = { interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
       movingWeight, aiming, shooting, dead, seated, steering, verticalVelocity,
-      reloading, reloadT, aimPitch, aimYaw, aimTarget: aimTarget?.isVector3 ? aimTarget.clone() : null, interactionPhase };
+      reloading, reloadT, aimPitch, aimYaw, aimTarget: aimTarget?.isVector3 ? aimTarget.clone() : null,
+      lookTarget: lookTarget?.isVector3 && lookTarget.toArray().every(Number.isFinite) ? lookTarget.clone() : null, interactionPhase };
     mesh.userData.animationState = dead ? 'down' : interaction ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : landing > 0.08 ? 'landing' : hitReaction > 0.05 ? 'hit' : aiming || shooting ? 'aiming' : motionSpeed > 3.7 ? 'running' : motionSpeed > 0.15 ? 'walking' : carrying ? 'low-ready' : 'idle';
   }
 
@@ -297,7 +315,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     if (!pendingPose) return false;
     const { interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
       movingWeight, aiming, shooting, dead, seated, steering, verticalVelocity,
-      reloading, reloadT, aimPitch, aimYaw, aimTarget, interactionPhase } = pendingPose;
+      reloading, reloadT, aimPitch, aimYaw, aimTarget, lookTarget, interactionPhase } = pendingPose;
     const step = pendingPoseTime;
     pendingPose = null; pendingPoseTime = 0; poseCount++;
     mesh.getWorldQuaternion(rootRotation);
@@ -557,9 +575,22 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       // Pointing that axis vertically raised his chin and retained rifle-idle
       // neck twist. Rotate the authored head frame toward actor-forward instead.
       const attentive = !aiming && !shooting && !reloading;
-      const lookPitch = (aiming || shooting ? pitch * 0.75 : Math.sin(elapsed * 0.29) * 0.018 * idleLife)
+      attentionMode = dead ? 'down' : interaction ? interactionPhase : seated ? 'seated' : reloading ? 'reload' : aiming || shooting ? 'aim' : 'idle';
+      let lookPitch = (aiming || shooting ? pitch * 0.75 : Math.sin(elapsed * 0.29) * 0.018 * idleLife)
         + hitReaction * 0.22 - landing * 0.06 - seatedWeight * 0.015;
-      const lookYaw = attentive ? Math.sin(elapsed * 0.37) * 0.065 * idleLife + steering * seatedWeight * 0.10 : aim.yaw * .82;
+      let lookYaw = attentive ? Math.sin(elapsed * 0.37) * 0.065 * idleLife + steering * seatedWeight * 0.10 : aim.yaw * .82;
+      // Attention is an explicit world-space intent. A nearby conversation can
+      // turn the head without twisting the body or overriding a weapon/action.
+      if (lookTarget && attentive && !interaction && !seated && !dead) {
+        bones.Head.getWorldPosition(attentionOrigin);
+        attentionDirection.copy(lookTarget).sub(attentionOrigin).applyQuaternion(inverseRotation.copy(rootRotation).invert());
+        if (attentionDirection.lengthSq() > .04 && attentionDirection.z > 0) {
+          attentionMode = 'look';
+          const attentionWeight = 1 - movingWeight;
+          lookYaw = THREE.MathUtils.lerp(lookYaw, clamp(Math.atan2(attentionDirection.x, attentionDirection.z), -.52, .52), attentionWeight);
+          lookPitch = THREE.MathUtils.lerp(lookPitch, clamp(Math.atan2(attentionDirection.y, Math.hypot(attentionDirection.x, attentionDirection.z)), -.24, .24), attentionWeight);
+        }
+      }
       lookEuler.set(-clamp(lookPitch, -0.82, 0.82), lookYaw, 0);
       wantedLook.setFromEuler(lookEuler);
       headLook.slerp(wantedLook, headInitialized ? 1 - Math.exp(-12 * step) : 1);
@@ -890,6 +921,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
 
   function update(dt, options = {}) { advance(dt, options, false); flushPose(); }
   function resetGrounding() {
+    lastAdvanceInput = null;
     surfaceOffset = 0;
     mesh.getWorldPosition(previousPosition);
     for (const plant of footPlants) {
@@ -900,11 +932,12 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
 
   return {
     update, advance, flushPose, resetGrounding, getAimState, applyShot,
+    getAttentionInfo: () => ({ mode: attentionMode, localQuaternion: bones.Head?.quaternion.toArray() ?? null }),
     getEvaluationStats: () => ({ advances: advanceCount, poses: poseCount, pending: Boolean(pendingPose), pendingTime: pendingPoseTime }),
     seatOffset,
     seatAnchor: 'pelvis',
     setWeapon(visible) { flushPose(); weaponVisible = Boolean(visible); weapon.visible = weaponVisible; },
-    reactToHit(strength = 1) { flushPose(); hitReaction = clamp(strength, 0.2, 1); },
+    reactToHit(strength = 1) { flushPose(); hitReaction = clamp(strength, 0.2, 1); lastAdvanceInput = null; },
     getPoseInfo() { flushPose(); return { evaluations: { advances: advanceCount, poses: poseCount }, locomotion: { speed: motionSpeed, gaitPhase, strideScale, runningWeight, movementAngle }, state: mesh.userData.animationState, pelvis: pose.position('Hips', new THREE.Vector3()).toArray(), pelvisHeight: initialHipHeight, surfaceOffset, neutralPelvisLift, standingWeight, weaponVisible, armed: Boolean(weapon.visible), aimWeight, readyWeight, reloadWeight, reloadProgress: currentReloadProgress, landingWeight: landing, hitWeight: hitReaction, airborneWeight: airWeight, deathWeight, recoil, aim: getAimState(), grip: hands.getGripInfo(), footContacts: footPlants.map((plant) => ({ side: plant.side, planted: plant.active, weight: plant.weight, anchor: plant.anchor.toArray(), ankleHeight: plant.height, floor: plant.floor, soleClearance: plant.soleHeight, probes: plant.probes.length })) }; },
     getFootContactSurfaces() { return contactSurfaces; },
   };

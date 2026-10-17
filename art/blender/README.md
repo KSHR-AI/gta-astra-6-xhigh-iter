@@ -31,9 +31,9 @@ The browser desktop does not install a native computer-use connector or Unreal E
 The game now uses these original Blender exports:
 
 ```sh
-blender --background --factory-startup --threads 2 --python art/blender/vehicle_meridian.py
-blender --background --factory-startup --threads 2 --python art/blender/city_streetscape.py
-blender --background --factory-startup --threads 2 --python art/blender/character_sidearm.py
+blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/vehicle_meridian.py
+blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/city_streetscape.py
+blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/character_sidearm.py
 ```
 
 Each generator saves its editable `.blend` beside the script and its GLB under `public/models/`. The city generator also creates its original sign/newspaper/fabric atlas through `city_textures.py`. The vehicle generator exports both near and simplified far meshes. Runtime integration lives in `src/vehicles.js`, `src/world-props.js`, and `src/characters.js`. Keep the named wheel, door, grip, and muzzle attachment conventions when editing assets. Preview changes in-game, including door/steering motion and the seated driver, before committing exports.
@@ -45,13 +45,13 @@ Each generator saves its editable `.blend` beside the script and its GLB under `
 Export the head library from the repository root with Blender 4.5, Python 3 with **Pillow** and **NumPy**, and the project's installed Node dependencies (including `three`). The complete current character rebuild, including authored clothing and staged graft/LOD outputs, is documented [below](#deliberate-appearance-rebuild-with-facial-morphs).
 
 ```sh
-blender --background --factory-startup --threads 2 --python art/blender/character_humans.py -- /tmp/astra-head-export
+blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/character_humans.py -- /tmp/astra-head-export
 python3 art/blender/character_head_atlas.py /tmp/astra-head-export
 ```
 
 The exporter opens the packed `.blend` without modifying it and writes the original head cages to the temporary directory; preview subdivision is omitted. The atlas step preserves geometry and face texture density while packing a 2048-pixel color atlas and 1024-pixel roughness and normal maps. It produces both one-material `optimized_*_head.glb` files and the final two-material `soft_*_head.glb` variants: skin/eyes/hair use alpha masking, while fine brows/lashes use blending. Custom `_SKIN_MASK` and `_HAIR_MASK` attributes support runtime appearance variations. These commands leave all runtime exports in `/tmp/astra-head-export`.
 
-The current graft uses the staged, authored `CivilianMale.glb` and `Michelle-crowd.glb` body inputs through `--body-dir`, and writes `CivilianMaleNatural.glb` and `CivilianFemaleNatural.glb` through an explicit `--output-dir`. It replaces visible heads and blends the new necks into the retained bodies, preserving the original skeleton nodes, hierarchy, and inverse bind matrices. The reviewed characters have three material batches each and 22,943 male / 22,092 female near triangles. MakeHuman head assets are CC0; the male body retains EmoPreben's CC0 terms, while Michelle's body and the Mixamo locomotion retain their separate Adobe terms. See [asset credits](../../ASSETS.md).
+The current graft uses the staged, authored `CivilianMale.glb` and `Michelle-crowd.glb` body inputs through `--body-dir`, and writes `CivilianMaleNatural.glb` and `CivilianFemaleNatural.glb` through an explicit `--output-dir`. It replaces visible heads and blends the new necks into the retained bodies, preserving the original skeleton nodes, hierarchy, and inverse bind matrices. The reviewed characters have three material batches each and 28,991 male / 22,092 female near triangles. MakeHuman head assets are CC0; the male body retains EmoPreben's CC0 terms, while Michelle's body and the Mixamo locomotion retain their separate Adobe terms. See [asset credits](../../ASSETS.md).
 
 The packed library contains everything needed to reproduce the head exports without downloading the original asset pack. Keep the collection/object names, source coordinate conventions, and region-mask attributes intact. Inspect the rebuilt characters in-game from the front and back, then exercise walking, aiming, entry/exit, and seated driving before shipping changed assets. These heads inherit skeletal head/neck motion; they do not add facial expressions or lip sync.
 
@@ -61,9 +61,9 @@ After grafting the authored heads and bodies, generate the distance meshes, then
 
 The [MIT-licensed meshoptimizer](https://github.com/zeux/meshoptimizer), pinned to version 0.24.0, runs only during authoring. The simplifier produces `CivilianMaleNatural.lod.json` and `CivilianFemaleNatural.lod.json` in the requested staging directory; no simplifier, encoder, or additional package is shipped to the browser. These index buffers derive from the same credited meshes and retain their original licensing. Source SHA-256 checks in the tests catch stale generated data.
 
-LOD geometry references the original vertices, UVs, normals, joint weights, masks, and skeleton. Mid simplification locks mixed-weight vertices and open boundaries. Far simplification instead measures mixed-weight deformation through sampled poses, while retaining physical body/head-skin boundaries and protected morph vertices. Current male triangle counts are 22,943 / 16,625 / 4,127, and female counts are 22,092 / 12,618 / 4,845. The playable character stays at full quality. NPCs transition at 14 / 30 m apparent distance with 15% hysteresis; camera FOV adjusts that distance, so photo zoom restores detail. Call `updateLOD(camera)` once per presented frame. Inspect both near/far transitions and zoomed photo views after authoring changes.
+LOD geometry references the original vertices, UVs, normals, joint weights, masks, and skeleton. Mid simplification locks mixed-weight vertices and open boundaries. Far simplification instead measures mixed-weight deformation through sampled poses, while retaining physical body/head-skin boundaries and protected morph vertices. Current male triangle counts are 28,991 / 21,131 / 5,217, and female counts are 22,092 / 12,618 / 4,844. The playable character stays at full quality. NPCs transition at 14 / 30 m apparent distance with 15% hysteresis; camera FOV adjusts that distance, so photo zoom restores detail. Call `updateLOD(camera)` once per presented frame. Inspect both near/far transitions and zoomed photo views after authoring changes.
 
-The final index step preserves every original vertex buffer, vertex number, material, skeleton, and triangle. It adds indices to the unindexed body meshes, sharing vertices only when every attribute and morph value matches exactly. The male body then references 5,642 of its 26,313 retained vertices, and the female body 3,540 of 15,900. This reduces repeated skinning work without changing the geometry or the vertex numbers used by sole and hit probes. Opaque and alpha-masked triangle indices are reordered for vertex reuse at every LOD; blended brows and lashes keep their original order.
+The final index step preserves every original vertex buffer, vertex number, material, skeleton, and triangle. It adds indices to the unindexed body meshes, sharing vertices only when every attribute and morph value matches exactly. The male body then references 9,375 of its 45,921 retained vertices, and the female body 3,540 of 15,900. This reduces repeated skinning work without changing the geometry or the vertex numbers used by sole and hit probes. Opaque and alpha-masked triangle indices are reordered for vertex reuse at every LOD; blended brows and lashes keep their original order.
 
 `character_indices.mjs` validates complete surface equivalence and immutable attributes before writing either character. It updates the LOD source hashes and records an `indexOptimization` proof in each sidecar. Running the final index step again validates those hashes and leaves the files unchanged. A stale proof fails instead of silently reoptimizing edited data: rebuild the heads/bodies, regenerate the LODs, then run the index step again. The asset tests also retain fingerprints of the original attributes, rig, materials, and oriented surfaces so an index-only change cannot silently alter them.
 
@@ -103,15 +103,17 @@ Stage an appearance change separately from the browser's current assets. Raw hea
 Run from the repository root with Blender 4.5, installed Node dependencies, and Python with NumPy, Pillow and SciPy. SciPy and meshoptimizer are offline authoring tools. The sequence below rebuilds garment geometry/maps, exports the packed heads into the same directory used by the atlas, then grafts, generates LODs and indexes into separate candidate directories. See the [clothing guide](character_clothing_README.md) for its material contract and validator. The clothing generator also refreshes its editable `art/blender/character_clothing.blend`; all runtime GLB/sidecar outputs below remain staged.
 
 ```sh
+set -e
 python3 -m pip install --target /tmp/astra-cloth-python scipy==1.18.1
 npm install --prefix /tmp/astra-lod-tool meshoptimizer@0.24.0 --no-audit --no-fund
 
 python3 art/blender/character_clothing_boundaries.py /tmp/astra-clothing-stage
 python3 art/blender/character_clothing_textures.py /tmp/astra-clothing-stage/textures
-blender --background --factory-startup --threads 2 --python art/blender/character_clothing.py -- /tmp/astra-clothing-stage
+python3 art/blender/character_shirt_textures.py /tmp/astra-clothing-stage/textures
+blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/character_clothing.py -- /tmp/astra-clothing-stage
 node art/blender/character_clothing_validate.mjs /tmp/astra-clothing-stage
 
-blender --background --factory-startup --threads 2 --python art/blender/character_humans.py -- /tmp/astra-face-stage
+blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/character_humans.py -- /tmp/astra-face-stage
 python3 art/blender/character_head_atlas.py /tmp/astra-face-stage
 node art/blender/character_humans.mjs /tmp/astra-face-stage \
   --body-dir /tmp/astra-clothing-stage --output-dir /tmp/astra-appearance-preindex
@@ -142,7 +144,7 @@ node --test tests/character-morph-pipeline.test.js tests/character-indices.test.
   tests/character-lod.test.js tests/character-lod-far.test.js
 ```
 
-The current authored assets contain male 22,943 / 16,625 / 4,127 and female 22,092 / 12,618 / 4,845 triangles at near/mid/far distance, each in three material batches. Far geometry now compacts the simplifier working set before reducing triangles. This removes unused duplicate vertices that otherwise appear to be complex seams. Returned indices map back to original vertex IDs, keeping all shipped skin weights, UVs, normals, masks, rig data, and morph attributes exact. True geometric open boundaries remain locked for the body and head skin; alpha hair surfaces use the normal/UV/posed-error metric rather than blanket border locks. Male neck cut normals and bone weights match the interpolated body contour, fading smoothly back to authored head values above the cut.
+The current authored assets contain male 28,991 / 21,131 / 5,217 and female 22,092 / 12,618 / 4,844 triangles at near/mid/far distance, each in three material batches. Far geometry now compacts the simplifier working set before reducing triangles. This removes unused duplicate vertices that otherwise appear to be complex seams. Returned indices map back to original vertex IDs, keeping all shipped skin weights, UVs, normals, masks, rig data, and morph attributes exact. True geometric open boundaries remain locked for the body and head skin; alpha hair surfaces use the normal/UV/posed-error metric rather than blanket border locks. Male neck cut normals and bone weights match the interpolated body contour, fading smoothly back to authored head values above the cut.
 
 ### Far-only character rebuild
 
@@ -175,7 +177,7 @@ For fixed-light, fixed-camera source head comparisons, retain a previous head
 atlas directory and run:
 
 ```sh
-blender --background --factory-startup --threads 2 --python art/blender/character_surface_preview.py -- /tmp/previous-heads /tmp/astra-face-stage /tmp/astra-surface-preview
+blender --background --factory-startup --threads 2 --python-exit-code 1 --python art/blender/character_surface_preview.py -- /tmp/previous-heads /tmp/astra-face-stage /tmp/astra-surface-preview
 ASTRA_CHARACTER_ASSET_DIR=/tmp/astra-appearance-stage node --test tests/character-surface-assets.test.js tests/character-face-assets.test.js
 ```
 

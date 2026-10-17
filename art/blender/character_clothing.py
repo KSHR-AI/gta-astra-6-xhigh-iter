@@ -7,9 +7,9 @@ Then (Blender 4.5, all outputs are staged):
   blender --background --factory-startup --threads 2 --python art/blender/character_clothing.py -- /tmp/astra-clothing-stage
 
 The Blender project keeps the garment fit as editable shape keys and facing
-strips as separate meshes with source skin groups. Original garment positions
-and normals are deliberately authored; UVs, skin influences, exposed skin and
-rig nodes/inverse binds stay exact. GLBs are written without an armature export
+strips as separate meshes with source skin groups. Original garment positions and normals are deliberately authored; the male
+shirt and upper-arm cuff region also receive replacement topology and UVs.
+Original hands, forearms, soles and rig nodes/inverse binds stay exact. GLBs are written without an armature export
 conversion. The source originals themselves remain unchanged.
 """
 from pathlib import Path
@@ -28,6 +28,7 @@ TYPES = {5120: np.dtype('i1'), 5121: np.dtype('u1'), 5122: np.dtype('<i2'), 5123
 WIDTHS = {'SCALAR': 1, 'VEC2': 2, 'VEC3': 3, 'VEC4': 4, 'MAT4': 16}
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from character_apparel_shape import shape_garments
+from character_shirt import crew_shirt
 
 class GLB:
     def __init__(self, path):
@@ -282,7 +283,19 @@ for sex,filename,x in [('male','CivilianMale.glb',-.65),('female','Michelle-crow
     material=display_material(sex,textures)
     collection=bpy.data.collections.new(sex.title()+' garment construction');bpy.context.scene.collection.children.link(collection)
     world_positions=np.array([list(bind@Vector(p)) for p in attributes['POSITION']]);floor=float(world_positions[:,1].min());scale=(1.82 if male else 1.74)/float(np.ptp(world_positions[:,1]))
-    body_triangles=indices.reshape((-1,3));visible=body_triangles[np.max(world_positions[body_triangles,1],axis=1)<(70 if male else 1.32)]
+    body_triangles=indices.reshape((-1,3))
+    replacement=None
+    if male:
+        replacement, replacement_faces, replacement_report=crew_shirt(attributes,body_triangles,bind,joint_names,OUT)
+        # Uniform jersey uses a verified empty region of the original body atlas.
+        shirt_selection=replacement['_GARMENT_MASK'][:,0]>.5
+        replacement['TEXCOORD_0'][shirt_selection,0]=(1504+replacement['TEXCOORD_0'][shirt_selection,0]*368)/2048
+        replacement['TEXCOORD_0'][shirt_selection,1]=(1488+replacement['TEXCOORD_0'][shirt_selection,1]*512)/2048
+        attributes['_GARMENT_MASK']=np.zeros((len(attributes['POSITION']),1),dtype=np.float32)
+        primitive.setdefault('extras',{})['replacedGarmentTriangles']=replacement_report['replacedSourceTriangles']
+    display_selection=np.max(world_positions[body_triangles,1],axis=1)<(70 if male else 1.32)
+    if male:display_selection[replacement_report['replacedSourceTriangles']]=False
+    visible=body_triangles[display_selection]
     body=make_display(sex+' tailored clothed body',attributes,visible.tolist(),bind,scale,floor,x,material,joint_names,collection)
     body['source_file']=filename;body['source_rig_unchanged']=True
     body['authorship']='Original apparel fit and compression folds; imported skin influences and UVs retained'
@@ -292,9 +305,15 @@ for sex,filename,x in [('male','CivilianMale.glb',-.65),('female','Michelle-crow
     for i,point in enumerate(original_attributes['POSITION']):
         v=bind@Vector(point);basis.data[i].co=(v.x*scale+x,-v.z*scale,(v.y-floor)*scale)
         tailored.data[i].co=target_points[i]
-    project,sample=cloth_surface_projector(bind,normal_matrix,attributes,body_triangles,mask) if male else (None,None)
+    project,sample=(None,None)
+    if male:
+        shirt=make_display('Male fitted crew shirt',replacement,replacement_faces.tolist(),bind,scale,floor,x,material,joint_names,collection)
+        shirt['construction']='Original fitted crew neck; source-derived panels, reduced deltoid volume, measured neck clearance and preserved cuff/hem contacts'
+        shirt['source']='art/blender/character_shirt.py'
+        shirt['rig_transfer']='Subdivided normalized original garment joint influences; unchanged skeleton'
+        shirt['authoring_report']='male-crew-shirt.json'
     strips=[]
-    for loop in boundaries.get('shirtBoundaryLoops',[]):
+    for loop in ([] if male else boundaries.get('shirtBoundaryLoops',[])):
         if not loop.get('closed') or loop['vertices']<8:continue
         strip=garment_strip(loop,bind,normal_matrix,attributes,male,cloth_uv,project if male and loop['label']=='collar' else None);strips.append(strip)
         obj=make_display(sex+' '+strip['label']+' facing',strip,strip['faces'],bind,scale,floor,x,material,joint_names,collection)
@@ -303,13 +322,23 @@ for sex,filename,x in [('male','CivilianMale.glb',-.65),('female','Michelle-crow
         for key in attributes:attributes[key]=np.concatenate([attributes[key],np.array(strip[key],dtype=attributes[key].dtype)])
     for key,values in attributes.items():
         original_accessor=original_json['accessors'][primitive['attributes'][key]] if key in primitive['attributes'] else None
-        primitive['attributes'][key]=source.attribute(values,original_accessor['type'] if original_accessor else 'VEC4',original_accessor['componentType'] if original_accessor else 5126)
+        primitive['attributes'][key]=source.attribute(values,original_accessor['type'] if original_accessor else 'SCALAR' if key=='_GARMENT_MASK' else 'VEC4',original_accessor['componentType'] if original_accessor else 5126)
     primitive['indices']=source.attribute(indices,'SCALAR',5125)
+    if male:
+        replacement_primitive={'attributes':{},'indices':source.attribute(replacement_faces.reshape(-1),'SCALAR',5125),'material':primitive['material'],'extras':{'authoredGarment':True,'source':'art/blender/character_shirt.py'}}
+        for key,values in replacement.items():
+            kind='SCALAR' if key=='_GARMENT_MASK' else 'VEC2' if key=='TEXCOORD_0' else 'VEC3' if key in ['POSITION','NORMAL'] else 'VEC4'
+            replacement_primitive['attributes'][key]=source.attribute(values,kind,5123 if key=='JOINTS_0' else 5126)
+        source.j['meshes'][geometry_node['mesh']]['primitives'].append(replacement_primitive)
     mat=source.j['materials'][primitive['material']];pbr=mat.setdefault('pbrMetallicRoughness',{})
     pbr['baseColorTexture']={'index':source.texture(textures/f'{sex}-diffuse.png')};pbr['metallicRoughnessTexture']={'index':source.texture(textures/f'{sex}-roughness.png')};pbr['metallicFactor']=0;pbr['roughnessFactor']=1
     mat['normalTexture']={'index':source.texture(textures/f'{sex}-normal.png'),'scale':.85}
     mat.setdefault('extras',{}).update(clothingAuthored=True,trousersAuthored=True,apparelShapeAuthored=True,clothingMaskChannel='metallicRoughnessTexture.R',clothRoughnessChannel='metallicRoughnessTexture.G',skinMaskChannel='metallicRoughnessTexture.B',normalConvention='retain source convention; runtime normalScale.y=-1' if male else 'retain source glTF normal convention',clothingSource='art/blender/character_clothing.py')
     mat['extras']['shirtDyeLuminance']=texture_report['shirt_dye_linear_luminance_median']
+    if male:
+        mat['extras']['crewShirtAuthored']=True
+        mat['extras']['crewShirtSource']='art/blender/character_shirt.py'
+        mat['extras']['shirtDyeLuminance']=json.loads((textures/'male-crew-textile.json').read_text())['shirtDyeLuminance']
     if texture_report.get('footwear',{}).get('authored'):
         mat['extras']['footwearAuthored']=True
         mat['extras']['footwearSource']='art/blender/character_shoe_surface.py'

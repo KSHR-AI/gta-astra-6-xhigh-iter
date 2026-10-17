@@ -1,115 +1,91 @@
 # Civilian garment authoring
 
-This pass authors garment fit, fabric surfaces and raised facing strips on the
-checked-in `public/models/CivilianMale.glb` and `public/models/Michelle-crowd.glb`
-bodies. Their existing attribution and redistribution terms still apply. The
-new tailoring, procedural denim/cotton, folds, seam and pocket shading,
-collar/cuff strips and authoring code are original project work.
+The male derivative replaces the source long, inflated shirt with an original
+fitted crew shirt, set-in sleeve seams and mid-bicep cuffs. The panels reuse the
+credited CC0 civilian topology as a starting surface, then subdivide and refit
+it. The new opening is measured against the actual grafted neck and transfers
+its supporting skin weights. Hidden original V-neck skin is discarded only
+after the head graft has measured its original cut contour.
 
-Female trousers are reshaped from the source balloon silhouette into tapered
-denim. The male shirt and jeans gain modest fabric ease and compression folds.
-These are deliberate edits to selected original garment POSITION/NORMAL values;
-they are not unchanged source geometry. Source vertex IDs, triangles, UVs,
-joints and skin weights remain exact. Exposed skin, hands, soles and the source
-neck/cuff/hem contact anchors remain outside the edit. Tight male underarm and
-inside-thigh joins retain their source fit to avoid offsetting opposing faces
-into one another.
+Shorter sleeves expose a newly authored upper-arm continuation. The old cuff
+was a wavy clothing contour, so its small upper-arm region is refitted into a
+smooth section and joined to the retained arm. These vertices and their UVs
+**are deliberately changed**. Original forearms, hands, finger/grip anatomy,
+feet, soles, original joint order, transforms and inverse-bind prefix remain
+unchanged. Two calibrated eye joints are appended separately by the head
+pipeline; they do not change original motion-track indices.
 
-The editable `character_clothing.blend` includes source body studies with
-`Imported garment reference` and `Tailored apparel` shape keys, separate named
-facing meshes, source skin groups and packed authored textures. The generator
-writes GLBs directly to preserve the rig and inverse binds exactly instead of
-passing the skeleton through an armature export conversion.
+Female tapered denim, crop-top collar/armhole/hem bindings and male denim/shoe
+surfaces retain their earlier authoring. The complete female derivative keeps
+the original Mixamo terms; CC0 head and original garment additions do not
+change those terms. The male body remains CC0. No new external garment asset
+was downloaded.
 
 ## Rebuild
 
-Use Blender 4.5, Node with this repository's dependencies, and system Python
-with NumPy, Pillow and SciPy. SciPy is an offline authoring dependency only; if
-unavailable, the texture script also looks in `/tmp/astra-cloth-python`.
+Use Blender 4.5, Node with repository dependencies, and Python with NumPy,
+Pillow and SciPy. SciPy and meshoptimizer are offline tools only. Run the
+commands in a fail-fast shell; Blender requires `--python-exit-code 1` because
+its default exit status can hide Python authoring errors.
 
 ```sh
-python3 -m pip install --target /tmp/astra-cloth-python scipy==1.18.1
+set -e
 python3 art/blender/character_clothing_boundaries.py /tmp/astra-clothing-stage
 python3 art/blender/character_clothing_textures.py /tmp/astra-clothing-stage/textures
-blender --background --factory-startup --threads 2 --python art/blender/character_clothing.py -- /tmp/astra-clothing-stage
+python3 art/blender/character_shirt_textures.py /tmp/astra-clothing-stage/textures
+blender --background --factory-startup --threads 2 --python-exit-code 1 \
+  --python art/blender/character_clothing.py -- /tmp/astra-clothing-stage
 node art/blender/character_clothing_validate.mjs /tmp/astra-clothing-stage
 ```
 
-Finish texture generation before launching Blender: the generator embeds and
-packs those PNGs. `character_apparel_shape.py` is applied automatically. The
-result is a pair of **body inputs**, `CivilianMale.glb` and
-`Michelle-crowd.glb`, under the staging directory. Feed them into the natural
-head graft pipeline, then regenerate its LODs and index optimization. Do not
-replace final `*Natural.glb` files with these head-bearing source bodies.
+The generator saves editable `character_clothing.blend` and stages **body
+inputs** `CivilianMale.glb` and `Michelle-crowd.glb`. Feed those into the natural
+head graft with explicit `--body-dir` and `--output-dir`, then generate LODs and
+index optimization. Do not replace final `*Natural.glb` files with body inputs.
+The combined commands are in [the appearance pipeline](README.md#deliberate-appearance-rebuild-with-facial-morphs).
 
-The front/back Blender studies show authored garment colors and rest poses.
-Original heads are hidden by discarding whole triangles for inspection, so the
-open neckline is intentionally not the final head/neck join. The graft pipeline
-clips at its exact plane and supplies the natural head.
+## Materials and source boundaries
 
-## Materials and runtime contract
+The final body still uses one material batch. The male 2K atlas has a proven
+unused 544-pixel allocation: a restrained jersey region and two 96-by-224 skin
+islands with 16-pixel guards. The new/refitted upper-arm triangles use those
+broad skin islands instead of tiny original UV patches that leaked gray cuff
+colors through filtering. The skin color is sampled from pure connected skin
+on the same source arm; fine grain is original. Source cuff-side painted
+clothing is repaired inside its audited skin-face footprint.
 
-The single body material carries `extras.clothingAuthored: true`,
-`extras.trousersAuthored: true` and `extras.apparelShapeAuthored: true`.
-`trousersAuthored` bypasses the legacy yellow-trouser/knee recoloring and male
-trouser brightness lift: the denim now has an authored color and surface.
-`extras.shirtDyeLuminance` records the measured linear shirt luminance used by
-the runtime's multiplicative shirt dye, preserving source fold contrast.
+The original lower-hem, belt and buckle geometry and UVs remain intact. Only
+pure shirt-mask texels receive the matching gray fabric surface. Whole-face
+hem remapping is deliberately avoided because source triangles can cross the
+shirt/waistband color boundary. Original source surfaces outside the explicitly
+authored garment, cuff-skin and shoe regions remain unchanged.
 
-The packed `metallicRoughnessTexture` is:
+The packed body texture carries R = shirt dye, G = roughness and B = skin tint.
+Use metallic factor 0, roughness factor 1 and normal strength .85; retain the
+male source normal-map Y correction. Material extras include
+`clothingAuthored`, `trousersAuthored`, `apparelShapeAuthored`,
+`crewShirtAuthored` and the measured `shirtDyeLuminance`. `_GARMENT_MASK`
+separates new cloth and skin triangles for authoring validation. Female ankle
+skin remains explicitly masked without tinting adjacent denim or shoes.
 
-| Channel | Meaning |
-| --- | --- |
-| R | Shirt-only dye mask, excluding denim waistband and binding |
-| G | Authored fabric and preserved source roughness |
-| B | Exposed-body skin mask for complexion transfer |
+## Validation and limits
 
-Use metallic factor `0`, roughness factor `1`, and normal strength `.85`.
-Retain the source normal convention: male runtime normals require a Y flip;
-female normals do not. The female source yellow/cyan trouser graphics and their
-normal-map relief are replaced with continuous denim. Original procedural
-textures add restrained twill, double side seams, waistband/hem stitching,
-front and rear pockets, fly detail and compression folds. The crop-top binding
-is dark cotton. Source exposed-skin color/normal texels remain exact. Exposed female ankles
-receive skin channel B through their two connected UV components; the mask
-is added only after garment shading calculations, so it does not change
-diffuse/normal textures or packed R/G. Shoes and denim remain outside it.
+`male-crew-shirt.json` lists replaced shirt faces, deliberately refitted arm
+vertices/faces, discarded hidden neck faces, replacement counts and bridge
+seams. `male-crew-textile.json` records source UV clearance, authorized pixel
+regions, source skin donors and exact preservation outside those regions.
+`character_clothing_validate.mjs` checks the untouched reference rig and body
+attributes, normalized replacement influences, finite/unit attributes,
+noncollapsed triangles, shared contact seams and 44 posed samples per body,
+including aiming, head turns, locomotion, reload and vehicle interactions.
+The production shirt test independently protects source anatomy outside the
+bounded upper-arm/hidden-neck exception and samples actual packed skin/cloth
+texels after assembly. Eye, face, surface, LOD and index checks cover the final
+combined exports.
 
-Added strips interpolate source skin influences and append white-to-gray
-`COLOR_0` facing shading; original body vertices are white. No extra body
-material or draw batch is introduced. Tailoring changes no topology and adds
-no triangles beyond these existing facing strips:
-
-| Body | Added vertices | Added triangles | Construction |
-| --- | ---: | ---: | --- |
-| Male | 672 | 1,008 | Raised collar and two sleeve cuffs |
-| Female | 616 | 924 | Raised collar, two armholes and lower hem |
-
-The male map remains 2048². The female source 512² image is resampled to 1024²
-to hold authored seams; this does not add source photographic detail.
-
-## Verification
-
-Each `*-apparel-shaping.json` lists every deliberately edited source vertex and
-all pinned contact anchors. `character_clothing_validate.mjs` independently
-compares original node hierarchy, skins and inverse binds; requires original
-JOINTS/WEIGHTS/UV attributes and triangle IDs to stay exact; and allows
-POSITION/NORMAL changes only at the reported garment selection. Every
-unselected position/normal must remain exact. It also protects hand, finger,
-foot and toe influences, checks normalized added weights and bounds added
-geometry.
-
-The validator uses the shared neutral-stature measurement, then skins all
-vertices with the actual Three.js humanoid animator in nine states: idle,
-walking, running, two aim pitches, reload, seated driving, entry and exit. It
-samples four phases per state (36 poses per body), compares the authored
-garment against original positions under the same posed skeleton, rejects
-newly collapsed triangles, checks bounded displacement and source-facing orientation,
-and requires unselected skin, contact seams and shoes to move identically. It
-emits `clothing-validation.json`; texture generation emits a separate byte
-proof and shirt luminance report.
-
-The generator also emits `clothing-report.json` and front/back Blender renders.
-Final runtime verification must inspect grafted male/female neck joins and
-apparel during aiming, locomotion and seated driving. Numerical source checks
-and studio renders do not replace that browser inspection.
+The final reviewed male has 28,991 / 21,131 / 5,217 triangles at near/middle/far;
+the female has 22,092 / 12,618 / 4,844. Each uses three character material batches.
+Clay and actual-material idle, aim, head-turn and minified studies establish
+source appearance, but browser playtesting remains required. A faint upper-arm
+complexion/shape transition and small shoulder/clavicle creases at full aim
+remain; these models are authored game meshes, not scanned humans.

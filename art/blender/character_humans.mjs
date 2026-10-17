@@ -3,14 +3,15 @@
  * Rebuild after exporting the editable Blender library:
  *   node art/blender/character_humans.mjs /tmp/astra-head-export
  *
- * The original skeleton nodes, hierarchy, and inverse bind matrices are copied
- * verbatim. Only visible head geometry is replaced; locomotion stays compatible.
+ * The original skeleton nodes, hierarchy, and inverse-bind prefix are copied
+ * verbatim; two calibrated eye children are appended under Head. Only visible head geometry is replaced; locomotion stays compatible.
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import * as THREE from 'three';
 import { transformMorphDeltas, matchNeckBoundaryNormal } from './character_morphs.mjs';
 import { createHeadFit, HEAD_FITS } from './character_head_fit.mjs';
+import { fitEyeMetadata, appendEyeRig } from './character_eyes.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const INPUT = resolve(process.argv[2] ?? '/tmp/astra-human-source');
@@ -41,6 +42,7 @@ class GLB {
     return index;
   }
   read(index) {
+    if (this.bin.length < this.length) this.bin = Buffer.concat(this.parts);
     const a = this.json.accessors[index], v = this.json.bufferViews[a.bufferView];
     const Typed = ARRAYS[a.componentType], size = COMPONENTS[a.type];
     const offset = (v.byteOffset ?? 0) + (a.byteOffset ?? 0);
@@ -123,6 +125,10 @@ function interpolate(a, b, t) {
 }
 
 function trimOriginalHead(glb, primitive, bind, cut, radius, discardHeadJoint) {
+  // A fitted crew collar deliberately covers the low head-graft seam. Its
+  // geometry has already been fitted to the unchanged natural neck.
+  if (primitive.extras?.authoredGarment) return [];
+  const replacedGarment = new Set(primitive.extras?.replacedGarmentTriangles ?? []);
   const attributes = Object.fromEntries(Object.entries(primitive.attributes).map(([key, index]) => [key, glb.read(index)]));
   const count = attributes.POSITION.accessor.count;
   const indices = primitive.indices === undefined ? Array.from({ length: count }, (_, i) => i) : glb.read(primitive.indices).values;
@@ -152,6 +158,9 @@ function trimOriginalHead(glb, primitive, bind, cut, radius, discardHeadJoint) {
         }
       }
     }
+    // The original shirt is only a contour reference for this graft. Keep its
+    // exact intersections above, but never render it beneath the replacement.
+    if (replacedGarment.has(i / 3)) continue;
     for (let k = 1; k < polygon.length - 1; k++) for (const vertex of [polygon[0], polygon[k], polygon[k + 1]]) {
       for (const key of Object.keys(output)) output[key].push(...vertex[key]);
     }
@@ -161,7 +170,33 @@ function trimOriginalHead(glb, primitive, bind, cut, radius, discardHeadJoint) {
     return [key, glb.attribute(values, type, componentType, normalized)];
   }));
   delete primitive.indices;
+  if (primitive.extras) delete primitive.extras.replacedGarmentTriangles;
   return contour;
+}
+
+/** Merge the replacement textile into the original body draw batch. */
+function mergeAuthoredGarment(glb, mesh) {
+  if (!mesh.primitives.some(primitive => primitive.extras?.authoredGarment)) return;
+  const material = mesh.primitives[0].material;
+  if (!mesh.primitives.every(primitive => primitive.material === material)) throw new Error('Crew shirt must share the body material');
+  const keys = Object.keys(mesh.primitives[0].attributes);
+  const output = Object.fromEntries(keys.map(key => [key, []]));
+  const formats = {};
+  for (const primitive of mesh.primitives) {
+    if (Object.keys(primitive.attributes).sort().join() !== keys.slice().sort().join()) throw new Error('Crew shirt attributes must match retained body');
+    const attributes = Object.fromEntries(keys.map(key => [key, glb.read(primitive.attributes[key])]));
+    const count = attributes.POSITION.accessor.count;
+    const indices = primitive.indices === undefined ? Array.from({ length: count }, (_, i) => i) : glb.read(primitive.indices).values;
+    for (const key of keys) {
+      const attr = attributes[key]; formats[key] ??= attr.accessor;
+      for (const vertex of indices) for (let k = 0; k < attr.size; k++) output[key].push(attr.values[vertex * attr.size + k]);
+    }
+  }
+  mesh.primitives = [{ material, mode: 4, extras: { crewShirtAuthored: true },
+    attributes: Object.fromEntries(keys.map(key => {
+      const { type, componentType, normalized } = formats[key];
+      return [key, glb.attribute(output[key], type, componentType, normalized)];
+    })) }];
 }
 
 function smoothFittedNeckNormals(points, normals, indices, blendWeights) {
@@ -253,6 +288,7 @@ for (const config of configs) {
       .map(v => [v.toArray().map(value => Math.round(value * 1e6)).join(','), v])).values()]
     : intersections;
   if (contour.length < 8) throw new Error(`Cannot identify the ${config.gender} neck boundary`);
+  mergeAuthoredGarment(body, json.meshes[bodyNode.mesh]);
   const center = contour.reduce((sum, v) => sum.add(v), new THREE.Vector3()).multiplyScalar(1 / contour.length);
   const ring = contour.map((v) => ({ angle: Math.atan2(v.z - center.z, v.x - center.x), radius: Math.hypot(v.x - center.x, v.z - center.z), skinVertex: v.skinVertex })).sort((a, b) => a.angle - b.angle);
   function contourSample(angle) {
@@ -270,6 +306,14 @@ for (const config of configs) {
   const neckBoundaryProof = [];
   const materials = mergeMaterials(body, head);
   const headWorld = nodeWorld(head.json).matrices;
+  let eyeRig;
+  for (const [nodeIndex, node] of head.json.nodes.entries()) {
+    const eyes = node.mesh === undefined ? null : head.json.meshes[node.mesh].extras?.astraEyes;
+    if (!eyes) continue;
+    if (eyeRig) throw new Error('Eye metadata must occur on one source head mesh');
+    eyeRig = appendEyeRig(body, { skin, headJoint, headWorldMatrix: matrices[skin.joints[headJoint]],
+      eyes: fitEyeMetadata(eyes, headWorld[nodeIndex], fit) });
+  }
   for (const [nodeIndex, node] of head.json.nodes.entries()) {
     if (node.mesh === undefined) continue;
     const isSkin = /(?:^|_)head$/i.test(node.name);
@@ -281,6 +325,7 @@ for (const config of configs) {
       const points = [], normals = [], joints = [], weights = [], skinMask = [], hairMask = [], neckNormalBlend = [];
       const existingSkin = primitive.attributes._SKIN_MASK === undefined ? null : head.read(primitive.attributes._SKIN_MASK).values;
       const existingHair = primitive.attributes._HAIR_MASK === undefined ? null : head.read(primitive.attributes._HAIR_MASK).values;
+      const eyeSides = primitive.attributes._EYE_SIDE === undefined ? null : head.read(primitive.attributes._EYE_SIDE).values;
       const morphTransform = inverseBind.clone().multiply(new THREE.Matrix4().makeScale(...config.scale)).multiply(headWorld[nodeIndex]);
       const normalMatrix = new THREE.Matrix3(), fittedLinear = new THREE.Matrix4();
       for (let i = 0; i < p.accessor.count; i++) {
@@ -320,6 +365,11 @@ for (const config of configs) {
         normals.push(...fittedNormal.toArray());
         let influence = { JOINTS_0: [headJoint, neckJoint, 0, 0], WEIGHTS_0: [1 - neckWeight, neckWeight, 0, 0] };
         if (boundary) influence = interpolate(influence, boundary, boundaryBlend);
+        if (eyeSides?.[i]) {
+          const joint = eyeRig?.jointsByLabel[eyeSides[i]];
+          if (!Number.isInteger(joint)) throw new Error('Labeled eye vertex has no appended eye joint');
+          influence = { JOINTS_0: [joint, 0, 0, 0], WEIGHTS_0: [1, 0, 0, 0] };
+        }
         joints.push(...influence.JOINTS_0); weights.push(...influence.WEIGHTS_0);
         skinMask.push(isHeadSkin ? 1 : 0); hairMask.push(existingHair ? existingHair[i] : isHair ? 1 : 0);
         neckNormalBlend.push(boundaryBlend);
@@ -375,7 +425,7 @@ for (const config of configs) {
   await mkdir(outputDirectory, { recursive: true });
   await writeFile(resolve(outputDirectory, config.out), output);
   const triangles = json.meshes.reduce((sum, mesh) => sum + mesh.primitives.reduce((n, p) => n + (p.indices === undefined ? json.accessors[p.attributes.POSITION].count : json.accessors[p.indices].count) / 3, 0), 0);
-  report.push({ output: config.out, sourceHead: headPath, bytes: output.length, triangles, bodyCut: config.cut, headJoint, neckJoint, neckBoundaryProof,
+  report.push({ output: config.out, sourceHead: headPath, eyeRigProof: eyeRig?.proof ?? [], bytes: output.length, triangles, bodyCut: config.cut, headJoint, neckJoint, neckBoundaryProof,
     headFit: { scale: config.scale, neckShift: config.neckShift, neckEnd: config.neckEnd,
       neckContourEnd: config.neckContourEnd ?? config.blendHeight, sourceCut: config.sourceCut },
     originalNodesPreserved: bodyNodeIndex, primitives: json.meshes.reduce((sum, mesh) => sum + mesh.primitives.length, 0) });

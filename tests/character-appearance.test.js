@@ -23,7 +23,7 @@ async function glb(name) {
 }
 
 for (const [sourceName, naturalName, triangleBudget] of [
-  ['CivilianMale.glb', 'CivilianMaleNatural.glb', 23000],
+  ['CivilianMale.glb', 'CivilianMaleNatural.glb', 29000],
   ['Michelle-crowd.glb', 'CivilianFemaleNatural.glb', 22200],
 ]) {
   test(`${naturalName}: replacement appearance preserves the exact animation skeleton`, async () => {
@@ -31,9 +31,14 @@ for (const [sourceName, naturalName, triangleBudget] of [
     assert.equal(natural.json.skins.length, source.json.skins.length);
     for (let i = 0; i < source.json.skins.length; i++) {
       const before = source.json.skins[i], after = natural.json.skins[i];
-      assert.deepEqual(after.joints, before.joints, 'joint order must match every source motion track');
-      assert.deepEqual(natural.accessor(after.inverseBindMatrices), source.accessor(before.inverseBindMatrices));
-      for (const index of before.joints) assert.deepEqual(natural.json.nodes[index], source.json.nodes[index], 'head graft must not rewrite the bind pose');
+      assert.deepEqual(after.joints.slice(0,before.joints.length), before.joints, 'original joint order must match every source motion track');
+      assert.equal(after.joints.length,before.joints.length+2,'only the two calibrated eye joints are appended');
+      assert.deepEqual(natural.accessor(after.inverseBindMatrices).slice(0,before.joints.length*16), source.accessor(before.inverseBindMatrices));
+      for (const index of before.joints) {
+        const node=structuredClone(natural.json.nodes[index]);
+        if(node.children)node.children=node.children.filter(child=>child<source.json.nodes.length);
+        assert.deepEqual(node, source.json.nodes[index], 'graft and eye rig must not rewrite original bind transforms or parent links');
+      }
     }
   });
 
@@ -55,6 +60,7 @@ for (const [sourceName, naturalName, triangleBudget] of [
         assert.equal(json.accessors[attributes[key]].count, json.accessors[attributes.POSITION].count);
       }
       const skin = json.skins[0], weights = accessor(attributes.WEIGHTS_0), joints = accessor(attributes.JOINTS_0), positions = accessor(attributes.POSITION), skinMask = accessor(attributes._SKIN_MASK);
+      const eyeSide = attributes._EYE_SIDE === undefined ? null : accessor(attributes._EYE_SIDE);
       const female = naturalName.includes('Female');
       for (let i = 0; i < weights.length; i += 4) {
         assert.ok(Math.abs(weights[i] + weights[i + 1] + weights[i + 2] + weights[i + 3] - 1) < 1e-6);
@@ -68,6 +74,8 @@ for (const [sourceName, naturalName, triangleBudget] of [
               ? /mixamorig[:_]?(Head|Neck|Spine2|LeftShoulder|RightShoulder)$/i
               : /mixamorig[:_]?(Head|Neck|Spine1|Spine2|LeftShoulder|RightShoulder|LeftArm|RightArm)$/i;
             assert.match(name, collarJoints, 'lower neck preserves the original body joint mixture');
+          } else if(eyeSide?.[i/4]>0) {
+            assert.match(name,/^AstraEye(Left|Right)$/,'only explicitly labeled eyeballs use the appended eye joints');
           } else assert.match(name, /mixamorig[:_]?(Head|Neck)$/i, 'the face and upper neck retain their original neck/head joints');
         }
       }

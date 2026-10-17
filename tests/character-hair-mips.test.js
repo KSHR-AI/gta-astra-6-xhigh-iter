@@ -70,10 +70,13 @@ for guard in guards:
              & (coords[triangles] <= [x+width,y+height]+np.array([1e-4,1e-4])).all(axis=(1,2)))
     assigned += in_tile
     selected = triangles[in_tile]
-    assert len(selected) > 400, 'Guard must protect referenced hair geometry'
-    points = coords[np.unique(selected)]
     narrow = '_strands' in guard['name']
-    safe_level = 6 if narrow else 4
+    # The authored short sweep uses sixteen sparse, physically tapered accents
+    # (320 triangles), rather than the former dense crown ribbons. Audit their
+    # full referenced footprint without requiring unnecessary geometry.
+    assert len(selected) >= (300 if narrow else 400), 'Guard must protect referenced hair geometry'
+    points = coords[np.unique(selected)]
+    safe_level = 7 if narrow else 4
     # Each bilinear tap averages a complete 2**level square of base texels.
     # Extremal bounds cover every point of every triangle, including edges.
     for level in range(safe_level+1):
@@ -132,7 +135,7 @@ for (const sex of ['Male', 'Female']) {
     assert.equal(guards.length, sex === 'Male' ? 2 : 1);
     if (sex === 'Male') {
       const ribbons = guards.find(guard => guard.name.includes('_strands'));
-      assert.equal(ribbons?.safeMip, 6);
+      assert.equal(ribbons?.safeMip, 7);
       assert.deepEqual(ribbons.ribbonLevels.map(level => level.mip), [3, 4, 5, 6, 7]);
     }
   });

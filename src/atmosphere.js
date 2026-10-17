@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+import { separateSolarEnvironment } from './solar-environment.js';
 
 // Poly Haven / Greg Zaal + Jarod Guest, CC0. A photographic, terrain-free sky.
 const SKY_URL = '/textures/sky/qwantani_sunset_puresky_2k.hdr';
@@ -61,11 +62,12 @@ function makeNightTexture(source) {
 }
 
 /**
- * Visible sky and reflections share the same HDR and orientation.
+ * Visible sky and lighting share the HDR orientation; the lighting derivative
+ * excludes the solar disc represented by the shadowed directional light.
  *
  * const atmosphere = createAtmosphere(scene);
- * const { texture, nightTexture } = await atmosphere.ready;
- * atmosphere.setEnvironment(pmrem.fromEquirectangular(texture).texture,
+ * const { lightingTexture, nightTexture } = await atmosphere.ready;
+ * atmosphere.setEnvironment(pmrem.fromEquirectangular(lightingTexture).texture,
  *                           pmrem.fromEquirectangular(nightTexture).texture);
  *
  * The caller owns PMREM render targets and directional/hemisphere lighting.
@@ -74,6 +76,7 @@ export function createAtmosphere(scene) {
   const rotation = new THREE.Euler(0, SKY_ROTATION, 0);
   const sunDirection = SUN_DIRECTION.clone();
   let night = false, dayTexture, nightTexture, dayEnvironment, nightEnvironment;
+  let photographicSky = true;
   scene.background = new THREE.Color('#9bbbd2');
   scene.backgroundRotation.copy(rotation);
   scene.environmentRotation.copy(rotation);
@@ -90,6 +93,7 @@ export function createAtmosphere(scene) {
 
   const ready = new HDRLoader().setDataType(THREE.HalfFloatType).loadAsync(SKY_URL)
     .catch(error => {
+      photographicSky = false;
       console.warn('Photographic sky unavailable; using local sky fallback.', error);
       return fallbackTexture();
     })
@@ -97,8 +101,14 @@ export function createAtmosphere(scene) {
       dayTexture = configureTexture(texture);
       dayTexture.name = 'Qwantani Sunset Pure Sky · Poly Haven CC0';
       nightTexture = makeNightTexture(dayTexture);
+      // The source equirectangular pixels precede the scene's sky rotation.
+      // Invert that rotation to locate the same solar disc in source space.
+      const sourceSun = sunDirection.clone().applyQuaternion(new THREE.Quaternion().setFromEuler(rotation).invert()).normalize();
+      const separated = photographicSky ? separateSolarEnvironment(dayTexture, sourceSun) : null;
       applyMode();
-      return { texture: dayTexture, nightTexture, sunDirection, rotation };
+      return { texture: dayTexture, lightingTexture: separated?.texture ?? dayTexture,
+        solarSeparationStats: separated?.stats ?? { skipped: 'procedural fallback has no solar disc' },
+        nightTexture, sunDirection, rotation };
     });
 
   applyMode();

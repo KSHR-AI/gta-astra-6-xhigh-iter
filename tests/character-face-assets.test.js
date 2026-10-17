@@ -32,7 +32,7 @@ function factory(t) {
   })();
 }
 
-for (const gender of ['male', 'female']) test(`${gender}: production eyelids animate on the real rig without moving eyes or head bones`, async t => {
+for (const gender of ['male', 'female']) test(`${gender}: production eyelids animate without moving original head bones or unowned skin`, async t => {
   const { createCharacter } = await factory(t);
   let actor = createCharacter({ npc: true });
   if (!actor.mesh.userData.characterAsset.includes(`${gender} /`)) actor = createCharacter({ npc: true });
@@ -55,7 +55,7 @@ for (const gender of ['male', 'female']) test(`${gender}: production eyelids ani
   const beforeBones = [], eyelids = [], unaffected = [];
   const point = new THREE.Vector3();
   actor.mesh.traverse(object => {
-    if (object.isBone) beforeBones.push({ object, position: object.position.toArray(), quaternion: object.quaternion.toArray() });
+    if (object.isBone && !object.userData.astraEye) beforeBones.push({ object, position: object.position.toArray(), quaternion: object.quaternion.toArray() });
     if (!object.isSkinnedMesh || !Number.isInteger(object.morphTargetDictionary?.blinkRight)) return;
     object.skeleton.update();
     const targets = object.geometry.morphAttributes.position;
@@ -65,7 +65,7 @@ for (const gender of ['male', 'female']) test(`${gender}: production eyelids ani
       if (rendered && !rendered.has(index)) continue;
       const delta = Math.max(...targets.map(target => Math.hypot(target.getX(index), target.getY(index), target.getZ(index))));
       if (delta > 1e-8) moved.push({ index, delta });
-      else if (still.length < 12) still.push(index);
+      else if (still.length < 12 && !object.geometry.attributes._eye_side?.getX(index)) still.push(index);
     }
     moved.sort((a, b) => b.delta - a.delta);
     assert.ok(moved.length > 20, 'The exported target deforms an actual eyelid surface');
@@ -86,7 +86,7 @@ for (const gender of ['male', 'female']) test(`${gender}: production eyelids ani
   }
   for (const sample of unaffected) {
     sample.object.getVertexPosition(sample.index, point); sample.object.localToWorld(point);
-    assert.ok(point.distanceTo(sample.before) < 1e-8, 'Unmorphed face/eye geometry stays exactly still');
+    assert.ok(point.distanceTo(sample.before) < 1e-8, 'Unmorphed skin outside the explicitly owned gaze rig stays exactly still');
   }
   for (const before of beforeBones) {
     assert.deepEqual(before.object.position.toArray(), before.position);

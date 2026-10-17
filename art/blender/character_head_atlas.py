@@ -8,6 +8,7 @@ import json,struct,sys,collections
 import numpy as np
 from PIL import Image
 from character_head_surface import author_surface_maps, resize_scalar_channels
+from character_eye_metadata import eye_metadata
 ROOT=Path(sys.argv[1]) if len(sys.argv)>1 else Path(__file__).resolve().parent
 SIZE=2048;PADDING=8
 DTYPES={5126:np.dtype('<f4'),5125:np.dtype('<u4'),5123:np.dtype('<u2'),5121:np.dtype('u1')}
@@ -85,7 +86,7 @@ def png_bytes(img):
 
 reports={}
 for sex in ['male','female']:
-    g,buf=load_glb(ROOT/f'{sex}_head.glb');parts=[];tiles=[];tilekeys={}
+    g,buf=load_glb(ROOT/f'{sex}_head.glb');parts=[];tiles=[];tilekeys={};eyes=[]
     for node in g.get('nodes',[]):
         for key,identity in [('translation',[0,0,0]),('rotation',[0,0,0,1]),('scale',[1,1,1]),('matrix',[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1])]:
             assert key not in node or np.allclose(node[key],identity,rtol=0,atol=1e-7), 'Bake head node transforms before atlas merging'
@@ -98,6 +99,10 @@ for sex in ['male','female']:
             attrs={k:accessor(g,buf,v) for k,v in prim['attributes'].items()};indices=accessor(g,buf,prim['indices']).astype(np.uint32).reshape((-1,3));mat=g['materials'][prim['material']];pbr=mat['pbrMetallicRoughness'];tex=g['textures'][pbr['baseColorTexture']['index']];image_info=g['images'][tex['source']];view=g['bufferViews'][image_info['bufferView']]
             image=np.asarray(Image.open(BytesIO(buf[view.get('byteOffset',0):view.get('byteOffset',0)+view['byteLength']])).convert('RGBA')).copy()
             name=mesh['name'];is_skin='_head' in name;is_hair='_hair_' in name;is_brow='eyebrow' in name;is_lash='eyelash' in name;is_eye='_eyes' in name
+            eye_side,eye_info=eye_metadata(attrs['POSITION'],attrs['TEXCOORD_0'],indices) if is_eye else (np.zeros((len(attrs['POSITION']),1),dtype=np.float32),[])
+            if eye_info:
+                assert not eyes, 'Only one source eye pair may define the gaze rig'
+                eyes=eye_info
             factor=np.array(pbr.get('baseColorFactor',[1,1,1,1]))
             if np.any(factor[:3]!=1):image[:,:,:3]=np.rint(np.clip(to_srgb(to_linear(image[:,:,:3]/255.)*factor[:3]),0,1)*255).astype(np.uint8)
             image[:,:,3]=np.rint(image[:,:,3]*factor[3]).astype(np.uint8)
@@ -109,14 +114,15 @@ for sex in ['male','female']:
             assert np.allclose(specular.get('specularColorFactor',[1,1,1]),[1,1,1]), 'Colored source specular needs a separate color atlas'
             specular_factor=float(specular.get('specularFactor',1))
             assert np.isfinite(specular_factor) and 0<=specular_factor<=1, 'Invalid source specular intensity'
-            part={'surface_normal':surface_normal,'surface_roughness':surface_roughness,'specular_factor':specular_factor,'name':name,'attrs':attrs,'indices':indices,'uv':attrs['TEXCOORD_0'].copy(),'image':image,'skin':is_skin,'hair':is_hair or is_brow or is_lash,'tiles':[],'morphs':read_morphs(g,buf,mesh,prim,len(attrs['POSITION']),node_weights)}
+            part={'surface_normal':surface_normal,'surface_roughness':surface_roughness,'specular_factor':specular_factor,'name':name,'attrs':attrs,'indices':indices,'uv':attrs['TEXCOORD_0'].copy(),'image':image,'skin':is_skin,'hair':is_hair or is_brow or is_lash,'eye_side':eye_side,'tiles':[],'morphs':read_morphs(g,buf,mesh,prim,len(attrs['POSITION']),node_weights)}
             # Keep overlapping hair strip UVs together; isolate other UV islands.
             groups=[np.arange(len(attrs['POSITION']))] if is_hair else components(len(attrs['POSITION']),indices)
             height,width=image.shape[:2]
             # Millimetre-wide crown ribbons span an entire source texture in U.
-            # At a one-pixel screen width they can select mip 6, far beyond an
-            # ordinary 8px atlas gutter. Keep filtered skin out of those taps.
-            padding=(96 if width<256 else 32) if is_hair else PADDING
+            # At a one-pixel screen width they can select mip 7, far beyond an
+            # ordinary 8px atlas gutter. A 192px guard covers the full 1.5x128px
+            # worst-case bilinear footprint independently of atlas placement.
+            padding=(192 if width<256 else 32) if is_hair else PADDING
             part['padding']=padding
             for ids in groups:
                 uv=part['uv'][ids];minimum=np.floor(uv.min(axis=0)*[width,height]).astype(int)-1;maximum=np.ceil(uv.max(axis=0)*[width,height]).astype(int)+1
@@ -166,6 +172,7 @@ for sex in ['male','female']:
         semantics=set(key for part in parts for key in part['morphs'].get(name,{}).get('attrs',{}))
         morph_targets.append({key:np.concatenate([part['morphs'].get(name,{}).get('attrs',{}).get(key,np.zeros((len(part['attrs']['POSITION']),3),dtype=np.float32)) for part in parts]) for key in sorted(semantics)})
     attrs={'POSITION':np.concatenate(all_pos),'NORMAL':np.concatenate(all_norm),'TEXCOORD_0':np.concatenate(all_uv),'_SKIN_MASK':np.concatenate(skin),'_HAIR_MASK':np.concatenate(hair)};indices=np.concatenate(all_idx).reshape((-1,1))
+    if eyes:attrs['_EYE_SIDE']=np.concatenate([part['eye_side'] for part in parts])
     atlas_image=Image.fromarray(atlas)
     # These are independent scalar channels, not color with opacity. Pillow's
     # RGBA filtering premultiplies RGB by A and would bias roughness by specular.
@@ -190,8 +197,9 @@ for sex in ['male','female']:
     primitive=output['meshes'][0]['primitives'][0]
     for key,arr in attrs.items():primitive['attributes'][key]=add_accessor(arr.astype('<f4'),'VEC3' if key in ['POSITION','NORMAL'] else 'VEC2' if key=='TEXCOORD_0' else 'SCALAR',5126,34962)
     primitive['indices']=add_accessor(indices.astype('<u4'),'SCALAR',5125,34963)
+    if eyes:output['meshes'][0]['extras']={'astraEyes':eyes}
     if target_names:
-        output['meshes'][0]['extras']={'targetNames':target_names}
+        output['meshes'][0].setdefault('extras',{})['targetNames']=target_names
         output['meshes'][0]['weights']=target_weights
         primitive['targets']=[{key:add_accessor(values.astype('<f4'),'VEC3',5126,34962) for key,values in target.items()} for target in morph_targets]
 
@@ -201,6 +209,7 @@ for sex in ['male','female']:
     path=ROOT/f'optimized_{sex}_head.glb';path.write_bytes(result)
     reports[sex]={'file':path.name,'bytes':len(result),'vertices':len(attrs['POSITION']),'triangles':len(indices)//3,'materials':1,'color_atlas':[SIZE,SIZE],'roughness_atlas':[1024,1024],'normal_atlas':[1024,1024],'normal_scale':.45,'normal_png_bytes':len(png_bytes(normal_image)),'normal_gpu_rgba8_mip_bytes':5592404,'surface_authorship':'Original seeded UV-space pores and strand roughness; no diffuse-derived relief','uv_islands':len(tiles),'max_uv_roundtrip_error':max_error,'skin_vertices':int(attrs['_SKIN_MASK'].sum()),'hair_vertices':int(attrs['_HAIR_MASK'].sum()),'sources':[p['name'] for p in parts],'morph_targets':target_names}
     reports[sex]['surface_authorship']='Unchanged skin pores; original directional hair relief and source-calibrated matte roughness; no diffuse-derived normals'
+    reports[sex]['eyes']=eyes
     reports[sex]['specular_atlas']={'image':'shared roughness RGBA','channel':'A','sources':{p['name']:p['specular_factor'] for p in parts},'extension':'KHR_materials_specular'}
     reports[sex]['tiles']=[{'name':parts[t['part']]['name'],'bounds':list(positions[t['key']]),'padding':parts[t['part']]['padding'],'source_minimum':t['minimum'].tolist(),'source_maximum':t['maximum'].tolist()} for t in tiles]
     print(json.dumps(reports[sex],indent=2))

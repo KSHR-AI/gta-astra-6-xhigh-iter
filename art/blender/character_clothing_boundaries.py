@@ -19,7 +19,6 @@ import struct
 import sys
 
 import numpy as np
-from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -101,6 +100,7 @@ class Source:
         return array
 
     def face_colors(self, bilinear=True):
+        from PIL import Image
         material = self.json['materials'][self.primitive['material']]
         texture_index = material['pbrMetallicRoughness']['baseColorTexture']['index']
         image_index = self.json['textures'][texture_index]['source']

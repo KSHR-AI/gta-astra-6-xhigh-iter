@@ -40,6 +40,7 @@ for (const [sex, name, motion, height] of [
   assert.deepEqual(authored.json.skins, original.json.skins);
   for (const skin of original.json.skins) assert.deepEqual(authored.accessor(skin.inverseBindMatrices), original.accessor(skin.inverseBindMatrices));
   const before = original.json.meshes[0].primitives[0], after = authored.json.meshes[0].primitives[0];
+  const garment = authored.json.meshes[0].primitives.find(primitive => primitive.extras?.authoredGarment);
   const originalVertices = original.json.accessors[before.attributes.POSITION].count;
   const vertices = authored.json.accessors[after.attributes.POSITION].count;
   const selected = new Set(shaping.editedSourceVertexIds);
@@ -81,17 +82,84 @@ for (const [sex, name, motion, height] of [
   assert.ok(material.extras.shirtDyeLuminance > .03 && material.extras.shirtDyeLuminance < .5);
   assert.equal(material.pbrMetallicRoughness.metallicFactor, 0);
   assert.equal(material.pbrMetallicRoughness.roughnessFactor, 1);
+  let garmentVertices = 0, garmentIndices, garmentRestAreas, garmentPositions, garmentMask;
+  const garmentSeams = [];
+  if (garment) {
+    assert.equal(sex, 'male', 'the replacement contract currently applies only to the male shirt');
+    assert.equal(authored.json.meshes[0].primitives.length, 2, 'one reference body and one authored garment');
+    assert.equal(garment.material, after.material, 'replacement reuses the body surface batch');
+    const replaced = after.extras?.replacedGarmentTriangles;
+    assert.ok(Array.isArray(replaced) && replaced.length > 200);
+    assert.equal(new Set(replaced).size, replaced.length, 'replacement source face IDs are unique');
+    for (const face of replaced) assert.ok(Number.isInteger(face) && face >= 0 && face < sourceTriangles);
+    const ga = Object.fromEntries(Object.entries(garment.attributes).map(([key, id]) => [key, authored.accessor(id)]));
+    garmentVertices = ga.POSITION.length / 3; garmentPositions = ga.POSITION; garmentMask = ga._GARMENT_MASK;
+    garmentIndices = authored.accessor(garment.indices);
+    assert.ok(garmentVertices > 100 && garmentIndices.length > 600);
+    assert.equal(garmentIndices.length % 3, 0);
+    for (const [key, value] of Object.entries(ga)) assert.ok(value.every(Number.isFinite), `replacement ${key} is finite`);
+    assert.equal(garmentMask.length, garmentVertices);
+    assert.ok(garmentMask.some(value => value === 1) && garmentMask.some(value => value === 0), 'cloth and original-source skin extension are separate semantic regions');
+    for (let i = 0; i < garmentVertices; i++) {
+      assert.ok(garmentMask[i] === 0 || garmentMask[i] === 1);
+      let sum = 0;
+      for (let k = 0; k < 4; k++) {
+        const weight = ga.WEIGHTS_0[i * 4 + k], joint = ga.JOINTS_0[i * 4 + k];
+        assert.ok(weight >= 0 && weight <= 1);
+        assert.ok(Number.isInteger(joint) && joint >= 0 && joint < authored.json.skins[0].joints.length);
+        sum += weight;
+      }
+      assert.ok(Math.abs(sum - 1) < 1e-6, 'replacement influences are normalized');
+      const length = Math.hypot(...ga.NORMAL.slice(i * 3, i * 3 + 3));
+      assert.ok(Math.abs(length - 1) < 2e-4, 'replacement normals are unit length');
+    }
+    garmentRestAreas = new Float64Array(garmentIndices.length / 3);
+    const va = new THREE.Vector3(), vb = new THREE.Vector3(), vc = new THREE.Vector3();
+    for (let i = 0; i < garmentIndices.length; i += 3) {
+      const ids = garmentIndices.slice(i, i + 3);
+      assert.ok(ids.every(id => id < garmentVertices));
+      assert.equal(garmentMask[ids[0]], garmentMask[ids[1]]);
+      assert.equal(garmentMask[ids[0]], garmentMask[ids[2]], 'faces cannot blend shirt and exposed skin classification');
+      va.fromArray(ga.POSITION, ids[0] * 3); vb.fromArray(ga.POSITION, ids[1] * 3); vc.fromArray(ga.POSITION, ids[2] * 3);
+      const area = vb.sub(va).cross(vc.sub(va)).length();
+      assert.ok(area > 1e-12, 'replacement has no collapsed rest triangle');
+      garmentRestAreas[i / 3] = area;
+    }
+    // Retained lower-arm endpoints survive as duplicated UV aliases around the
+    // deliberately refitted upper-arm region. Match by position and influences, not by atlas coordinates.
+    const referencePositions = original.accessor(before.attributes.POSITION);
+    const sourceByPoint = new Map();
+    const key = (values, i) => Array.from(values.slice(i * 3, i * 3 + 3), value => Math.round(value * 1e7)).join(',');
+    for (let i = 0; i < originalVertices; i++) {
+      const point = key(referencePositions, i);
+      if (!sourceByPoint.has(point)) sourceByPoint.set(point, []);
+      sourceByPoint.get(point).push(i);
+    }
+    for (let i = 0; i < garmentVertices; i++) {
+      if (garmentMask[i]) continue;
+      const aliases = sourceByPoint.get(key(ga.POSITION, i)) ?? [];
+      const match = aliases.find(source => {
+        for (let k = 0; k < 4; k++) if (ga.JOINTS_0[i * 4 + k] !== sourceJoints[source * 4 + k]
+          || ga.WEIGHTS_0[i * 4 + k] !== sourceWeights[source * 4 + k]) return false;
+        return true;
+      });
+      if (match !== undefined) garmentSeams.push({ garment: i, source: match });
+    }
+    assert.ok(garmentSeams.length >= 40, 'both upper-arm replacements retain lower-arm contact endpoints and skin influences');
+  } else assert.equal(sex, 'female', 'male clothing validation must include the replacement shirt primitive');
   const loader = new GLTFLoader();
   loader.register(() => ({ name: 'VALIDATE_SKIP_RASTER_DECODE', loadTexture: () => Promise.resolve(new THREE.Texture()) }));
   const asset = await loader.parseAsync(authored.bytes.buffer.slice(authored.bytes.byteOffset, authored.bytes.byteOffset + authored.bytes.byteLength), '');
   const mesh = new THREE.Group(), visual = new THREE.Group(); mesh.add(visual); visual.add(asset.scene);
-  const bones = {}, restPose = {}; let body;
+  const bones = {}, restPose = {}; let body, garmentBody;
   asset.scene.traverse(object => {
     if (object.isSkinnedMesh && object.geometry.attributes.position.count === vertices) body = object;
+    if (object.isSkinnedMesh && object.geometry.attributes.position.count === garmentVertices) garmentBody = object;
     if (!/^mixamorig/i.test(object.name)) return;
     const name = object.name.replace(/.*mixamorig[:_]?/i, ''); bones[name] = object; restPose[name] = object.quaternion.clone();
   });
   assert.ok(body);
+  if (garment) assert.ok(garmentBody, 'runtime loader includes the authored shirt and skin bridge');
   const normalization = measureCharacterScale(asset.scene, height);
   assert.ok(normalization);
   visual.scale.setScalar(normalization.scale); asset.scene.position.y += normalization.offsetY; mesh.updateMatrixWorld(true);
@@ -102,23 +170,54 @@ for (const [sex, name, motion, height] of [
   const soleProbes = makeSoleProbes(asset.scene);
   const weapon = new THREE.Group(), magazine = new THREE.Group(); weapon.userData.gripCenter = [0, -.046, -.037]; mesh.add(weapon, magazine);
   const animator = createHumanoidAnimator({ mesh, visual, bones, actions, mixer, weapon, magazine, soleProbes, restPose, bindHeadOrientation, npc: false });
-  const states = [{ speed: 0 }, { speed: 2.35 }, { speed: 5.8 }, { armed: true, aiming: true, aimPitch: .45 }, { armed: true, aiming: true, aimPitch: -.3 }, { reloading: true, reloadProgress: .55 }, { seated: true, steering: .7 }, { interactionPhase: 'enter', interactionProgress: .5 }, { interactionPhase: 'exit', interactionProgress: .6 }];
+  const states = [{ speed: 0 }, { speed: 2.35 }, { speed: 5.8 }, { lookYawRadians: -Math.PI / 6 }, { lookYawRadians: Math.PI / 6 },
+    { armed: true, aiming: true, aimPitch: .45 }, { armed: true, aiming: true, aimPitch: -.3 }, { reloading: true, reloadProgress: .55 },
+    { seated: true, steering: .7 }, { interactionPhase: 'enter', interactionProgress: .5 }, { interactionPhase: 'exit', interactionProgress: .6 }];
   const authoredAttribute = body.geometry.attributes.position;
   const referenceValues = authoredAttribute.array.slice(); referenceValues.set(original.accessor(before.attributes.POSITION));
   const referenceAttribute = new THREE.BufferAttribute(referenceValues, 3), point = new THREE.Vector3();
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), normalBefore = new THREE.Vector3(), normalAfter = new THREE.Vector3();
-  let maximumPosedDisplacement = 0, minimumNormalDot = 1, protectedMotionError = 0;
+  let maximumPosedDisplacement = 0, minimumNormalDot = 1, protectedMotionError = 0, maximumCuffSeamError = 0;
+  let minimumReplacementAreaRatio = Infinity;
   const stateResults = [], reversedStateFaces = [];
   const stateSamples = states.flatMap(state => [15, 30, 45, 60].map(frame => ({ state, frame })));
   let totalReversed = 0;
   for (const { state, frame: sampleFrame } of stateSamples) {
-    for (let frame = 0; frame < 15; frame++) { mesh.position.z += (state.speed ?? 0) / 60; animator.update(1 / 60, state); }
+    for (let frame = 0; frame < 15; frame++) {
+      mesh.position.z += (state.speed ?? 0) / 60;
+      const lookTarget = state.lookYawRadians === undefined ? undefined : new THREE.Vector3(
+        Math.sin(state.lookYawRadians) * 4, 1.6, Math.cos(state.lookYawRadians) * 4).add(mesh.position);
+      animator.update(1 / 60, lookTarget ? { ...state, lookTarget } : state);
+    }
     mesh.updateMatrixWorld(true);
     const posed = new Float64Array(vertices * 3), reference = new Float64Array(originalVertices * 3);
     for (let i = 0; i < vertices; i++) { body.getVertexPosition(i, point); body.localToWorld(point); assert.ok(point.toArray().every(Number.isFinite)); point.toArray(posed, i * 3); }
     body.geometry.setAttribute('position', referenceAttribute);
     for (let i = 0; i < originalVertices; i++) { body.getVertexPosition(i, point); body.localToWorld(point); point.toArray(reference, i * 3); }
     body.geometry.setAttribute('position', authoredAttribute);
+    if (garmentBody) {
+      garmentBody.skeleton.update();
+      const garmentPosed = new Float64Array(garmentVertices * 3);
+      for (let i = 0; i < garmentVertices; i++) {
+        garmentBody.getVertexPosition(i, point); garmentBody.localToWorld(point);
+        assert.ok(point.toArray().every(Number.isFinite), 'replacement garment deforms finitely');
+        point.toArray(garmentPosed, i * 3);
+      }
+      for (const pair of garmentSeams) maximumCuffSeamError = Math.max(maximumCuffSeamError,
+        a.fromArray(garmentPosed, pair.garment * 3).distanceTo(b.fromArray(reference, pair.source * 3)));
+      // Compare each posed area against its own bind-world area, so arms may
+      // rotate freely without treating a valid rotation as a flipped face.
+      const worldScale = garmentBody.getWorldScale(new THREE.Vector3());
+      assert.ok(Math.abs(worldScale.x - worldScale.y) < 1e-5 && Math.abs(worldScale.y - worldScale.z) < 1e-5);
+      for (let i = 0; i < garmentIndices.length; i += 3) {
+        const ids = garmentIndices.slice(i, i + 3);
+        a.fromArray(garmentPosed, ids[0] * 3); b.fromArray(garmentPosed, ids[1] * 3); c.fromArray(garmentPosed, ids[2] * 3);
+        const area = b.sub(a).cross(c.sub(a)).length();
+        const ratio = area / (garmentRestAreas[i / 3] * worldScale.x * worldScale.y);
+        minimumReplacementAreaRatio = Math.min(minimumReplacementAreaRatio, ratio);
+        assert.ok(ratio > .0025, `replacement face ${i / 3} collapses in ${JSON.stringify(state)}`);
+      }
+    }
     for (let i = 0; i < originalVertices; i++) {
       const distance = a.fromArray(posed, i * 3).distanceTo(b.fromArray(reference, i * 3));
       maximumPosedDisplacement = Math.max(maximumPosedDisplacement, distance);
@@ -141,10 +240,13 @@ for (const [sex, name, motion, height] of [
   if (totalReversed) await writeFile(resolve(stage, `${sex}-reversed-faces.json`), JSON.stringify(reversedStateFaces, null, 2));
   assert.equal(totalReversed, 0, `${name}: authored cloth reverses ${totalReversed} source-facing triangles across the posed states`);
   assert.ok(protectedMotionError < 1e-9, 'unselected skin, seams and shoes deform exactly like the source');
+  if (garment) assert.ok(maximumCuffSeamError < 2e-7, 'new upper-arm skin stays joined to the original cuff endpoints through every pose');
   assert.ok(maximumPosedDisplacement < (sex === 'male' ? .025 : .075), 'intentional fabric tailoring stays within measured garment bounds');
   report.push({ source: name, originalVertices, authoredSourceVertices: selected.size, addedVertices: vertices - originalVertices, addedTriangles: triangles - sourceTriangles,
     unselectedPositionsNormalsExact: true, originalJointWeightUvAttributesExact: true, rigAndInverseBindExact: true,
     originalTopologyExact: true, protectedMotionError, maximumPosedDisplacement, minimumNormalDot,
+    ...(garment ? { replacementVertices: garmentVertices, replacementTriangles: garmentIndices.length / 3,
+      verifiedCuffEndpointAliases: garmentSeams.length, maximumCuffSeamError, minimumReplacementAreaRatio } : {}),
     neutralHeightNormalization: normalization, statesExercised: states.length, posedSamples: stateSamples.length, stateResults, materialBatches: authored.json.meshes[0].primitives.length, bytes: authored.bytes.length });
 }
 await writeFile(resolve(stage, 'clothing-validation.json'), JSON.stringify(report, null, 2));

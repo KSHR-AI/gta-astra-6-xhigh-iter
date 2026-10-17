@@ -78,6 +78,15 @@ const aimRay=new THREE.Raycaster();
 const handling=createWeaponHandling();
 let aimSolution=null,lastImpact=null,lastDryFire=-100,renderFrame=0;
 let playerMoveSpeed=0;
+const contactLookTarget=new THREE.Vector3(),playerLookTarget=new THREE.Vector3();
+function nearbyFaceTarget(actor,other,target){
+ if(!actor||!other||currentCar||interaction)return null;
+ const dx=other.mesh.position.x-actor.mesh.position.x,dz=other.mesh.position.z-actor.mesh.position.z;
+ const distance=Math.hypot(dx,dz);
+ if(distance<.65||distance>4||dx*Math.sin(actor.mesh.rotation.y)+dz*Math.cos(actor.mesh.rotation.y)<distance*.3)return null;
+ if(other.getLookPosition)return other.getLookPosition(target);
+ target.copy(other.mesh.position);target.y+=1.6;return target;
+}
 const policeShotHistory=[];
 const vehicles=[],pedestrians=[],effects=[],officers=[];
 const contactCanvas=document.createElement('canvas');contactCanvas.width=contactCanvas.height=64;
@@ -542,7 +551,9 @@ function updateGame(dt){
     const muzzle=player.getMuzzlePosition(new THREE.Vector3());
     if(aimTarget.clone().sub(muzzle).dot(aimRay.ray.direction)<=0)aimRay.ray.at(aimRay.ray.origin.distanceTo(muzzle)+90,aimTarget);
    }
-   player.update(dt,{...playerPose,aimYaw,aimPitch:Math.asin(clamp(aimDirection.y,-1,1)),aimTarget});
+   const lookTarget=state.subtitleSpeaker==='MARA'&&playerMoveSpeed<.2&&!weapon
+    ?nearbyFaceTarget(player,contactActor,playerLookTarget):null;
+   player.update(dt,{...playerPose,aimYaw,aimPitch:Math.asin(clamp(aimDirection.y,-1,1)),aimTarget,lookTarget});
    const shotSpread=handling.spread(aiming,playerMoveSpeed);
    if(!reloading&&weapon&&state.health>0&&handling.consume(elapsed,player.getAimState().ready)){
     // Trace the solved pre-recoil barrel, then apply this discrete shot to the
@@ -563,7 +574,8 @@ function updateGame(dt){
   else if(elapsed>=dialogueUntil){state.subtitle='';state.subtitleSpeaker='';}
  }else if(!state.started){vehicles.forEach(c=>c.model.update(simDt,0,0));pedestrians.forEach(p=>{p.actor.mesh.visible=p.actor.mesh.position.distanceTo(camera.position)<70;p.actor.advance(simDt,{speed:0});});player?.update(simDt,{speed:0});}
  for(const c of vehicles)if(c!==currentCar&&!c.traffic&&!c.police&&!c.occupied&&Math.abs(c.speed)>.05){updateVehiclePhysics(c,simDt,{throttle:0,steering:0,moveBody,vehicles,carsOverlap});c.model.update(simDt,c.speed,c.steer);}
- updateDrivers(simDt);contactActor?.advance(simDt,{speed:0});
+ updateDrivers(simDt);contactActor?.advance(simDt,{speed:0,
+  lookTarget:state.started&&state.health>0?nearbyFaceTarget(contactActor,player,contactLookTarget):null});
  if(job){const progress=job.getState();Object.assign(state,progress);mission=progress.mission;if(progress.target){goal.set(progress.target.x,0,progress.target.z);marker.position.copy(goal);}marker.visible=!!progress.target&&state.started;const close=progress.target&&player.mesh.position.distanceTo(goal)<4;markerBeam.visible=!close;markerDiamond.visible=!close;markerRing.scale.setScalar(close?.5:1);}
  const context=player&&job?contextAction():null;
  Object.assign(state,{interactionVisible:!!context&&!interaction,interactionTitle:context?.title||'',interactionName:context?.name||'',interactionKey:'E'});
@@ -655,7 +667,7 @@ canvas.addEventListener('wheel',e=>{if(photo.active){e.preventDefault();photo.ch
 window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);rendering.resize();});
 
 // A read-only diagnostic view keeps real browser verification reproducible.
-Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,renderFrame,cameraVisibility:playerCameraVisibility?.getState(),footContacts:player?.contactShadow?.getInfo(),shaderPrograms:renderer.info.programs.length,playerMoveSpeed,playerHeading:player?.mesh.rotation.y,aimState:player?.getAimState?.(),muzzlePosition:player?.getMuzzlePosition?.().toArray(),muzzleDirection:player?.getMuzzleDirection?.().toArray(),shotsFired:handling.shots,shotQueued:handling.queued,lastImpact,policeShots:policeShotHistory.map(shot=>({...shot,origin:[...shot.origin],point:[...shot.point]})),recoilPitch:handling.recoilPitch,aimPoint:aimSolution?.point.toArray(),position:player?.mesh.position.toArray(),groundHeight:player?world.heightAt(player.mesh.position.x,player.mesh.position.z):null,carPosition:currentCar?.model.mesh.position.toArray(),carHeading:currentCar?.heading,carSpeed:currentCar?.speed,mission,interaction:interaction?{phase:interaction.phase,progress:interaction.elapsed/interaction.duration}:null,animation:player?.mesh.userData.animationState,pose:player?.getPoseInfo?.(),face:player?.getFaceInfo?.(),landmarks:world.landmarks,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,driverVisible:!!currentCar&&player?.mesh.visible,driverPosition:currentCar?player.mesh.position.toArray():null,city:simulation?.getDiagnostics?.(),driverAlignment:currentCar?{driver:player.mesh.quaternion.toArray(),cockpit:currentCar.model.getDriverOrientation?.(new THREE.Quaternion()).toArray()}:null,instanceVisibility:world.getInstanceVisibility(),wires:world.getWireStats(),heroVehicle:{driverActive:heroCar.driverActive,driverDownUntil:heroCar.driverDownUntil,driverAnimation:heroCar.driver?.mesh.userData.animationState,driverHead:heroCar.driver?.getHitVolumes?.().spheres[0]?.center.toArray(),evictedDriver:pedestrians.some(p=>p.isDriver&&p.actor===heroCar.driver)?{down:pedestrians.find(p=>p.actor===heroCar.driver).down,animation:heroCar.driver?.mesh.userData.animationState}:null,detail:heroCar.model.getDetailInfo?.(),model:heroCar.model.mesh.userData.model,detailLevels:heroCar.model.mesh.userData.detailLevels,driverSeat:heroCar.model.getDriverSeat?.().toArray(),doorEntry:heroCar.model.getDoorPosition?.().toArray(),doorAngle:heroCar.model.mesh.getObjectByName('driver_door')?.rotation.y},jobCarHealth:heroCar.health,jobCarPosition:heroCar.model.mesh.position.toArray(),characterLODs:[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(c=>c.driver)].filter(Boolean).map(actor=>({...actor.getLODInfo?.(),evaluation:actor.getEvaluationStats?.(),face:actor.getFaceInfo?.(),position:actor.mesh.position.toArray(),groundHeight:world.heightAt(actor.mesh.position.x,actor.mesh.position.z),visible:actor.mesh.visible})),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,vehicleDetails:vehicles.map(c=>({model:c.model.mesh.userData.model,position:c.model.mesh.position.toArray(),speed:c.speed,...c.model.getDetailInfo?.()})),pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray(),cameraDirection:camera.getWorldDirection(new THREE.Vector3()).toArray(),photo:photo.active?photo.settings:null,renderSize:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()})}});
+Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,renderFrame,cameraVisibility:playerCameraVisibility?.getState(),footContacts:player?.contactShadow?.getInfo(),shaderPrograms:renderer.info.programs.length,playerMoveSpeed,playerHeading:player?.mesh.rotation.y,aimState:player?.getAimState?.(),muzzlePosition:player?.getMuzzlePosition?.().toArray(),muzzleDirection:player?.getMuzzleDirection?.().toArray(),shotsFired:handling.shots,shotQueued:handling.queued,lastImpact,policeShots:policeShotHistory.map(shot=>({...shot,origin:[...shot.origin],point:[...shot.point]})),recoilPitch:handling.recoilPitch,aimPoint:aimSolution?.point.toArray(),position:player?.mesh.position.toArray(),groundHeight:player?world.heightAt(player.mesh.position.x,player.mesh.position.z):null,carPosition:currentCar?.model.mesh.position.toArray(),carHeading:currentCar?.heading,carSpeed:currentCar?.speed,mission,interaction:interaction?{phase:interaction.phase,progress:interaction.elapsed/interaction.duration}:null,animation:player?.mesh.userData.animationState,pose:player?.getPoseInfo?.(),face:player?.getFaceInfo?.(),landmarks:world.landmarks,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,driverVisible:!!currentCar&&player?.mesh.visible,driverPosition:currentCar?player.mesh.position.toArray():null,city:simulation?.getDiagnostics?.(),driverAlignment:currentCar?{driver:player.mesh.quaternion.toArray(),cockpit:currentCar.model.getDriverOrientation?.(new THREE.Quaternion()).toArray()}:null,instanceVisibility:world.getInstanceVisibility(),wires:world.getWireStats(),heroVehicle:{driverActive:heroCar.driverActive,driverDownUntil:heroCar.driverDownUntil,driverAnimation:heroCar.driver?.mesh.userData.animationState,driverHead:heroCar.driver?.getHitVolumes?.().spheres[0]?.center.toArray(),evictedDriver:pedestrians.some(p=>p.isDriver&&p.actor===heroCar.driver)?{down:pedestrians.find(p=>p.actor===heroCar.driver).down,animation:heroCar.driver?.mesh.userData.animationState}:null,detail:heroCar.model.getDetailInfo?.(),model:heroCar.model.mesh.userData.model,detailLevels:heroCar.model.mesh.userData.detailLevels,driverSeat:heroCar.model.getDriverSeat?.().toArray(),doorEntry:heroCar.model.getDoorPosition?.().toArray(),doorAngle:heroCar.model.mesh.getObjectByName('driver_door')?.rotation.y},jobCarHealth:heroCar.health,jobCarPosition:heroCar.model.mesh.position.toArray(),characterLODs:[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(c=>c.driver)].filter(Boolean).map(actor=>({...actor.getLODInfo?.(),evaluation:actor.getEvaluationStats?.(),face:actor.getFaceInfo?.(),attention:actor.getAttentionInfo?.(),position:actor.mesh.position.toArray(),groundHeight:world.heightAt(actor.mesh.position.x,actor.mesh.position.z),visible:actor.mesh.visible})),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,vehicleDetails:vehicles.map(c=>({model:c.model.mesh.userData.model,position:c.model.mesh.position.toArray(),speed:c.speed,...c.model.getDetailInfo?.()})),pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray(),cameraDirection:camera.getWorldDirection(new THREE.Vector3()).toArray(),photo:photo.active?photo.settings:null,renderSize:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()})}});
 
 async function boot(){
  try{
@@ -663,7 +675,9 @@ async function boot(){
   if(skyData?.texture){
    world.setSky(skyData);
    const pmrem=new THREE.PMREMGenerator(renderer);
-   const dayEnvironment=pmrem.fromEquirectangular(skyData.texture).texture;
+   // Keep the photographed sun in the background. Its directional light owns
+   // direct illumination; the lighting-only HDR supplies the remaining sky.
+   const dayEnvironment=pmrem.fromEquirectangular(skyData.lightingTexture||skyData.texture).texture;
    const nightEnvironment=skyData.nightTexture?pmrem.fromEquirectangular(skyData.nightTexture).texture:dayEnvironment;
    vehicleNightEnvironment=nightEnvironment;
    atmosphere.setEnvironment(dayEnvironment,nightEnvironment);
@@ -678,9 +692,18 @@ async function boot(){
   const reflectionTarget=new THREE.WebGLCubeRenderTarget(128,{type:THREE.HalfFloatType});
   const reflectionCamera=new THREE.CubeCamera(.2,350,reflectionTarget);
   reflectionCamera.position.set(4.8,1.2,18);
+  const visibleBackground=scene.background;
   vehicles.forEach(car=>car.model.mesh.visible=false);
-  world.restoreInstances();reflectionCamera.update(renderer,scene);
-  vehicles.forEach(car=>car.model.mesh.visible=true);
+  try{
+   // Local reflections also use the lighting sky, otherwise their private
+   // cubemap would reintroduce the unshadowed solar energy removed above.
+   if(skyData.lightingTexture)scene.background=skyData.lightingTexture;
+   world.restoreInstances();reflectionCamera.update(renderer,scene);
+  }finally{
+   scene.background=visibleBackground;
+   vehicles.forEach(car=>car.model.mesh.visible=true);
+   if(skyData.lightingTexture&&skyData.lightingTexture!==skyData.texture)skyData.lightingTexture.dispose();
+  }
   const carPMREM=new THREE.PMREMGenerator(renderer);
   const vehicleEnvironment=carPMREM.fromCubemap(reflectionTarget.texture).texture;
   vehicleDayEnvironment=vehicleEnvironment;

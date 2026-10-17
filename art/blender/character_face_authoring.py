@@ -64,99 +64,10 @@ def author_blinks():
 
 
 def author_hair():
-    """Original swept surface strands and a closer tapered nape over CC0 hair."""
-    import random
-    from mathutils.bvhtree import BVHTree
-    obj=bpy.data.objects['male_hair_short04'];data=obj.data
-    original=data.attributes.get('astra_hair_rest')
-    if original is None:
-        original=data.attributes.new('astra_hair_rest','FLOAT_VECTOR','POINT')
-        for a,v in zip(original.data,data.vertices):a.vector=v.co
-    for v,a in zip(data.vertices,original.data):
-        p=a.vector.copy()
-        # Keep sideburns, but taper the back instead of a solid curtain at nape.
-        if p.y>.08 and p.z<8.05:
-            strength=min(1,(p.y-.08)/.28)*min(1,(8.05-p.z)/.45)
-            p.z+=.22*strength;p.y-=.055*strength
-        # Small asymmetric swept volume breaks the perfectly flat cap silhouette.
-        crown=max(0,min(1,(p.z-8.65)/.55))
-        p.x+=.027*crown;p.z+=.042*crown*(.5+.5*math.sin(3*p.y+1.4))
-        v.co=p
-    data.update()
-    center=Vector((0,-.38,8.44));radius=Vector((.76,.99,.93))
-    def normal(p):
-        n=Vector(tuple((p[i]-center[i])/(radius[i]*radius[i]) for i in range(3)))
-        return n.normalized()
-    # Consistent scalp normals across disconnected cards remove plate-like bands.
-    data.normals_split_custom_set_from_vertices([normal(v.co) for v in data.vertices])
-    for p in data.polygons:p.use_smooth=True
-    for name in ['male_hair_strands']:
-        old=bpy.data.objects.get(name)
-        if old:bpy.data.objects.remove(old,do_unlink=True)
-    tree=BVHTree.FromPolygons([v.co for v in data.vertices],[list(p.vertices) for p in data.polygons],all_triangles=False)
-    rng=random.Random(73191);verts=[];faces=[];uvs=[]
-    polygons=[p for p in data.polygons if p.center.z>8.74 and p.area>.005]
-    weights=[p.area for p in polygons]
-    # Each strip is a small curved lock, with a slight lifted tip and tapered width.
-    for strand in range(132):
-        poly=rng.choices(polygons,weights)[0]
-        pts=[data.vertices[i].co for i in poly.vertices]
-        start=poly.center.lerp(rng.choice(pts),rng.uniform(0,.7))
-        n=normal(start)
-        flow=Vector((.30,.86,-.14)) if start.z>8.83 else Vector((.12*(1 if start.x>0 else -1),.38,-.83))
-        tangent=(flow-n*flow.dot(n)).normalized()
-        length=rng.uniform(.16,.40);width=rng.uniform(.010,.025)
-        paths=[]
-        for k in range(8):
-            t=k/7;probe=start+tangent*(length*t)
-            hit,_,_,dist=tree.find_nearest(probe)
-            p=hit if hit is not None else probe
-            n=normal(p);lift=.003+.013*math.sin(t*math.pi)+.008*t*t
-            p=p+n*lift
-            paths.append(p)
-            across=tangent.cross(n).normalized();w=width*(.35+.65*math.sin(math.pi*(.12+.88*t)))
-            w*=1-.85*t**3
-            for edge in (-1,1):verts.append(tuple(p+across*w*edge));uvs.append((.5+.5*edge,t))
-        first=len(verts)-16
-        # Do not add opaque locks over the transparent forehead hairline cards.
-        if any(p.y<-.95 and p.z<8.79 for p in paths):
-            del verts[first:];del uvs[first:];continue
-        for k in range(7):faces.append((first+k*2,first+k*2+1,first+k*2+3,first+k*2+2))
-    mesh=bpy.data.meshes.new('male_hair_strandsMesh');mesh.from_pydata(verts,[],faces);mesh.update()
-    layer=mesh.uv_layers.new(name='UVMap')
-    for p in mesh.polygons:
-        p.use_smooth=True
-        for loop in p.loop_indices:layer.data[loop].uv=uvs[mesh.loops[loop].vertex_index]
-    mesh.normals_split_custom_set_from_vertices([normal(v.co) for v in mesh.vertices])
-    detail=bpy.data.objects.new('male_hair_strands',mesh);bpy.data.collections['MakeHuman_male'].objects.link(detail)
-    detail['source']='Original project-authored swept hair locks and strand texture, fitted to CC0 short04 scalp'
-    detail['asset_license']='Original repository artwork over credited CC0 hair'
-    name='Astra original strand alpha'
-    image=bpy.data.images.get(name)
-    if image:bpy.data.images.remove(image)
-    width,height=64,256;image=bpy.data.images.new(name,width=width,height=height,alpha=True)
-    pixels=[]
-    for y in range(height):
-        t=y/(height-1);end=min(1,t*15)*min(1,(1-t)*12)
-        for x in range(width):
-            u=x/(width-1);alpha=0.;shade=0.
-            for j in range(7):
-                c=(j+.5)/7+.015*math.sin(t*5+j*2)
-                fiber=math.exp(-((u-c)/(.018-.005*t))**2)
-                alpha=max(alpha,fiber)
-                shade=max(shade,fiber*(.30+.055*math.sin(j*2.7+t*12)))
-            rgb=.065+shade*.29
-            pixels.extend((rgb,rgb,rgb,alpha*end))
-    image.pixels=pixels;image.pack()
-    mat=bpy.data.materials.get('male_hair_strand_detail')
-    if mat:bpy.data.materials.remove(mat)
-    mat=bpy.data.materials.new('male_hair_strand_detail');mat.use_nodes=True
-    nodes=mat.node_tree.nodes;links=mat.node_tree.links;p=nodes.get('Principled BSDF');p.inputs['Roughness'].default_value=.85;p.inputs['Specular IOR Level'].default_value=.2
-    tex=nodes.new('ShaderNodeTexImage');tex.image=image
-    tint=nodes.new('ShaderNodeMixRGB');tint.blend_type='MULTIPLY';tint.inputs[0].default_value=1;tint.inputs[2].default_value=(.32,.22,.14,1)
-    links.new(tex.outputs['Color'],tint.inputs[1]);links.new(tint.outputs[0],p.inputs['Base Color']);links.new(tex.outputs['Alpha'],p.inputs['Alpha'])
-    mat.surface_render_method='DITHERED';mat.use_transparency_overlap=False;mat.use_backface_culling=False;mesh.materials.append(mat)
-    return {'source_vertices':len(data.vertices),'original_strands':len(faces)//7,'detail_triangles':len(faces)*2,'texture':[width,height]}
+    """Author a tapered swept hairstyle without touching facial geometry."""
+    sys.path.insert(0,str(ROOT))
+    from character_hair_authoring import author_short_hair
+    return author_short_hair()
 
 
 def render_previews():
@@ -192,7 +103,7 @@ def render_previews():
 if __name__=='__main__':
     bpy.ops.wm.open_mainfile(filepath=str(BLEND))
     if '--render-only' not in sys.argv:
-        report=author_blinks()
+        report={} if '--hair-only' in sys.argv else author_blinks()
         report['hair']=author_hair()
         bpy.context.scene['facial_authoring']='blinkLeft and blinkRight: 0=open rest, 1=closed. Skin and lash deformation; eyeballs unchanged.'
         bpy.context.preferences.filepaths.save_version=0

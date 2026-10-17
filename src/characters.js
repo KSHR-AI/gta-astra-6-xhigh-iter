@@ -520,6 +520,11 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
     getAimState: animator.getAimState,
     applyShot: animator.applyShot,
     getFaceInfo: face.getInfo,
+    getAttentionInfo: animator.getAttentionInfo,
+    getLookPosition(target = new THREE.Vector3()) {
+      if (face.getEyePosition(target)) return target;
+      mesh.getWorldPosition(target); target.y += height * .9; return target;
+    },
     getHitVolumes() { animator.flushPose(); return getHitVolumes(); },
     setVisible(visible) { mesh.visible = Boolean(visible); },
     getMuzzlePosition(target = new THREE.Vector3()) { animator.flushPose(); return muzzle.getWorldPosition(target); },

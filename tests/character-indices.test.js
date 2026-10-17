@@ -310,16 +310,25 @@ test('repeating the transform is byte-stable and stale optimization metadata is 
   assert.throws(() => optimizeCharacterAsset(input.glb, wrongSource, encoderFixture()), /hash|sha256|match|source/i);
 });
 
-// Reviewed appearance baseline: fitted head/neck proportions, authored apparel,
-// matte hair/specular maps with wider atlas guards, original footwear surfaces,
-// and exposed-ankle skin masks. Head atlas UV placements deliberately changed;
-// all other vertex/morph payloads and near geometry remain exact. PRE-index exports were
-// independently compared with production; rig fingerprints remain unchanged.
-// Index order and exact duplicate references may change, while altered skinning,
-// seams, morphs, surface winding, textures or rigs still fail these assertions.
+// Reviewed appearance baseline: authored v14 crew-shirt/upper-arm replacement, rebuilt male hair and appended
+// eye joints deliberately change the male surfaces and both rigs. The original
+// joint prefixes and protected hands/soles are independently checked elsewhere.
+// These fingerprints pin the reviewed combined exports after exact indexing.
 const baselines = {
-  Male: { attributes: 'bca207ca1fe7b2c75be8421322ea321e8ca19856611b615b874c20f61fd5de5c', orientedSurfaces: 'b25c779941f394d1a5546eefb8626e07c60cb2549ceb99d6b6d4aaaf4153107c', blendOrder: '0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260', rig: '3f7087b99cde7bc508fa63461ab37154f8d50f08898ec328186d771dac561be9', materials: '0effadcf551aa41ea923c358c1a456bf87b8478b18dd252df8dc3dee215e64c4' },
-  Female: { attributes: '0334ecbae07fdbc1cfb60ac8827d117b149818a22a0a16ea7e8e2bf9bd13ae2c', orientedSurfaces: 'd717f9ced7be2dd9d9d5c08fb8407555f19badef7f45bed13eda37c3c45e3f15', blendOrder: '1b2397b4b23db70f8447e687c207a8e9b48d074d3f7b4d08cf64e6107b802669', rig: '5e66e1d0f0590a9ee999c3fa40a25722f5cc371a3a825686e1a4a803d36a52f4', materials: '5afd8ddd8e3a8672a79ed71a6e2a7c7ed0dc052ee3ee706f47f04960868fcbd5' },
+  "Male": {
+    "attributes": "630918a3b1af41e93b8b9c798c1ee41a7ac66c0f6a3c18e8b648a7c813f3037c",
+    "orientedSurfaces": "039193013193cda370679ae4632531bdb1a182c4dc68b2a90ec4321d19fa6d27",
+    "blendOrder": "0b1c45160791e0924e37b88036f2eafd1927cbc7e156121552868f3a62b4a260",
+    "rig": "ce7952a79ec49cc6b9d7e6394e221745ee9fe8ac717ad0b76907eed6cbcd334a",
+    "materials": "638cdd0f1f44198da7c359af68e55288cd716ab029d8edd0a7c907e5758988ba"
+  },
+  "Female": {
+    "attributes": "691de62401c798f0502c8a41d68627574ac203648bec6e29e206eb7566cb9170",
+    "orientedSurfaces": "8dfc6e89c8133d42eaa9163181e7d6a80f7ae07e23d8dcbed9d9dcf11cb3f95f",
+    "blendOrder": "1b2397b4b23db70f8447e687c207a8e9b48d074d3f7b4d08cf64e6107b802669",
+    "rig": "6b3d83dd2f363f6481b79734a2725d0716f78a005bdc0553a430b32863726574",
+    "materials": "f62de2042e20e30423c4d8e44f08e1a448d4541b2b314b2640ec0ed140622d49"
+  }
 };
 for (const sex of ['Male', 'Female']) test(`${sex}: production asset retains its authored surfaces, vertex payloads, materials and rig`, async () => {
   const bytes = await readFile(new URL(`../public/models/Civilian${sex}Natural.glb`, import.meta.url));
@@ -327,6 +336,6 @@ for (const sex of ['Male', 'Female']) test(`${sex}: production asset retains its
   assert.deepEqual(fingerprint(asset), baselines[sex]);
   const body = asset.json.meshes[0].primitives[0];
   assert.notEqual(body.indices, undefined, 'near body uses a shared-vertex index stream');
-  assert.equal(new Set(indexes(asset, body)).size, sex === 'Male' ? 5642 : 3540,
+  assert.equal(new Set(indexes(asset, body)).size, sex === 'Male' ? 9375 : 3540,
     'exact welding reduces repeated vertex skinning without changing any authored surface');
 });
