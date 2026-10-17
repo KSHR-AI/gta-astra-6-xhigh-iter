@@ -21,6 +21,7 @@ import { createPosedActorCollider, getAimPoint, traceShot } from './combat.js';
 import { createWeaponHandling, PISTOL } from './weapon-handling.js';
 import { createShotFrameScheduler } from './shot-frame-scheduler.js';
 import { createEffectMaterialPool } from './effect-material-pool.js';
+import { createEffectShaderWarmup, warmKnownEffectVariants } from './effect-shader-warmup.js';
 import { advanceGroundedPosition } from './character-grounding.js';
 import './style.css';
 
@@ -75,7 +76,7 @@ const state={ready:false,started:false,paused:false,mapOpen:false,health:100,sta
 let photo,photoWasPaused=false,photoShadowState=[];
 let ui,player,currentCar=null,mission=0,night=false,weapon=false,aiming=false,reloading=false,simulation,job,interaction=null,contactActor;
 let dialogueQueue=[],dialogueUntil=0,damageFlash=0;
-let vehicleDayEnvironment=null,vehicleNightEnvironment=null;
+let vehicleDayEnvironment=null,vehicleNightEnvironment=null,effectDayEnvironment=null;
 let cameraRoll=0,playerCameraVisibility;
 let yaw=0,pitch=0.07,jumpVelocity=0,lastShot=-100,lastCrime=-100,wantedSince=-100,elapsed=0,lookTimer=0,doorTimer=0,respawnTimer=0,reloadRemaining=0;
 let lastFrame=performance.now(),frameCount=0,fpsTimer=0,uiTimer=0,miniTimer=0,mouseDown=false;
@@ -108,9 +109,14 @@ const photoActorVisibility=createPhotoActorVisibility({pedestrians,vehicles});
 const photoShadowActors=()=>[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(car=>car.driver)].filter(Boolean);
 const localSelfShadow=createPhotoCharacterShadow({renderer,camera,scene,sun,getActors:photoShadowActors});
 const environmentLighting=createEnvironmentLighting({renderer,captureVehicleCube,apply:applyEnvironmentMaps});
+const effectShaderWarmup=createEffectShaderWarmup({renderer,materials:effectMaterials,
+ prepare:retainedMaterials=>warmKnownEffectVariants({renderer,camera,scene,retainedMaterials,
+  sun,hemisphere,streetLights,headlights,dayEnvironment:effectDayEnvironment,nightEnvironment:vehicleNightEnvironment}),
+ onError:error=>console.warn('Shot shader warmup failed; effects will prepare on first use.',error),
+});
 let lastEnvironmentBuild=0,environmentError=null;
 function disposePhotoCharacterShadow(){
- localSelfShadow.dispose();photoActorVisibility.dispose();environmentLighting.dispose();effectMaterials.dispose();window.removeEventListener('pagehide',onPhotoPageHide);
+ localSelfShadow.dispose();photoActorVisibility.dispose();environmentLighting.dispose();effectShaderWarmup.dispose();effectMaterials.dispose();window.removeEventListener('pagehide',onPhotoPageHide);
 }
 function onPhotoPageHide(event){
  localSelfShadow.release('page-hidden');
@@ -713,12 +719,12 @@ canvas.addEventListener('wheel',e=>{if(photo.active){e.preventDefault();photo.ch
 window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);rendering.resize();});
 
 // A read-only diagnostic view keeps real browser verification reproducible.
-Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,renderFrame,environmentLighting:environmentLighting.getInfo(),localSelfShadow:localSelfShadow.getInfo(),photoActors:photoActorVisibility.getInfo(),cameraVisibility:playerCameraVisibility?.getState(),footContacts:player?.contactShadow?.getInfo(),shaderPrograms:renderer.info.programs.length,playerMoveSpeed,playerHeading:player?.mesh.rotation.y,aimState:player?.getAimState?.(),muzzlePosition:player?.getMuzzlePosition?.().toArray(),muzzleDirection:player?.getMuzzleDirection?.().toArray(),shotsFired:handling.shots,shotQueued:handling.queued,lastImpact,policeShots:policeShotHistory.map(shot=>({...shot,origin:[...shot.origin],point:[...shot.point]})),recoilPitch:handling.recoilPitch,aimPoint:aimSolution?.point.toArray(),position:player?.mesh.position.toArray(),groundHeight:player?world.heightAt(player.mesh.position.x,player.mesh.position.z):null,carPosition:currentCar?.model.mesh.position.toArray(),carHeading:currentCar?.heading,carSpeed:currentCar?.speed,mission,interaction:interaction?{phase:interaction.phase,progress:interaction.elapsed/interaction.duration}:null,animation:player?.mesh.userData.animationState,pose:player?.getPoseInfo?.(),face:player?.getFaceInfo?.(),landmarks:world.landmarks,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,driverVisible:!!currentCar&&player?.mesh.visible,driverPosition:currentCar?player.mesh.position.toArray():null,city:simulation?.getDiagnostics?.(),driverAlignment:currentCar?{driver:player.mesh.quaternion.toArray(),cockpit:currentCar.model.getDriverOrientation?.(new THREE.Quaternion()).toArray()}:null,instanceVisibility:world.getInstanceVisibility(),wires:world.getWireStats(),heroVehicle:{driverActive:heroCar.driverActive,driverDownUntil:heroCar.driverDownUntil,driverAnimation:heroCar.driver?.mesh.userData.animationState,driverHead:heroCar.driver?.getHitVolumes?.().spheres[0]?.center.toArray(),evictedDriver:pedestrians.some(p=>p.isDriver&&p.actor===heroCar.driver)?{down:pedestrians.find(p=>p.actor===heroCar.driver).down,animation:heroCar.driver?.mesh.userData.animationState}:null,detail:heroCar.model.getDetailInfo?.(),model:heroCar.model.mesh.userData.model,detailLevels:heroCar.model.mesh.userData.detailLevels,driverSeat:heroCar.model.getDriverSeat?.().toArray(),doorEntry:heroCar.model.getDoorPosition?.().toArray(),doorAngle:heroCar.model.mesh.getObjectByName('driver_door')?.rotation.y},jobCarHealth:heroCar.health,jobCarPosition:heroCar.model.mesh.position.toArray(),characterLODs:[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(c=>c.driver)].filter(Boolean).map(actor=>({...actor.getLODInfo?.(),evaluation:actor.getEvaluationStats?.(),face:actor.getFaceInfo?.(),attention:actor.getAttentionInfo?.(),position:actor.mesh.position.toArray(),groundHeight:world.heightAt(actor.mesh.position.x,actor.mesh.position.z),visible:actor.mesh.visible})),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,vehicleDetails:vehicles.map(c=>({model:c.model.mesh.userData.model,position:c.model.mesh.position.toArray(),speed:c.speed,...c.model.getDetailInfo?.()})),pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray(),cameraDirection:camera.getWorldDirection(new THREE.Vector3()).toArray(),photo:photo.active?photo.settings:null,renderSize:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()})}});
+Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...state,renderFrame,environmentLighting:environmentLighting.getInfo(),effectShaderWarmup:effectShaderWarmup.getInfo(),localSelfShadow:localSelfShadow.getInfo(),photoActors:photoActorVisibility.getInfo(),cameraVisibility:playerCameraVisibility?.getState(),footContacts:player?.contactShadow?.getInfo(),shaderPrograms:renderer.info.programs.length,playerMoveSpeed,playerHeading:player?.mesh.rotation.y,aimState:player?.getAimState?.(),muzzlePosition:player?.getMuzzlePosition?.().toArray(),muzzleDirection:player?.getMuzzleDirection?.().toArray(),shotsFired:handling.shots,shotQueued:handling.queued,lastImpact,policeShots:policeShotHistory.map(shot=>({...shot,origin:[...shot.origin],point:[...shot.point]})),recoilPitch:handling.recoilPitch,aimPoint:aimSolution?.point.toArray(),position:player?.mesh.position.toArray(),groundHeight:player?world.heightAt(player.mesh.position.x,player.mesh.position.z):null,carPosition:currentCar?.model.mesh.position.toArray(),carHeading:currentCar?.heading,carSpeed:currentCar?.speed,mission,interaction:interaction?{phase:interaction.phase,progress:interaction.elapsed/interaction.duration}:null,animation:player?.mesh.userData.animationState,pose:player?.getPoseInfo?.(),face:player?.getFaceInfo?.(),landmarks:world.landmarks,reloading,reloadRemaining,elapsed,policePosition:police.model.mesh.position.toArray(),characterLoaded:!!player,driverVisible:!!currentCar&&player?.mesh.visible,driverPosition:currentCar?player.mesh.position.toArray():null,city:simulation?.getDiagnostics?.(),driverAlignment:currentCar?{driver:player.mesh.quaternion.toArray(),cockpit:currentCar.model.getDriverOrientation?.(new THREE.Quaternion()).toArray()}:null,instanceVisibility:world.getInstanceVisibility(),wires:world.getWireStats(),heroVehicle:{driverActive:heroCar.driverActive,driverDownUntil:heroCar.driverDownUntil,driverAnimation:heroCar.driver?.mesh.userData.animationState,driverHead:heroCar.driver?.getHitVolumes?.().spheres[0]?.center.toArray(),evictedDriver:pedestrians.some(p=>p.isDriver&&p.actor===heroCar.driver)?{down:pedestrians.find(p=>p.actor===heroCar.driver).down,animation:heroCar.driver?.mesh.userData.animationState}:null,detail:heroCar.model.getDetailInfo?.(),model:heroCar.model.mesh.userData.model,detailLevels:heroCar.model.mesh.userData.detailLevels,driverSeat:heroCar.model.getDriverSeat?.().toArray(),doorEntry:heroCar.model.getDoorPosition?.().toArray(),doorAngle:heroCar.model.mesh.getObjectByName('driver_door')?.rotation.y},jobCarHealth:heroCar.health,jobCarPosition:heroCar.model.mesh.position.toArray(),characterLODs:[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(c=>c.driver)].filter(Boolean).map(actor=>({...actor.getLODInfo?.(),evaluation:actor.getEvaluationStats?.(),face:actor.getFaceInfo?.(),attention:actor.getAttentionInfo?.(),position:actor.mesh.position.toArray(),groundHeight:world.heightAt(actor.mesh.position.x,actor.mesh.position.z),visible:actor.mesh.visible})),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,vehicles:vehicles.length,vehicleDetails:vehicles.map(c=>({model:c.model.mesh.userData.model,position:c.model.mesh.position.toArray(),speed:c.speed,...c.model.getDetailInfo?.()})),pedestrians:pedestrians.length,softwareRenderer:!!softwareRenderer,pixelRatio:renderer.getPixelRatio(),cameraPosition:camera.position.toArray(),cameraDirection:camera.getWorldDirection(new THREE.Vector3()).toArray(),photo:photo.active?photo.settings:null,renderSize:renderer.getDrawingBufferSize(new THREE.Vector2()).toArray()})}});
 
 // Publish complete replacement maps together; retain each material's authored
 // intensity instead of capturing the current night multiplier on a rebuild.
 function applyEnvironmentMaps({day,night:nightMap,vehicle}){
- atmosphere.setEnvironment(day,nightMap);vehicleDayEnvironment=vehicle;vehicleNightEnvironment=nightMap;
+ atmosphere.setEnvironment(day,nightMap);effectDayEnvironment=day;vehicleDayEnvironment=vehicle;vehicleNightEnvironment=nightMap;
  for(const car of vehicles)car.model.mesh.traverse(object=>{
   const materials=Array.isArray(object.material)?object.material:[object.material];
   for(const material of materials)if(material?.isMeshStandardMaterial){
@@ -780,6 +786,9 @@ async function boot(){
   // A lost context can recover on the next frame; a rebuild error needs refresh.
   const environmentFailure=environmentLighting.getInfo().error;
   if(environmentFailure)throw new Error(environmentFailure);
+  // Prepare all six reachable effect variants behind the existing loading screen.
+  // A lost context retries at the recovery gate; ordinary warmup errors fall back.
+  if(environmentLighting.getInfo().ready)effectShaderWarmup.update(environmentLighting.revision);
   state.ready=true;ui.setReady(true);
  }catch(error){console.error('Unable to initialize city',error);ui.toast('COULD NOT LOAD THE CITY','Please refresh to try again.');}
  lastFrame=performance.now();requestAnimationFrame(frame);
@@ -791,6 +800,11 @@ function frame(now){
   const failure=environmentLighting.getInfo().error;
   if(failure&&failure!==environmentError){environmentError=failure;ui.toast('GRAPHICS INTERRUPTED','Please refresh to restore the city.');}
   requestAnimationFrame(frame);return;
+ }
+ // Environment maps must exist before preparation. A context lost during the
+ // hidden draw still holds simulation; the revision clock reset follows its cost.
+ if(!effectShaderWarmup.update(environmentLighting.revision)){
+  lastFrame=performance.now();requestAnimationFrame(frame);return;
  }
  if(lastEnvironmentBuild!==environmentLighting.revision){lastEnvironmentBuild=environmentLighting.revision;now=performance.now();lastFrame=now;}
  renderFrame++;

@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import * as THREE from 'three';
 import { createShotFrameScheduler } from '../src/shot-frame-scheduler.js';
 import { createWeaponHandling } from '../src/weapon-handling.js';
+import { createEffectShaderWarmup } from '../src/effect-shader-warmup.js';
 
 // Execute the real main entry points with a renderer boundary fixture. Browser
 // restoration still verifies the actual WebGL uploads and resulting lighting.
@@ -62,10 +63,12 @@ for (const fail of [false, true]) test(`static recovery capture preserves actor 
   assert.equal(captureTarget.disposals, fail ? 1 : 0);
 });
 
-test('actual frame gate freezes simulation while unavailable and charges no synchronous rebuild time', () => {
-  const updates = [], scheduled = []; let available = false, clock = 1000;
+test('actual frame gate freezes simulation while unavailable and charges no rebuild or shader warmup time', () => {
+  const updates = [], scheduled = []; let available = false, clock = 1000, warmCalls = 0;
   const environmentLighting = { revision: 0, update: () => available, getInfo: () => ({ error: null }) };
-  const context = { environmentLighting, lastEnvironmentBuild: 0, environmentError: null, lastFrame: 10,
+  const effectShaderWarmup = createEffectShaderWarmup({ renderer: { getContext: () => ({ isContextLost: () => false }) },
+    prepare: () => { clock += 400; warmCalls++; return true; } });
+  const context = { environmentLighting, effectShaderWarmup, lastEnvironmentBuild: 0, environmentError: null, lastFrame: 10,
     renderFrame: 0, frameCount: 0, fpsTimer: 0, state: { started: true, paused: false, mapOpen: false },
     performance: { now: () => clock }, requestAnimationFrame: callback => scheduled.push(callback),
     ui: { toast() { assert.fail('no failure UI during ordinary context loss'); } },
@@ -83,9 +86,9 @@ test('actual frame gate freezes simulation while unavailable and charges no sync
   assert.deepEqual(updates, []); assert.equal(context.renderFrame, 0); assert.equal(context.lastFrame, 200);
   available = true; environmentLighting.revision = 1; context.frame(300);
   assert.deepEqual(updates, [0], 'rebuild wall time is excluded from simulation');
-  assert.equal(context.lastFrame, 1000);
-  clock = 1020; context.frame(1020);
-  assert.deepEqual(updates, [0, .02]); assert.equal(scheduled.length, 4);
+  assert.equal(context.lastFrame, 1400); assert.equal(warmCalls, 1);
+  clock = 1420; context.frame(1420);
+  assert.deepEqual(updates, [0, .02]); assert.equal(scheduled.length, 4); assert.equal(warmCalls, 1);
 });
 
 // Exercise the real environment setup and ready commit around the independent
@@ -100,13 +103,14 @@ for (const mode of ['graphics-error', 'context-lost', 'fallback', 'normal']) {
   test(`boot readiness handles ${mode} without confusing a recoverable loss with a graphics failure`, async () => {
     const texture = { name: mode === 'fallback' ? 'procedural fallback' : 'photographic HDR' };
     const skyData = { texture, lightingTexture: texture, sunDirection: new THREE.Vector3(0, 1, 0) };
-    const registrations = [], updates = [], readiness = [];
+    const registrations = [], updates = [], readiness = [], warmed = [];
     const failure = mode === 'graphics-error' ? 'PMREM capture failed' : null;
     const context = { atmosphere: { ready: Promise.resolve(skyData) },
       world: { ready: Promise.resolve(), setSky: value => registrations.push(value) },
       loadCharacterAssets: () => Promise.resolve(),
       sunOffset: new THREE.Vector3(), shadowAnchor: new THREE.Vector3(), sun: new THREE.DirectionalLight(),
-      environmentLighting: { setSky: value => registrations.push(value), update: () => { updates.push(1); return mode === 'normal' || mode === 'fallback'; }, getInfo: () => ({ error: failure }) },
+      environmentLighting: { revision: 1, setSky: value => registrations.push(value), update: () => { updates.push(1); return mode === 'normal' || mode === 'fallback'; }, getInfo: () => ({ error: failure, ready: mode === 'normal' || mode === 'fallback' }) },
+      effectShaderWarmup: { update: revision => { warmed.push(revision); return true; } },
       state: { ready: false }, updateDrivers() {},
       ui: { update() {}, setReady: value => readiness.push(value) },
     };
@@ -120,5 +124,6 @@ for (const mode of ['graphics-error', 'context-lost', 'fallback', 'normal']) {
       assert.equal(context.state.ready, true); assert.deepEqual(readiness, [true]);
     }
     assert.deepEqual(registrations, [skyData, skyData]); assert.deepEqual(updates, [1]);
+    assert.deepEqual(warmed, mode === 'normal' || mode === 'fallback' ? [1] : []);
   });
 }
