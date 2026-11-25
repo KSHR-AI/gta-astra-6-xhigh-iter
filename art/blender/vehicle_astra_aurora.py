@@ -330,9 +330,9 @@ def cockpit(m,chassis,door,detail):
         box('belt_release',(x-side*.24,.485,-.45),(.024,.008,.029),m['taillight_left'],chassis,.003,2)
         # A low aerodynamic fairing and polished rollover protection behind head.
         def fairing(u,v,side=side):
-            z=-.83-.57*u; q=v*2-1
-            width=.22*(1-.65*u)
-            return side*.43+q*width,top_y(side*.43+q*width,z)+.20*math.sin(math.pi*(1-u)*.7)*(1-q*q),z
+            z=-.815-.78*u; q=v*2-1
+            width=.243*(1-.74*u)
+            return side*.43+q*width,top_y(side*.43+q*width,z)+.275*(1-u*u)*(1-q*q)**2,z
         surface('rear_seat_fairing',fairing,18,14,m['body'],chassis,flip=True)
         pts=[]
         for k in range(25):
@@ -437,6 +437,7 @@ def build(detail=True):
         if obj.type=='MESH':
             for vert in obj.data.vertices:vert.co-=hinge
     door.location=hinge
+    empty('driver_handle', door, (-profile(-.54)[0]-.010+.94, .779-.76, -.54-.70))
     for name,p in [('driver_seat',(-.43,.50,-.34)),('passenger_seat',(.43,.50,-.34)),('steering_anchor',(-.43,.85,.13)),('door_entry',(-1.65,0,-.15)),('engine_anchor',(0,.63,1.25)),('exhaust_left',(-.61,.29,-2.33)),('exhaust_right',(.61,.29,-2.33))]:
         empty(name,root,p)
     batch(root)

@@ -1,8 +1,9 @@
+import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 
 // Original fine-grain sand at a physical scale. The existing terrain meshes,
 // ground queries and shadows stay unchanged; this replaces only their finish.
-export function applyBeachSurface(material, { textureRoot = '/textures/beach', loader = new THREE.TextureLoader() } = {}) {
+export function applyBeachSurface(material, { textureRoot = assetUrl('textures/beach'), loader = new THREE.TextureLoader() } = {}) {
   const loaded = [];
   const load = (name, color = false) => new Promise(resolve => {
     loader.load(`${textureRoot}/${name}.jpg`, texture => {

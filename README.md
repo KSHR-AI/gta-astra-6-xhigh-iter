@@ -1,6 +1,8 @@
 # Grand Theft Astra
 
-A single-player browser action game built with Three.js. Explore Los Pacificos, a compact coastal district, play **The Coastal Job**, steal and drive cars, and escape a police search. This is an original playable prototype inspired by open-world crime games, with a small authored neighborhood and one mission chain.
+An original single-player driving game built with Three.js. Spend an evening in Los Pacificos. Meet Mara under the Paloma awning, deliver her Aurora to Auto Works, and take a second shift carrying freight for the neighborhood. Along the way you can race the Pacific Circuit, record the streets for Vale FM, or collect coastal postcards.
+
+[Play Grand Theft Astra on GitHub Pages](https://kshr-ai.github.io/gta-astra-6-xhigh-iter/)
 
 ## Run and test
 
@@ -21,17 +23,29 @@ npm run preview
 
 Tests exercise mission progression, persistence, witnesses, police-state transitions, shot occlusion, recoil timing, and the imported characters’ gait, grip, and reload poses. They do not replace playing the browser build. The production build is written to `dist/`; preview serves that build.
 
-## The Coastal Job
+The GitHub Pages project build uses `npm run build:pages`. The repository publishes the contents of `dist/` and an empty `.nojekyll` file from the root of the `gh-pages` branch.
 
-1. Meet **Mara** inside the Orbit corner office and press **E** for the briefing.
-2. Take the teal convertible on the boulevard. The theft draws attention.
-3. Break police line of sight and remain hidden until the search ends.
-4. Drive into Mara’s workshop, stop, and press **E** to deliver the car for **$1,500**.
-5. Visit the **Paloma Motor Lodge** courtyard to claim your safehouse, rest, and save.
+## Last Light at the Paloma
 
-After the delivery, continue exploring. Mara sells **36 pistol rounds for $150**, subject to the 192-round reserve limit. The workshop repairs a damaged vehicle for **$100** after the job. Resting at the Paloma restores health and stamina and replenishes the reserve to at least 96 rounds. A wrecked mission car resets the attempt so the job can be retried.
+1. Talk to **Mara** under the Paloma awning. Inspect the teal Aurora’s rear lamp on foot, then enter at the driver’s door.
+2. At the Calypso mural, drive straight for Vespucci Boulevard or turn east for the Sunline service lane. The boulevard has traffic and crossings. The service lane threads through the diner loading yard.
+3. Bring the car to a stop in the Auto Works bay and hand over the keys. The first delivery pays **$1,500**. Keeping the car at **85% condition or better throughout** earns another **$500**. Mara lets you use the Paloma room. Practice deliveries record your best condition on each route.
+4. Keep the evening going at **Night Shift dispatch**. Sign out a manifest from a stopped vehicle. Choose two pickups from Sunline’s glass racks, Paloma’s linens and the pier’s film reels. Mark a pickup on the city map to put its name and distance on the HUD. Stop at each curb to load, then return to Auto Works. Each distinct pair earns **$400–$600** on its first run. Hard braking, skids and collisions can damage cargo. If the car is lost, collect the cargo at the last pickup with another vehicle.
+5. Include the reels in a paid manifest to unlock the outdoor screening. Select **Pier drive-in** on the map and park or walk to the audience spot. You can watch the four-scene travelogue, then explore or replay at your own pace.
 
-Progress uses the current browser’s `localStorage`, under `grand-theft-astra:coastal-job:v1`. Saves retain the mission checkpoint, money, and completed-job count. Returning during an escape or delivery restores the pre-theft checkpoint with a fresh mission car; it does not serialize the live traffic, police, or every vehicle’s position. The title menu offers Continue when a save exists. **Start a fresh session** clears this progress. If browser storage is unavailable, play continues without persistent saves. Saves are local to this browser and site origin, with no account or cloud synchronization.
+The cream courtesy sedan beside the Paloma flag is available from the opening. Launch on green and follow the five gates of the **Pacific Circuit** within 90 seconds. Sector times and a saved personal best support repeat runs. Payouts range from **$300 to $750**.
+
+In free roam, the workshop service lifts repair a damaged car for **$100**. Rest in the Paloma courtyard to restore health and stamina. On foot at a freight stop or dispatch, you can return an active manifest unpaid to free up the other activities.
+
+Progress is local to this browser and site, under `grand-theft-astra:coastal-job:v1`. Continue restores the story checkpoint, wallet, job count and activity records. A mid-route checkpoint brings the Aurora back to a marked approach. Older Coastal Job saves retain their wallet and completed progress. Settings offers checkpoint retry and a separate fresh-session reset. If storage is unavailable you can still play during the current visit.
+
+## Room Tone
+
+Look for the teal recorder marker beside the Paloma office. Borrow Vale’s recorder, choose the courtyard ($350) or the boulevard ($650), then cut the take in the indicated window and return it to the desk. A missed cue lets you try either location again.
+
+## Coast postcards
+
+Press **P** during free roam to open Photo mode. Follow the album clue, frame the landmark, and capture a PNG. The Paloma sign, Sunline diner and Pacific Wheel each count once. Your album is saved separately from the story.
 
 ## Controls
 
@@ -40,7 +54,8 @@ Progress uses the current browser’s `localStorage`, under `grand-theft-astra:c
 | WASD / arrow keys | Move or drive |
 | Shift | Sprint |
 | Space | Jump / handbrake |
-| E / F | Talk, buy supplies, deliver, repair, rest, or enter/exit a vehicle, according to the nearby prompt |
+| E | Use the nearby prompt, including talking, loading freight, handing over the car or opening its door |
+| F | Use the vehicle door, including when another activity is available |
 | Drag the mouse | Orbit the camera |
 | Double-click the scene | Lock the pointer for mouse look; Escape releases it |
 | 1 | Equip / holster pistol |
@@ -52,7 +67,15 @@ Progress uses the current browser’s `localStorage`, under `grand-theft-astra:c
 | P | Enter / leave photo mode |
 | Escape | Pause / settings; leave photo mode |
 
-Touch controls provide movement, run/jump, contextual Use, separate hold-to-aim and fire buttons, reload, and equip. Dragging the scene looks around without firing. The pistol fires once per press; an equipped weapon rests low until aiming or firing. The contextual prompt itself can also be tapped. Settings include sound, Cinematic/Performance rendering, golden hour/night, and session restart.
+On the city map, choose an available activity by name, or click or tap a street to place a personal waypoint. Keyboard players can focus the map, move the cursor with the arrow keys, and press Enter to set it. Purple turn cues lead to the pin. Reaching or clearing it restores the mission route.
+
+Hold the brake to stop and keep the car still. Release and press it again to reverse. The brake is **S** or **Down** on a keyboard, **LT / L2** on a controller, and **Brake** on the touch HUD.
+
+On touchscreens, steer with your left thumb and use the gas, brake, or handbrake with your right. The pause menu lets you retry your mission checkpoint.
+
+Standard-mapped gamepads support exploration and driving. Press **A / Cross** or **Menu / Options** to begin. Move or steer with the **left stick**, look with the **right stick**, and hold **L3** to sprint. **A / Cross** jumps on foot and holds the handbrake while driving. **Y / Triangle** uses the active prompt. **B / Circle** exits the vehicle even at an activity pickup or handoff. Use the **D-pad** to navigate menus, **A / Cross** to select, and **B / Circle** to go back. **RT / R2** accelerates and **LT / L2** brakes. **View / Share** toggles the map and **Menu / Options** toggles pause.
+
+Touch controls provide movement, run/jump, contextual Use, separate hold-to-aim and fire buttons, reload, and equip. Dragging the scene looks around without firing. The pistol fires once per press; an equipped weapon rests low until aiming or firing. The contextual prompt itself can also be tapped. When a delivery or activity has its own action, **Exit** stays separate from **Use**. On a keyboard, **F** exits while **E** uses the activity. Settings include sound, Cinematic/Performance rendering, golden hour/night, and session restart.
 
 ## Photo mode
 
@@ -62,10 +85,10 @@ Photo mode renders at native resolution (up to 1.5× device pixels) with four-sa
 
 ## World and gameplay
 
-- **An authored neighborhood:** the Orbit contact office, Sunline diner, Paloma motel office/courtyard, and Astra Auto Works garage have accessible openings and modeled furnishings. Other buildings provide the surrounding streetscape. Curbs, balconies, palms, shrubs, road wear, beach, promenade, and animated water give the district its coastal setting.
+- **An authored neighborhood:** the Orbit corner office, Sunline diner, Paloma motel office/courtyard, and Astra Auto Works garage have accessible openings and modeled furnishings. Other buildings provide the surrounding streetscape. Curbs, balconies, palms, shrubs, road wear, beach, promenade, and animated water give the district its coastal setting.
 - **Original Blender assets:** curved bus shelters, a newspaper kiosk, cafe seating/parasols, the Meridian executive sedan and police variant, and a detailed compact pistol. Editable `.blend` projects and deterministic generation scripts live in `art/blender/`; the game loads the exported GLBs locally.
 - **Animated people:** anatomically proportioned MakeHuman heads with textured skin, fitted eyes, short hair or ponytails, and varied skin/hair tones replace the earlier stylized faces. The civilian protagonist, pedestrians, Mara, visible vehicle occupants, and police officers retain their clothed, rigged bodies. Retargeted idle/walk/run animation is combined with authored skeletal layers for aiming, reloading, jumping, driving, and entering/exiting cars. Taking an occupied vehicle includes a visible driver exit. Planted-foot correction, asymmetrical breathing, and articulated fingers improve standing, locomotion, weapon grips, and seated steering.
-- **Driving and damage:** imported sports convertibles and original sedans/patrol cars, visible seated drivers, opening doors, steering wheels, wheel rotation, suspension lean, braking/reverse, tire grip, handbrake slip, automatic gears, and collision impulses. Damage changes body panels, glazing, lights, and smoke; repairs restore the vehicle. The compact driving HUD shows speed and gear, with a condition warning when the vehicle is damaged.
+- **Driving and damage:** original Aurora convertibles and Meridian sedans/patrol cars, visible seated drivers, opening doors, steering wheels, wheel rotation, suspension lean, braking/reverse, tire grip, handbrake slip, automatic gears, and collision impulses. Damage changes body panels, glazing, lights, and smoke; repairs restore the vehicle. The compact driving HUD shows speed and gear, with a condition warning when the vehicle is damaged.
 - **Witnesses and police:** nearby civilians react to crimes, visible thefts can produce delayed witness reports, and gunfire can be heard nearby. Building collision volumes obstruct sight. Patrols pursue a last-known position, search after losing sight, and clear the alert after an uninterrupted escape. Visible officers can deploy and fire when they have line of sight.
 - **Combat and presentation:** a semi-automatic pistol with a raised firing stance, shoulder aiming, recoverable recoil, movement-dependent accuracy, brief muzzle flash, ejected brass, spatial shots/impacts, and timed reload foley. The raised pistol follows the current reticle target, including rapid turns and close-range convergence; firing waits for the actual barrel to align. Raised stationary turns use alternating foot placement and a bounded body rotation. A brief trigger tap retains its original eligibility window while the weapon settles; menu, holster and reload actions cancel pending fire. Each accepted shot kicks the visible weapon immediately, and hit feedback survives until its first displayed frame. A second trace from the muzzle checks buildings, vehicles, and people so nearby cover blocks shots. Accuracy and footstep cadence follow actual movement, including when an obstruction stops the player. The HUD shows accuracy, hit feedback, obstruction, low ammunition, and reload progress. Exploration keeps only a small minimap and objective line; full mission details, balance, and controls live in the map or pause menu. Police status appears once, and brief notifications stay at the screen edge. Menus constrain keyboard focus and restore it on close. Health, checkpoint respawning, mission subtitles, rewards, maps, and contextual prompts remain available.
 - **Sound:** local engine and coastal recordings, concrete and beach footsteps, door/impact/reload foley, synthesized weapons and horns, spatial sirens, and a subdued adaptive pursuit motif. Audio starts after a user gesture.

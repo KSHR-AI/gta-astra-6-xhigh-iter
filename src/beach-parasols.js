@@ -1,3 +1,4 @@
+import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
@@ -6,8 +7,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // This owns its LOD matrices; do not also register these with instanceVisibility.
 export function createBeachParasols(parent, placements, {
   loader = new GLTFLoader(),
-  nearUrl = '/models/city/BeachParasol.glb',
-  farUrl = '/models/city/BeachParasol-lod.glb',
+  nearUrl = assetUrl('models/city/BeachParasol.glb'),
+  farUrl = assetUrl('models/city/BeachParasol-lod.glb'),
   nearDistance = 34,
 } = {}) {
   const root = new THREE.Group();

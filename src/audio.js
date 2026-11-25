@@ -1,3 +1,4 @@
+import { assetUrl } from './asset-url.js';
 // Recorded CC0 foley sits under a small, continuously running Web Audio mixer.
 // Nothing opens an AudioContext until start() is called from a user gesture.
 const ASSETS = {
@@ -8,13 +9,16 @@ const ASSETS = {
   glass: 'glass-impact.mp3', magazine: 'magazine.mp3',
 };
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const RADIO_NOTES = [293.66, 349.23, 440, 392, 0, 349.23, 329.63, 261.63];
 const finite = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
 
 export function createAudio() {
-  let context, master, world, echoInput, noiseBuffer;
+  let context, master, world, radioBus, echoInput, noiseBuffer;
+  let radioAt = 0, radioBeat = 0, toolAt = 0;
+  let passPan, passGain, passFilter, passTone;
   let engine, exhaust, transmission, engineFilter, engineGain, exhaustGain, transmissionGain;
   let engineSample, engineSampleGain, roadFilter, roadGain, tireFilter, tireGain, tireTone;
-  let windGain, seaGain, gullGain, siren, sirenHarmonic, sirenFilter, sirenGain, sirenPan;
+  let seaPan, seaFilter, windGain, seaGain, gullGain, siren, sirenHarmonic, sirenFilter, sirenGain, sirenPan;
   let enabled = true, disposed = false, active = true;
   let lastTime = 0, lastSpeed = 0, lastGear = 1, lastDistance = 80, shiftUntil = 0;
   let stepDistance = 0, stepIndex = 0, trafficAt = 4, musicAt = 0, musicBeat = 0;
@@ -43,8 +47,11 @@ export function createAudio() {
     if (target) node.connect(target);
     return node;
   }
+  const targets = new WeakMap();
   function smooth(param, value, time = 0.12) {
-    if (param && Number.isFinite(value)) param.setTargetAtTime(value, context.currentTime, time);
+    if (!param || !Number.isFinite(value) || targets.get(param) === value) return;
+    targets.set(param, value);
+    param.setTargetAtTime(value, context.currentTime, time);
   }
   function loop(buffer, target, rate = 1) {
     const node = track(context.createBufferSource());
@@ -80,7 +87,7 @@ export function createAudio() {
   function play({ sample, noise = false, type = 'sine', frequency = 440, endFrequency,
     duration = 0.15, volume = 0.1, delay = 0, cutoff = 6000, highpass = 0,
     pan = 0, endPan, rate = 1, endRate, looped = false, attack = 0.004, echo = 0,
-    offset = 0, group } = {}) {
+    offset = 0, group, bus = world } = {}) {
     if (!ready() || temporary.size > 40) return false;
     const buffer = sample && buffers[sample];
     if (sample && !buffer) return false;
@@ -120,8 +127,8 @@ export function createAudio() {
     if (panner) {
       panner.pan.setValueAtTime(clamp(pan, -1, 1), now);
       if (Number.isFinite(endPan)) panner.pan.linearRampToValueAtTime(clamp(endPan, -1, 1), now + duration);
-      envelope.connect(panner); panner.connect(world);
-    } else envelope.connect(world);
+      envelope.connect(panner); panner.connect(bus);
+    } else envelope.connect(bus);
     const send = echo ? context.createGain() : null;
     if (send) { send.gain.value = echo; envelope.connect(send); send.connect(echoInput); }
     const voice = { source, group, clean: () => {
@@ -203,6 +210,7 @@ export function createAudio() {
     limiter.attack.value = 0.004; limiter.release.value = 0.16;
     master.connect(limiter); limiter.connect(context.destination);
     world = gain(active ? 1 : 0, master);
+    radioBus = gain(1);
     noiseBuffer = context.createBuffer(1, context.sampleRate * 4, context.sampleRate);
     const samples = noiseBuffer.getChannelData(0);
     for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
@@ -220,8 +228,18 @@ export function createAudio() {
     }
 
     windGain = gain(0); loop(noiseBuffer, filter('lowpass', 430, windGain));
-    seaGain = gain(0); loop(noiseBuffer, filter('bandpass', 720, seaGain, 0.45), 0.81);
+    seaPan = context.createStereoPanner ? track(context.createStereoPanner()) : null;
+    seaPan?.connect(world);
+    seaGain = gain(0, seaPan || world);
+    seaFilter = filter('lowpass', 720, seaGain);
+    loop(noiseBuffer, filter('highpass', 135, seaFilter), 0.81);
     gullGain = gain(0);
+
+    passPan = context.createStereoPanner ? track(context.createStereoPanner()) : null;
+    passPan?.connect(world);
+    passGain = gain(0, passPan || world);
+    passFilter = filter('lowpass', 530, passGain);
+    passTone = oscillator('sawtooth', 60, passFilter);
 
     engineGain = gain(0);
     engineFilter = filter('lowpass', 300, engineGain);
@@ -252,7 +270,7 @@ export function createAudio() {
     // All requests are local, total transfer < 400 KB; synthesis remains usable on failure.
     const owner = context;
     await Promise.allSettled(Object.entries(ASSETS).map(async ([name, filename]) => {
-      const response = await fetch(`/audio/${filename}`, { signal: abort.signal });
+      const response = await fetch(assetUrl(`audio/${filename}`), { signal: abort.signal });
       if (!response.ok) return;
       const data = await response.arrayBuffer();
       if (disposed) return;
@@ -303,7 +321,7 @@ export function createAudio() {
   // position with an orbiting camera; positions accept Vector3 or plain {x,y,z}.
   function update({ speed = 0, inCar = false, wanted = 0, playerPosition, policePosition,
     velocity, footSpeed, sprinting = false, rpm, gear, slip = 0, policeState,
-    night = 0, active: running = true, surface, cameraForward } = {}) {
+    night = 0, active: running = true, surface, cameraForward, vehicleType, district, landmarks, passingCar, dialogueActive = false } = {}) {
     const wasActive = active;
     active = Boolean(running);
     if (!context || disposed) return;
@@ -343,16 +361,20 @@ export function createAudio() {
     const load = 0.62 + clamp(acceleration / 10, -0.24, 0.45);
     const shifting = now < shiftUntil ? 0.5 : 1;
     const drive = inCar ? 1 : 0;
-    smooth(engine.frequency, engineRpm / 30, 0.09);
+    const sedan = vehicleType === 'sedan' || vehicleType === 'police';
+    // Closed sedan cabin suppresses upper harmonics and tire hiss. The Aurora
+    // carries its intake note and road texture directly into the open cockpit.
+    const combustion = engineRpm / (sedan ? 30 : 20);
+    smooth(engine.frequency, combustion, 0.09);
     smooth(exhaust.frequency, engineRpm / 60, 0.11);
-    smooth(engineFilter.frequency, 240 + rev * 1100 + load * 130, 0.1);
-    smooth(engineGain.gain, drive * (engineSample ? 0.017 : 0.065) * (0.5 + rev) * load * shifting);
+    smooth(engineFilter.frequency, (sedan ? 210 : 320) + rev * (sedan ? 640 : 1450) + load * 130, 0.1);
+    smooth(engineGain.gain, drive * (engineSample && !sedan ? 0.024 : 0.075) * (0.5 + rev) * load * shifting);
     smooth(exhaustGain.gain, drive * (0.016 + rev * 0.019) * shifting);
-    smooth(engineSample?.playbackRate, clamp(engineRpm / 1450, 0.55, 3.7), 0.12);
-    smooth(engineSampleGain.gain, drive * (0.105 + rev * 0.08) * load * shifting, 0.15);
+    smooth(engineSample?.playbackRate, clamp(engineRpm / (sedan ? 1900 : 1450), 0.55, 3.7), 0.12);
+    smooth(engineSampleGain.gain, drive * (sedan ? 0.038 + rev * 0.026 : 0.105 + rev * 0.08) * load * shifting, 0.15);
     smooth(transmission.frequency, 120 + roadSpeed * 8.5);
     smooth(transmissionGain.gain, drive * Math.min(0.009, roadSpeed * 0.00023));
-    smooth(roadFilter.frequency, 480 + Math.min(roadSpeed, 50) * 20);
+    smooth(roadFilter.frequency, (sedan ? 330 : 530) + Math.min(roadSpeed, 50) * (sedan ? 12 : 22));
     smooth(roadGain.gain, drive * Math.min(0.11, Math.pow(roadSpeed / 45, 1.25) * 0.09), 0.25);
     const skid = drive * clamp(Math.abs(finite(slip)), 0, 1) * clamp(roadSpeed / 8, 0, 1);
     smooth(tireGain.gain, skid * 0.09, 0.06);
@@ -360,11 +382,37 @@ export function createAudio() {
     smooth(tireTone.frequency, 650 + skid * 430 + Math.sin(now * 21) * 38, 0.04);
 
     const darkness = clamp(finite(night), 0, 1);
-    const coast = playerPosition ? clamp((-finite(playerPosition.x) - 45) / 90, 0, 1) : 0.25;
-    const swell = 0.66 + Math.sin(now * 0.34) * 0.18 + Math.sin(now * 0.13) * 0.09;
-    const cabin = inCar ? 0.48 : 1;
+    const shoreline = playerPosition ? clamp((-finite(playerPosition.x) - 45) / 90, 0, 1) : 0.25;
+    const paloma = landmarks?.safehouse && playerPosition ? Math.max(0, 1 - Math.hypot(listener.x - landmarks.safehouse.x, listener.z - landmarks.safehouse.z) / 48) : 0;
+    const coast = Math.max(shoreline, paloma * .62);
+    const workshop = landmarks?.garage && playerPosition ? Math.max(0, 1 - Math.hypot(listener.x - landmarks.garage.x, listener.z - landmarks.garage.z) / 34) : 0;
+    const cabin = inCar ? sedan ? .43 : .78 : 1;
+    smooth(radioBus.gain, dialogueActive ? .17 : 1, dialogueActive ? .075 : .45);
+    const radioVolume = inCar ? (sedan ? .42 : .27) : workshop;
+    if (radioVolume > .04 && now >= radioAt) {
+      const radioPan = inCar ? -.13 : spatial(landmarks.garage).pan;
+      const note = RADIO_NOTES[radioBeat % RADIO_NOTES.length];
+      if (note) play({ type: 'triangle', frequency: note, duration: .35, attack: .025, volume: .058 * radioVolume,
+        highpass: 240, cutoff: 1550, pan: radioPan, bus: radioBus });
+      if (radioBeat % 4 === 0) play({ type: 'triangle', frequency: note ? note / 2 : 130.81, duration: .55,
+        volume: .032 * radioVolume, highpass: 90, cutoff: 740, pan: radioPan, bus: radioBus });
+      radioBeat++; radioAt = now + .39;
+    }
+    if (workshop > .1 && now >= toolAt) {
+      const tools = spatial(landmarks.garage);
+      for (const delay of [0, .27]) play({ sample: 'metal', volume: .09 * workshop * cabin, duration: .14,
+        rate: 1.6, highpass: 620, cutoff: 3400, pan: tools.pan, delay });
+      toolAt = now + 7 + Math.random() * 6;
+    }
+    // Breakers brighten as they crest and soften through a longer wash.
+    const wavePhase = now * 0.82 + 0.55 * Math.sin(now * 0.19);
+    const crest = (0.5 + 0.5 * Math.cos(wavePhase)) ** 3;
+    const wash = 0.5 + 0.5 * Math.cos(wavePhase - 0.8);
     smooth(windGain.gain, (0.018 + coast * 0.015) * cabin * (0.85 + Math.sin(now * 0.23) * 0.15), 0.7);
-    smooth(seaGain.gain, coast * (0.018 + swell * 0.035) * cabin, 0.8);
+    smooth(seaGain.gain, coast * (0.027 + crest * 0.065 + wash * 0.031) * cabin, 0.36);
+    smooth(seaFilter.frequency, (620 + coast * (400 + crest * 2150)) * (inCar ? 0.58 : 1), 0.32);
+    // The sea lies west of the boulevard. Keep a broad stereo image as the camera turns.
+    smooth(seaPan?.pan, listener.forwardZ * 0.53, 0.2);
     smooth(gullGain.gain, (0.025 + coast * 0.09) * cabin * (1 - darkness * 0.97), 1.5);
 
     const police = Array.isArray(policePosition) ? policePosition[0] : policePosition;
@@ -389,16 +437,26 @@ export function createAudio() {
       : typeof velocity === 'number' ? Math.abs(velocity)
         : velocity ? Math.hypot(finite(velocity.x), finite(velocity.z)) : roadSpeed;
     if (!inCar && motion > 0.25) {
-      footsteps(Math.min(motion, 12) * dt, sprinting,
-        surface || (playerPosition && playerPosition.x < -119 ? 'sand' : 'concrete'));
+      footsteps(Math.min(motion, 12) * dt, sprinting, groundSurface);
     } else stepDistance = 0;
 
-    if (now > trafficAt) {
+    const passingPosition = passingCar?.model?.mesh.position;
+    if (!inCar && passingPosition) {
+      const source = spatial(passingPosition);
+      const sporty = passingCar.model.type === 'sport';
+      const speed = Math.abs(finite(passingCar.speed));
+      const rpm = clamp(finite(passingCar.rpm, 950 + speed * 95), 700, 7000);
+      smooth(passTone.frequency, rpm / (sporty ? 20 : 30), .19);
+      smooth(passFilter.frequency, (sporty ? 560 : 340) + 950 * source.volume, .2);
+      smooth(passGain.gain, .064 * source.volume * clamp(speed / 3, 0, 1), .18);
+      smooth(passPan?.pan, source.pan, .12);
+    } else smooth(passGain.gain, 0, .18);
+    if (!passingPosition && now > trafficAt) {
       trafficAt = now + 11 + Math.random() * 11;
       const side = Math.random() < 0.5 ? -1 : 1;
       play({ sample: 'engine', looped: true, duration: 5.5, attack: 1.4, rate: 1.1,
         endRate: 0.72, volume: (0.018 + (1 - coast) * 0.022) * cabin * (1 - darkness * 0.45),
-        cutoff: 650, pan: side * 0.85, endPan: side * -0.85 });
+        cutoff: district === 'Ocean Drive' ? 1050 : 650, pan: side * 0.85, endPan: side * -0.85 });
     }
     // Quiet original D-minor pulses emerge only during a pursuit, below the siren.
     if (wanted >= 2 && now > musicAt) {
@@ -506,6 +564,45 @@ export function createAudio() {
     play({ frequency: 660, volume: 0.035, duration: 0.18, attack: 0.015 });
     play({ frequency: 880, volume: 0.03, duration: 0.28, delay: 0.12, attack: 0.015, echo: 0.12 });
   }
+  function recordingCue(site) {
+    if (site === 'boulevard') {
+      play({ type: 'triangle', frequency: 135, endFrequency: 58, duration: .8, volume: .06, cutoff: 900, pan: -.4 });
+      play({ noise: true, volume: .055, duration: .9, cutoff: 1450, highpass: 180, attack: .13, pan: .35 });
+    } else {
+      play({ noise: true, volume: .04, duration: .45, cutoff: 2100, highpass: 500, attack: .1 });
+      play({ type: 'sine', frequency: 1800, endFrequency: 2450, volume: .018, duration: .11, delay: .15 });
+      play({ type: 'sine', frequency: 2100, endFrequency: 1600, volume: .017, duration: .13, delay: .34 });
+    }
+  }
+  function shutter(position) {
+    const at = spatial(position);
+    if (at.volume < .04) return;
+    const common = { pan: at.pan, volume: .21 * at.volume, cutoff: Math.min(at.cutoff, 2100), group: 'shutter' };
+    clearTemporary('shutter');
+    play({ ...common, noise: true, looped: true, duration: 1.45, attack: .18, highpass: 430 });
+    play({ ...common, type: 'sawtooth', frequency: 58, endFrequency: 86, duration: 1.3, attack: .13, cutoff: 300 });
+    for (const delay of [0, .21, .43, .69, .98, 1.27]) {
+      play({ ...common, sample: 'click', rate: .74, duration: .08, delay });
+    }
+    play({ ...common, sample: 'door', duration: .31, rate: .72, delay: 1.46 });
+  }
+  function handoff() {
+    play({ sample: 'click', volume: .16, rate: 1.5, duration: .1, pan: -.12 });
+    play({ sample: 'metal', volume: .085, highpass: 1100, rate: 1.8, duration: .12, delay: .09, pan: .13 });
+    mission();
+  }
+  function startProjection(position) {
+    const at = spatial(position);
+    clearTemporary('projection');
+    const projector = { group:'projection', pan:at.pan, volume:.09*at.volume };
+    play({ ...projector, sample:'click', rate:.72, duration:.14 });
+    play({ ...projector, type:'sawtooth', frequency:31, endFrequency:49,
+      attack:.28, duration:1.8, cutoff:260 });
+    // A brushed, minor-seventh chord as the opening title comes into focus.
+    for (const [index,note] of [146.83,220,261.63,349.23].entries())
+      play({ group:'projection', type:'triangle', frequency:note, pan:(index-1.5)*.13,
+        volume:.037, delay:.55+index*.23, duration:1.8, attack:.08, cutoff:1450, echo:.16 });
+  }
   function mission() {
     for (const [i, note] of [440, 554.365, 659.255, 880].entries())
       play({ type: 'sine', frequency: note, volume: 0.04, duration: 0.55, delay: i * 0.11, attack: 0.015, echo: 0.25 });
@@ -528,5 +625,5 @@ export function createAudio() {
   }
 
   return { start, setEnabled, update, shoot, reload, cancelReload, dryFire, impact,
-    horn, crash, notify, door, mission, interact, dispose };
+    horn, crash, notify, door, mission, shutter, handoff, startProjection, recordingCue, interact, dispose };
 }

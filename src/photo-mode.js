@@ -1,8 +1,10 @@
 import * as THREE from 'three';
+import { createPostcardAlbum } from './postcards.js';
 
 // A free camera over the live scene. Entry freezes simulation in main.js; this
 // controller never moves actors or changes their saved gameplay state.
 export function createPhotoMode({ camera, renderer, rendering, canvas, bounds, ui }) {
+  const album = createPostcardAlbum();
   const settings = { fov: 50, roll: 0, exposure: 1, focus: 8, aperture: 0, hideUI: false };
   const direction = new THREE.Vector3(), right = new THREE.Vector3();
   const rotation = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -31,6 +33,7 @@ export function createPhotoMode({ camera, renderer, rendering, canvas, bounds, u
       renderer.setPixelRatio(Math.max(saved.ratio, Math.min(devicePixelRatio, 1.5)));
       rendering.setPhotoQuality(true); rendering.resize();
       ui.setPhotoMode(true);
+      ui.postcardCaption(album.caption());
       apply();
     },
     exit() {
@@ -84,6 +87,7 @@ export function createPhotoMode({ camera, renderer, rendering, canvas, bounds, u
       if (!captureRequested || busy) return;
       captureRequested = false; busy = true;
       // Read immediately after rendering, before the browser discards the buffer.
+      const framed = album.frame(camera);
       try { canvas.toBlob(blob => {
         busy = false;
         if (!blob) { ui.photoStatus('Could not save this photograph. Try again.'); return; }
@@ -91,7 +95,9 @@ export function createPhotoMode({ camera, renderer, rendering, canvas, bounds, u
           const url = URL.createObjectURL(blob), link = document.createElement('a');
           link.href = url; link.download = `Grand-Theft-Astra-${new Date().toISOString().replace(/[:.]/g,'-')}.png`;
           setTimeout(() => URL.revokeObjectURL(url), 30000); link.click();
-          ui.photoStatus('Photograph saved · PNG');
+          const title = album.collect(framed);
+          ui.postcardCaption(album.caption());
+          ui.photoStatus(title ? `Postcard collected · ${title}` : 'Photograph saved · PNG');
         } catch { ui.photoStatus('Could not download this photograph. Try again.'); }
       }, 'image/png'); }
       catch { busy = false; ui.photoStatus('Could not save this photograph. Try again.'); }

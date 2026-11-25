@@ -20,8 +20,8 @@ for (const fail of [false, true]) test(`static recovery capture preserves actor 
   const scene = new THREE.Scene(), sun = new THREE.DirectionalLight();
   const actors = [true, false].map(visible => { const mesh = new THREE.Group(); mesh.visible = visible; return { mesh }; });
   const vehicles = [true, false].map(visible => { const mesh = new THREE.Group(); mesh.visible = visible; return { model: { mesh } }; });
-  const effects = [{ mesh: new THREE.Group() }], marker = new THREE.Group(); marker.visible = false;
-  const roots = [...actors.map(actor => actor.mesh), ...vehicles.map(car => car.model.mesh), effects[0].mesh, marker];
+  const effects = [{ mesh: new THREE.Group() }], navigationMarkers = new THREE.Group();
+  const roots = [...actors.map(actor => actor.mesh), ...vehicles.map(car => car.model.mesh), effects[0].mesh, navigationMarkers];
   const visibility = roots.map(root => root.visible);
   scene.background = { name: 'night sky' }; scene.environment = { name: 'night map' };
   scene.environmentRotation.set(.1, .2, .3); sun.position.set(80, 30, -90); sun.target.position.set(40, 0, -70);
@@ -47,7 +47,7 @@ for (const fail of [false, true]) test(`static recovery capture preserves actor 
         if (fail) throw new Error('capture failed');
       }
     },
-  }, scene, sun, sunOffset: new THREE.Vector3(3, 4, 5), renderer, vehicles, effects, marker,
+  }, scene, sun, sunOffset: new THREE.Vector3(3, 4, 5), renderer, vehicles, effects, navigationMarkers,
   night: true, photoShadowActors: () => actors,
   world: { restoreInstances() { restoreCalls++; } },
   setTime(value) { context.night = value; renderer.toneMappingExposure = 1; scene.background = {}; scene.environment = {}; },
@@ -69,9 +69,9 @@ test('actual frame gate freezes simulation while unavailable and charges no rebu
   const effectShaderWarmup = createEffectShaderWarmup({ renderer: { getContext: () => ({ isContextLost: () => false }) },
     prepare: () => { clock += 400; warmCalls++; return true; } });
   const context = { environmentLighting, effectShaderWarmup, lastEnvironmentBuild: 0, environmentError: null, lastFrame: 10,
-    renderFrame: 0, frameCount: 0, fpsTimer: 0, state: { started: true, paused: false, mapOpen: false },
+    pollController() {}, updateCamera() {}, renderFrame: 0, frameCount: 0, fpsTimer: 0, state: { started: true, paused: false, mapOpen: false },
     performance: { now: () => clock }, requestAnimationFrame: callback => scheduled.push(callback),
-    ui: { toast() { assert.fail('no failure UI during ordinary context loss'); } },
+    ui: { revealGame() {}, toast() { assert.fail('no failure UI during ordinary context loss'); } },
     updateGame: dt => updates.push(dt), updatePresentation() {}, keys: new Set(), camera: {}, drawingSize: {}, night: false,
     photo: { active: false, update() {}, afterRender() {} },
     renderer: { shadowMap: { enabled: false }, getDrawingBufferSize: value => value },
@@ -107,7 +107,7 @@ for (const mode of ['graphics-error', 'context-lost', 'fallback', 'normal']) {
     const failure = mode === 'graphics-error' ? 'PMREM capture failed' : null;
     const context = { atmosphere: { ready: Promise.resolve(skyData) },
       world: { ready: Promise.resolve(), setSky: value => registrations.push(value) },
-      loadCharacterAssets: () => Promise.resolve(),
+      charactersReady: Promise.resolve(), vehicleProbe:{ready:Promise.resolve()},
       sunOffset: new THREE.Vector3(), shadowAnchor: new THREE.Vector3(), sun: new THREE.DirectionalLight(),
       environmentLighting: { revision: 1, setSky: value => registrations.push(value), update: () => { updates.push(1); return mode === 'normal' || mode === 'fallback'; }, getInfo: () => ({ error: failure, ready: mode === 'normal' || mode === 'fallback' }) },
       effectShaderWarmup: { update: revision => { warmed.push(revision); return true; } },
@@ -127,3 +127,16 @@ for (const mode of ['graphics-error', 'context-lost', 'fallback', 'normal']) {
     assert.deepEqual(warmed, mode === 'normal' || mode === 'fallback' ? [1] : []);
   });
 }
+
+test('the opaque menu polls controls without submitting a 3D frame', () => {
+  const calls = [];
+  const context = { environmentLighting: { revision: 1, update: () => true },
+    effectShaderWarmup: { update: () => true }, lastEnvironmentBuild: 1, lastFrame: 0,
+    renderFrame: 0, state: { started: false }, pollController: () => calls.push('input'),
+    requestAnimationFrame: () => calls.push('next frame'),
+    rendering: { render: () => assert.fail('the welcome screen covers the entire scene') } };
+  vm.createContext(context); vm.runInContext(main.slice(frameStart, frameEnd), context);
+  context.frame(17); context.frame(34);
+  assert.deepEqual(calls, ['input', 'next frame', 'input', 'next frame']);
+  assert.equal(context.renderFrame, 0);
+});

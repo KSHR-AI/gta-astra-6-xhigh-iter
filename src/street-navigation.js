@@ -131,3 +131,38 @@ export function pedestrianSpeedLimit(car, people) {
   }
   return limit;
 }
+
+/** Find the adjacent lane on the same carriageway when a parked car blocks
+ * a through lane. Live queues and occupied cars keep normal following priority.
+ * Stay in the passing lane through a nearby crossing before merging back. */
+export function parkedCarPass(car, vehicles, playerCar, tx, tz) {
+  const pos = car.model.mesh.position;
+  const vertical = Math.abs(tx - pos.x) < 5 && Math.abs(tz - pos.z) > 30;
+  const horizontal = Math.abs(tz - pos.z) < 5 && Math.abs(tx - pos.x) > 30;
+  if (!vertical && !horizontal) return null;
+  const axis = vertical ? 'z' : 'x', side = vertical ? 'x' : 'z';
+  const direction = Math.sign((vertical ? tz : tx) - pos[axis]);
+  const roadCenter = vertical ? (pos.x > 40 ? 80 : 0) : (pos.z > 0 ? 90 : -90);
+  const lane = pos[side] - roadCenter;
+  const junctions = vertical ? [-90, 0, 90] : [0, 80];
+  for (const other of vehicles) {
+    if (other === car || other === playerCar || other.occupied || other.traffic || other.police || Math.abs(other.speed) > .3) continue;
+    const parked = other.model.mesh.position;
+    const ahead = (parked[axis] - pos[axis]) * direction;
+    if (ahead < 4.4 || ahead > 19 || Math.abs(parked[side] - pos[side]) > 2.5) continue;
+    const inner = roadCenter + Math.sign(lane) * 1.75, outer = roadCenter + Math.sign(lane) * 8.4;
+    const passingLane = Math.abs(outer - parked[side]) > Math.abs(inner - parked[side]) ? outer : inner;
+    if (Math.abs(passingLane - parked[side]) < 3) continue;
+    const junction = junctions.find(cross => Math.abs(cross - parked[axis]) < 23);
+    if (junction !== undefined && (Math.abs(junction - parked[axis]) < 15 || Math.abs((vertical ? tz : tx) - junction) < 15)) continue;
+    let end = parked[axis] + 7 * direction;
+    if (junction !== undefined && (junction - parked[axis]) * direction > 0) end = junction + 18 * direction;
+    const occupied = vehicles.some(vehicle => {
+      if (vehicle === car || vehicle === other) return false;
+      const point = vehicle.model.mesh.position, along = (point[axis] - pos[axis]) * direction;
+      return along > -18 && along < ahead + 12 && Math.abs(point[side] - passingLane) < 3;
+    });
+    if (!occupied) return { axis, side, direction, lane: passingLane, obstacle: parked[axis], end };
+  }
+  return null;
+}

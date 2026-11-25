@@ -159,14 +159,14 @@ export function createCharacterFace(model, root, { seed = 1, initialTime = 0, ma
       }
       return target.multiplyScalar(.5);
     },
-    advance(dt, { dead = false, aiming = false, shooting = false, aimTarget, lookTarget } = {}) {
+    advance(dt, { dead = false, aiming = false, shooting = false, aimTarget, lookTarget, eyeLookTarget } = {}) {
       if (!bindings.length && !eyes.length) return;
       const step = clamp(Number.isFinite(dt) ? dt : 0, 0, .25);
       if (step > 0) {
         const valid = candidate => candidate && [candidate.x, candidate.y, candidate.z].every(Number.isFinite);
         if (shooting && valid(aimTarget)) { shotTarget = new THREE.Vector3(aimTarget.x, aimTarget.y, aimTarget.z); shotGazeUntil = time + step + .18; }
         const shotHeld = shotTarget && time + step < shotGazeUntil;
-        const candidate = aiming || shooting ? aimTarget : shotHeld ? shotTarget : lookTarget;
+        const candidate = aiming || shooting ? aimTarget : shotHeld ? shotTarget : eyeLookTarget ?? lookTarget;
         target = candidate && [candidate.x, candidate.y, candidate.z].every(Number.isFinite) ? new THREE.Vector3(candidate.x, candidate.y, candidate.z) : null;
         intent = aiming || shooting || shotHeld ? 'aim' : 'look';
       }

@@ -2,23 +2,54 @@
 
 This is a playable browser prototype, not a release-ready AAA game. The ongoing goal is a game ready for AAA studio review and release; the current vertical slice is only an intermediate milestone. A passing build or a good screenshot does not establish release readiness.
 
+## Public playtest on November 25, 2026
+
+The build from `db5c529` is playable on [GitHub Pages](https://kshr-ai.github.io/gta-astra-6-xhigh-iter/). The deployed files are on `gh-pages` at `67106d4`. Rebuilding from source reproduced all 88 distribution files. The release suite passed 662 automated tests.
+
+- **Driving.** The same 60 km/h corner produced 28.53° of heading change in the Aurora and 17.94° in the Meridian. Applying the brakes at the end of the turn took 14.49 m and 17.24 m to stop respectively. A separate continuous three-minute recording followed the sedan for 1,066 m using keyboard controls and the live audio mix. That recording covers 132 seconds of simulation on SwiftShader.
+- **Opening.** Mara’s expression leads into a view of her convertible. The ordinary HUD originally placed subtitles over her face on a 640 × 360 desktop. Replaying the briefing and car reveal at five compact screen and input configurations confirmed that both subjects stay clear. Android Chrome accepted simultaneous accelerator and steering touches for a 45.3 m drive after the rear-lamp inspection.
+- **Uncoached driving.** One fresh AI player completed the boulevard delivery for $1,500 and scored driving feel 3/5 and visual coherence 4/5. They overshot the fork, slipped into reverse while braking, and saw conflicting bodywork percentages. On the revised release, the straight and right-turn options appear with the car still at rest. Holding the brake stops the car in neutral. Release and press it again to reverse. The dashboard, mission card and receipt use the same integer bodywork value. The returning player then stopped reliably from 27 and 68 km/h and chose Sunline before accelerating. Their remaining cue complaint led to removing the boulevard-only distance at the two-exit junction. The next distance reappears after the car commits to its route.
+- **Startup.** At 25 Mbps and 40 ms latency, an Intel Arc Pro B50–backed Android emulator on `86311bf` took 16.14, 8.32 and 8.35 seconds from cold navigation to first movement. Each transferred 15.37 MiB. A warm visit took 4.44 seconds. The first cold visit missed the 10-second target during an 8.97-second main-thread task after Start.
+- **Touch driving.** On the same release a driver braked from 9.78 m/s, remained stationary through 45 samples over 1.50 seconds, and reversed at 1.74 m/s after releasing and pressing again. At 25.48% raw bodywork both visible condition displays showed 25%.
+- **Recovery.** The public gameplay build passed a deliberate WebGL interruption at the workshop at night. Simulation time stopped while graphics were unavailable, the car returned with its payment and the next freight manifest remained usable. On the caption release, reloading a selected Paloma freight stop restored the same curb and wallet.
+
+An uninterrupted 30-minute public test on Pages `8cab02e` completed both story routes, the circuit and the recorder. It also picked up two freight orders, lost the vehicle and cancelled the manifest. The browser recorded zero errors, crashes, failed requests or context losses. Shared SwiftShader recorded 19 frame gaps above two seconds, including a 5.94-second maximum. Reloading into `86311bf` preserved both route records and the $3,900 wallet.
+
+The public slice is ready for hands-on review. The plan’s physical controller, phone, RTX 3060 and Iris Xe runs and ten first-time human sessions are still open. Human ratings for driving, art and first-session pacing will inform the decision about expanding the map. [Playtest evidence](https://niteshift.dev/html-output/task_int_e7fp7ivi8umrhewd/verification.html)
+
 ## Current slice
 
-- Coastal district with an introductory contact, vehicle theft, police response, delivery and checkpoint persistence.
+- Last Light at the Paloma with a rear-lamp inspection, a boulevard or loading-lane drive, an itemized handoff, and persistent route records. Night Shift adds two-stop freight, visible cargo, condition-based pay and an earned pier screening.
 - Third-person walking, sprinting, aiming, semi-automatic pistol, reload, driving and photo mode.
 - Editable Blender props and vehicles, authored replacement human heads, credited external source assets.
-- Reduced gameplay HUD, keyboard/mouse and touch controls.
+- Keyboard/mouse, two-thumb touch driving, standard gamepad exploration and driving, and personal map waypoints.
+- A first-chapter field-recording job with two locations, different timing windows and payouts.
+- A repeatable five-gate Pacific Circuit with a courtesy sedan, launch countdown, sector times and local records, plus a three-landmark postcard collection.
+- Animated Pacific Wheel and pier, surface-dependent vehicle grip, directional surf, and software-renderer quality selection.
+- Public WebGL build distributed through GitHub Pages.
+
+## What the playtests established
+
+- Two native keyboard runs reached the workshop on opposite routes. A separate Android emulator run delivered the Aurora at 100% and earned the full $2,000. A clean practice delivery paid $0 and retained the prior wallet.
+- A continuous fresh-save keyboard run delivered the Aurora, carried Sunline glass and pier reels, and finished the screening in 5m14s of simulation and 9m01s of software-renderer wall time. The planned 12–15 minutes is a first-time-player pacing target. Human playtesting is still needed to measure it.
+- Equal inputs at 60 km/h produced 28.5° of turn-in for the Aurora and 17.9° for the Meridian over 0.75 seconds. Independent straight-line braking tests measured 9.79 m and 12.29 m respectively.
+- Compact character delivery transferred 14.52 MiB before movement in the controlled 25 Mbps test, down from 30.94 MiB. Higher-resolution character maps streamed afterward. The desktop software-renderer median before the final preload adjustment was 11.71 seconds. At 25 Mbps and 40 ms latency, Android 15 emulator Chrome 155 reached first movement in 10.16, 8.83 and 8.78 seconds on navigation release `304366f`. On lighting release `a3096a4`, the three cold runs took 16.57, 12.19 and 9.72 seconds, transferring 15.29 MiB each. The final public median missed the 10-second target. On the same local server and Android device, median cold startup moved from 14.23 to 12.88 seconds. Three visits per configuration leave the cause of the public difference unresolved. On a shared desktop SwiftShader host at 1280 × 720, workshop build `ed5b079` reached movement in 28.53, 29.20 and 27.47 seconds cold, and 18.58 seconds warm.
+- On a GPU-backed Android emulator with a 30 Hz display, five minutes of touch walking and driving in Cinematic at 616 × 1221 yielded a 33.3 ms median and 38.9 ms p95 between game frame submissions. Six intervals exceeded 100 ms. A separate 60-second walk on the final public build at night yielded 33.3 ms median, 38.5 ms p95 and two intervals over 100 ms. The host used an Intel Arc Pro B50. GPU presentation and phone thermals require separate measurements.
+- At Auto Works the workshop furniture, inspection lights and original roadster mural are visible from the driver’s seat. A public stage-three checkpoint drive reached the fitted bay, paid $2,000 and stayed playable through a day-to-night setting change. In a separate deliberate WebGL interruption at the Paloma, the game paused its simulation clock, rebuilt the environment lighting, retained the wallet and resumed movement.
+- In the public freight-navigation playtest, the Pier HUD fell from 175 m to 163 m, 105 m and 2 m on approach. It cleared at loading and switched to the freight recovery location on checkpoint retry. All three freight pairs paid in the same 30-minute session.
+- At the Auto Works mural on the same Android graphics tier, the first switch to night took 5.42 seconds on navigation release `304366f`. On lighting release `a3096a4`, three switches took 138, 105 and 171 ms. In the matched local replay the old shader path linked 39 new programs, and the revised path linked one. Settled workshop day and night comparison images differed by under 0.005 of 255 per RGB channel on average. First photo entry on the final public release took 1.14 seconds.
+- iPhone simulator Safari and Android emulator Chrome exercised real browser input paths. Physical phone feel, reference-GPU frame times and ratings from first-time human players are open.
 
 ## Release gates still open
 
 1. **Performance:** consistent frame pacing on a documented hardware/browser matrix. Current cloud browser uses llvmpipe software graphics and runs the full city at only a few frames per second. Isolated engine benchmarks do not establish game performance. Profile the complete scene and preserve close-up quality when optimizing.
 2. **Characters:** production clothing, facial expressions and lip-sync, close actor self-shadows, convincing turns and stops, terrain-aware feet, vehicle interactions and hit reactions. Bounded gaze and head attention add responsiveness, but the procedural layers and imported base bodies remain visibly limited.
 3. **Combat and driving:** extended playtests for cover, camera collision, aim feedback, police fairness, vehicle collision and recovery. Current simple collision volumes and arcade driving need further work.
-4. **World and narrative:** authored mission variety, meaningful interiors and activities, pedestrian interactions, coherent art direction and soundscape. One short mission is not a complete game.
+4. **World and narrative:** the district has a delivery story, a freight continuation, a field-recording commission, a circuit and a photo album. A larger campaign still needs more authored missions, interiors and pedestrian interactions.
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current turning, trigger timing and garment repair pass
+## Previous turning, trigger timing and garment repair pass
 
 - Limit the raised player's body turn to 360 degrees per second while keeping camera intent immediate. Alternate lifted feet around the supporting shoe, using calibrated footprint clearance, a small pelvis counter-turn and the existing terrain solve. Each knee follows a bounded blend toward its own shoe heading, with the bend pole based on the actual hip and ankle. Moving characters blend out this layer; seated, airborne, downed and NPC poses retain their existing behavior. Browser review accepts the knee alignment as an improvement, but tight reversal silhouettes, tucked lateral steps and stopping/backward-motion artifacts remain. Extreme low-cadence female turns can still nearly straighten a leg; these changes do not establish full anatomical limits or mesh collision freedom.
 - Preserve the original 380 ms shot request lifetime while evaluating the actual aim pose at its inclusive expiry before advancing beyond it. Readiness still requires the raised weapon, unclamped yaw, reachable target and existing three-degree tolerance. Each press remains one shot; cancellation clears pending input.

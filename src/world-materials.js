@@ -1,3 +1,4 @@
+import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 
 // Original road/iron maps and CC0 Poly Haven building surfaces. World-space
@@ -8,7 +9,7 @@ export function applyCityMaterials(materials, canvasTexture, random) {
   const load = (name, color = false) => {
     let resolve;
     pending.push(new Promise(done => { resolve = done; }));
-    const texture = loader.load(`/textures/city/${name}.jpg`, resolve, undefined, error => {
+    const texture = loader.load(assetUrl(`textures/city/${name}.jpg`), resolve, undefined, error => {
       console.warn(`City surface failed to load: ${name}`, error);
       resolve();
     });
@@ -23,7 +24,40 @@ export function applyCityMaterials(materials, canvasTexture, random) {
     sets[name] = { map: load(`${source}-color`, true), normalMap: load(`${source}-normal`), roughnessMap: load(`${source}-rough`) };
   }
 
-  function worldMapping(material, meters, weather = false, road = false) {
+  // A metre-scaled coverage mask lets mipmaps filter the zebra bars and stop
+  // lines into the actual road surface at grazing angles.
+  const crossingMask = canvasTexture(512, 512, (ctx, width) => {
+    const span = 36;
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, width, width);
+    ctx.scale(width / span, width / span);
+    ctx.translate(span / 2, span / 2);
+    const stripe = (x, z, w, d) => ctx.fillRect(x - w / 2, z - d / 2, w, d);
+    ctx.fillStyle = 'white';
+    for (const side of [-1, 1]) {
+      for (let x = -9; x <= 9; x += 1.7) stripe(x, side * 13, .8, 3.3);
+      for (let z = -8; z <= 8; z += 1.6) stripe(side * 14.6, z, 3.3, .75);
+      stripe(side * 5.4, side * 16, 9.2, .23);
+    }
+    // Abrasion follows the two wheel paths within each traffic lane.
+    for (const lane of [-7.85, -2.65, 2.65, 7.85]) {
+      for (const wheel of [lane - .82, lane + .82]) {
+        const wear = ctx.createLinearGradient(wheel - .48, 0, wheel + .48, 0);
+        wear.addColorStop(0, 'transparent');
+        wear.addColorStop(.5, 'rgba(0,0,0,.52)');
+        wear.addColorStop(1, 'transparent');
+        ctx.fillStyle = wear;
+        ctx.fillRect(wheel - .48, -17, .96, 34);
+        ctx.save(); ctx.rotate(Math.PI / 2);
+        ctx.fillRect(wheel - .48, -17, .96, 34); ctx.restore();
+      }
+    }
+  });
+  crossingMask.colorSpace = THREE.NoColorSpace;
+  crossingMask.flipY = false;
+  crossingMask.anisotropy = 8;
+
+  function worldMapping(material, meters, weather = false, road = false, pavement = false) {
     material.onBeforeCompile = shader => {
       shader.vertexShader = 'varying vec3 vCitySurface;\n' + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', `
@@ -73,11 +107,45 @@ export function applyCityMaterials(materials, canvasTexture, random) {
           float cityLane = min(abs(cityAcross - 2.65), abs(cityAcross - 7.85));
           float cityWheelWear = (1. - smoothstep(.18, .65, abs(cityLane - .82))) * cityJunction;
           cityWheelWear *= .6 + .4 * cityWeather(vec2(cityAcross * .7, cityAlong * .04));
-          diffuseColor.rgb *= 1. - .045 * cityWheelWear;
+          diffuseColor.rgb *= 1. - .12 * cityWheelWear;
+          // Dust collects in the gutter while traffic cleans the wheel paths.
+          float shoulder = smoothstep(8.5, 10.65, cityAcross) * cityJunction;
+          diffuseColor.rgb += vec3(.019, .014, .008) * shoulder;
         `);
+        if (material === materials.asphalt) {
+          shader.uniforms.crossingMask = { value: crossingMask };
+          shader.fragmentShader = 'uniform sampler2D crossingMask;\n' + shader.fragmentShader;
+          shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `
+            #include <color_fragment>
+            vec2 junction = vec2(vCitySurface.x - (vCitySurface.x < 40. ? 0. : 80.),
+              vCitySurface.z - 90. * clamp(floor(vCitySurface.z / 90. + .5), -1., 1.));
+            vec2 crossingUv = junction / 36. + .5;
+            vec2 crossingDx = dFdx(vCitySurface.xz) / 36., crossingDy = dFdy(vCitySurface.xz) / 36.;
+            if (max(abs(junction.x), abs(junction.y)) < 18.) {
+              float paint = textureGrad(crossingMask, crossingUv, crossingDx, crossingDy).r;
+              float aggregate = smoothstep(.060, .110, diffuseColor.r);
+              vec3 pigment = vec3(.61, .59, .49) * (.57 + .47 * aggregate);
+              diffuseColor.rgb = mix(diffuseColor.rgb, pigment, paint * (.63 + .32 * cityWeather(vCitySurface.xz * 1.75)));
+            }
+          `);
+        }
         shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
           #include <roughnessmap_fragment>
           roughnessFactor *= 1. - .055 * cityWheelWear;
+        `);
+      } else if (pavement) {
+        shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+          #include <map_fragment>
+          // Cast panels retain metre-scale joints as each instance changes size.
+          vec2 slab = vCitySurface.xz / vec2(2.8, 2.9);
+          vec2 edge = (.5 - abs(fract(slab) - .5)) * vec2(2.8, 2.9);
+          float distanceToJoint = min(edge.x, edge.y);
+          float aa = max(.004, fwidth(distanceToJoint));
+          float joint = 1. - smoothstep(.009, .009 + aa, distanceToJoint);
+          float closeView = 1. - smoothstep(.025, .15, aa);
+          float slabTone = .90 + .18 * cityHash(floor(slab));
+          diffuseColor.rgb *= slabTone * (.92 + .16 * cityWeather(vCitySurface.xz * .22));
+          diffuseColor.rgb *= 1. - joint * closeView * .48;
         `);
       } else if (weather) shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
         #include <map_fragment>
@@ -92,7 +160,7 @@ export function applyCityMaterials(materials, canvasTexture, random) {
         diffuseColor.rgb *= .87 + .19 * cityWeather(vCitySurface.xz*.13);
       `);
     };
-    material.customProgramCacheKey = () => `city-world-${meters}-${weather}-${road}`;
+    material.customProgramCacheKey = () => `city-world-${meters}-${weather}-${road}-${pavement}-${material === materials.asphalt}`;
     material.needsUpdate = true;
   }
   for (const key of ['limestone', 'white', 'pale', 'blush', 'peach', 'sage']) {
@@ -105,19 +173,19 @@ export function applyCityMaterials(materials, canvasTexture, random) {
     Object.assign(materials[key], sets.concrete);
     materials[key].normalScale = new THREE.Vector2(.32, .32);
     materials[key].roughness = .95;
-    worldMapping(materials[key], key === 'sidewalk' ? 2.8 : 3.6, key !== 'sidewalk');
+    worldMapping(materials[key], key === 'sidewalk' ? 2.8 : 3.6, key !== 'sidewalk', false, key === 'sidewalk');
   }
   materials.brick = new THREE.MeshStandardMaterial({ color: '#a38d77', ...sets.brick, normalScale: new THREE.Vector2(.55, .55), roughness: .96 });
   worldMapping(materials.brick, 1.8, true);
   Object.assign(materials.asphalt, sets.asphalt);
-  materials.asphalt.color.set('#c9cbc7');
+  materials.asphalt.color.set('#dcdbd1');
   materials.asphalt.bumpMap = null;
   materials.asphalt.normalScale = new THREE.Vector2(.28, .28);
   materials.asphalt.roughness = 1;
   materials.asphalt.envMapIntensity = .35;
   worldMapping(materials.asphalt, 2.4, false, true);
   materials.patch = materials.asphalt.clone();
-  materials.patch.color.set('#868b88');
+  materials.patch.color.set('#b8b8ae');
   worldMapping(materials.patch, 2.4, false, true);
 
   Object.assign(materials.iron, sets.manhole);
@@ -169,7 +237,16 @@ export function applyCityMaterials(materials, canvasTexture, random) {
     material.roughness = roughness; material.envMapIntensity = 1.35;
     material.emissive.set(key === 'glassWarm' ? '#d0a068' : '#000000');
     material.emissiveIntensity = key === 'glassWarm' ? .035 : 0;
+    if (key === 'glassWarm') {
+      material.emissiveMap = rooms;
+      material.userData.warmWindowLight = { value: false };
+    }
     material.onBeforeCompile = shader => {
+      if (key === 'glassWarm') {
+        shader.uniforms.warmWindowLight = material.userData.warmWindowLight;
+        shader.fragmentShader = 'uniform bool warmWindowLight;\n' + shader.fragmentShader.replace(
+          '#include <emissivemap_fragment>', 'if (warmWindowLight) {\n#include <emissivemap_fragment>\n}');
+      }
       shader.vertexShader = 'varying vec3 vRoomView; varying float vRoomSeed;\n' + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', `
         #include <uv_vertex>
@@ -220,6 +297,31 @@ export function applyCityMaterials(materials, canvasTexture, random) {
     }
   });
   materials.stain = new THREE.MeshStandardMaterial({ map: stain, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1 });
+  // Poured bitumen follows the broken joint and feathers out into hairline branches.
+  const sealedJoint = canvasTexture(384, 768, ctx => {
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const fracture = (points, width) => {
+      ctx.beginPath();
+      points.forEach(([x, y], index) => index ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+      ctx.strokeStyle = 'rgba(78,75,65,.56)';
+      ctx.lineWidth = width + 2;
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(31,32,31,.87)';
+      ctx.lineWidth = width;
+      ctx.stroke();
+    };
+    fracture([[180,3],[173,61],[190,109],[174,155],[194,213],[192,261],[211,293],
+      [193,342],[156,377],[163,410],[149,458],[176,483],[164,529],[180,578],
+      [157,625],[164,658],[131,706],[139,764]], 4.8);
+    fracture([[193,342],[219,351],[242,372],[281,379],[295,394],[333,401]], 2.4);
+    fracture([[164,529],[142,535],[134,553],[111,560],[102,578],[68,594]], 1.9);
+    fracture([[190,109],[213,103],[233,109],[249,92]], 1.3);
+  });
+  materials.sealedJoint = new THREE.MeshStandardMaterial({
+    map: sealedJoint, transparent: true, depthWrite: false, roughness: .76,
+    polygonOffset: true, polygonOffsetFactor: -1,
+  });
   const tyre = canvasTexture(256, 512, ctx => {
     ctx.clearRect(0, 0, 256, 512);
     for (const x of [45, 178]) for (let y = 0; y < 512; y += 3) {

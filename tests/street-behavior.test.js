@@ -18,7 +18,7 @@ function walkerAt(x, z, targetX, targetZ, options = {}) {
   };
 }
 
-function street({ cars = [], people = [], colliders = [], move } = {}) {
+function street({ cars = [], people = [], colliders = [], move, startTime = 10, world = { colliders } } = {}) {
   const police = carAt(300, 300, { police: true });
   const vehicles = [...cars, police];
   const moveBody = move || ((position, dx, dz, radius) => {
@@ -28,8 +28,8 @@ function street({ cars = [], people = [], colliders = [], move } = {}) {
     if (!blocked(position.x, position.z + dz)) position.z += dz; else hit = true;
     return hit;
   });
-  const simulation = createCitySimulation({ vehicles, pedestrians: people, police, world: { colliders }, moveBody, carsOverlap: () => false });
-  let time = 10;
+  const simulation = createCitySimulation({ vehicles, pedestrians: people, police, world, moveBody, carsOverlap: () => false });
+  let time = startTime;
   return {
     simulation,
     tick(dt = 1 / 60, currentCar = null) { time += dt; simulation.update(dt, { time, currentCar, playerPosition: new THREE.Vector3(100, 0, 100) }); },
@@ -166,4 +166,104 @@ test('Car avoidance remains traversable with 30 ms simulation steps', () => {
     assert.equal(bodyOverlapsPerson(car, person), false);
   }
   assert.ok(person.actor.mesh.position.z > 5);
+});
+
+test('oncoming traffic passes in separate right-hand lanes', () => {
+  const south = carAt(-4, -55, { traffic: true });
+  const north = carAt(2, -35, { traffic: true, innerLoop: true, heading: Math.PI });
+  const city = street({ cars: [south, north] });
+  for (let i = 0; i < 180; i++) city.tick();
+  assert.ok(south.model.mesh.position.z > north.model.mesh.position.z);
+  assert.ok(Math.abs(south.model.mesh.position.x + 4) < .01);
+  assert.ok(Math.abs(north.model.mesh.position.x - 2) < .01);
+  assert.ok(south.speed > 7 && north.speed > 7);
+});
+
+test('a horn gets a brief local response without reporting a crime or re-triggering every press', () => {
+  const car = carAt(15, 30), hearer = walkerAt(15, 35, 15, 45);
+  const distant = walkerAt(75, 30, 75, 40);
+  const city = street({ cars: [car], people: [hearer, distant] });
+  city.simulation.soundHorn(car, 10);
+  const end = hearer.hornUntil;
+  city.simulation.soundHorn(car, 10.5);
+  city.tick(.1, car);
+  assert.equal(hearer.hornUntil, end);
+  assert.equal(hearer.streetBehavior, 'reacting-to-horn');
+  assert.equal(hearer.updates.at(-1).ambientGesture, 'horn');
+  assert.ok(!distant.hornUntil);
+  assert.equal(city.simulation.getState().policeState, 'clear');
+  city.simulation.reset();
+  city.tick(.1, car);
+  assert.notEqual(hearer.streetBehavior, 'reacting-to-horn');
+});
+
+test('the diner customer leaves the curb on the walk phase and clears both lanes', () => {
+  const customer = walkerAt(13.5, 13, -14, 13, { ambientRole: 'diner-customer' });
+  customer.route = [[15,30], [13.5,13], [-14,13], [-14,26]].map(([x,z]) => new THREE.Vector3(x, 0, z));
+  customer.waypoint = 2;
+  const city = street({ people: [customer] });
+  for (let i = 0; i < 15; i++) city.tick(.1);
+  assert.equal(customer.streetBehavior, 'waiting-at-crosswalk');
+  assert.equal(customer.actor.mesh.position.x, 13.5);
+  for (let i = 0; i < 145; i++) city.tick(.1);
+  assert.ok(customer.actor.mesh.position.x < -12);
+  assert.equal(customer.waypoint, 3);
+});
+
+test('a red signal leaves the full crosswalk clear before cars resume on green', () => {
+  const car = carAt(-4, -28, { traffic: true, speed: 8 });
+  const city = street({ cars: [car], startTime: 14 });
+  for (let i = 0; i < 55; i++) city.tick(.1);
+  assert.ok(car.speed < .1);
+  assert.ok(car.model.mesh.position.z + 2.25 < -16);
+  for (let i = 0; i < 90; i++) city.tick(.1);
+  assert.ok(car.model.mesh.position.z > -10);
+});
+
+test('a driver passes a parked obstruction within the same carriageway', () => {
+  const driver = carAt(-4, -69, { traffic: true, speed: 7 });
+  const parked = carAt(-4, -55);
+  const city = street({ cars: [driver, parked] });
+  let passing = false;
+  for (let i = 0; i < 500; i++) {
+    city.tick();
+    passing ||= driver.trafficDecision === 'passing-parked-car';
+    const p = driver.model.mesh.position;
+    assert.ok(p.x < 0 && p.x > -10);
+    if (Math.abs(p.z + 55) < 4.5) assert.ok(Math.abs(p.x + 4) > 2.1);
+  }
+  assert.ok(passing);
+  assert.ok(driver.model.mesh.position.z > -48);
+});
+
+test('the mechanic follows the shutter and waits clear of the delivery bay', () => {
+  const mechanic = walkerAt(16.8, -130.25, 16.8, -130.25, { ambientRole: 'mechanic' });
+  const world = { colliders: [], workshopOpen: .55 };
+  const city = street({ people: [mechanic], world });
+  city.tick(.25);
+  assert.equal(mechanic.streetBehavior, 'raising-shutter');
+  assert.equal(mechanic.updates.at(-1).ambientGesture, 'shutter');
+  assert.equal(mechanic.updates.at(-1).gestureProgress, .55);
+  world.workshopOpen = 1;
+  for (let i = 0; i < 18; i++) city.tick(.25);
+  assert.equal(mechanic.streetBehavior, 'receiving-car');
+  assert.ok(mechanic.actor.mesh.position.z < -132);
+  world.workshopOpen = 0;
+  for (let i = 0; i < 18; i++) city.tick(.25);
+  assert.equal(mechanic.streetBehavior, 'at-workshop');
+  assert.ok(Math.abs(mechanic.actor.mesh.position.z + 130.25) < .3);
+});
+
+test('the downtown driver gets past the Aurora parked just north of the Paloma', () => {
+  // Reproduce the observed queue at the first crosswalk on the northbound leg.
+  const driver = carAt(4.55, 23.01, { traffic: true, innerLoop: true, routeIndex: 0, heading: Math.PI });
+  const aurora = carAt(4.8, 18, { heading: Math.PI });
+  const city = street({ cars: [driver, aurora], startTime: 24 });
+  for (let i = 0; i < 720; i++) {
+    city.tick();
+    const p = driver.model.mesh.position;
+    if (Math.abs(p.z - 18) < 3.9) assert.ok(Math.abs(p.x - 4.8) > 2.1);
+    assert.ok(p.x > 0 && p.x < 10.1, JSON.stringify({ i, position: p, pass: driver.parkedPass }));
+  }
+  assert.ok(driver.model.mesh.position.z < -18, 'The empty Aurora does not hold the through lane');
 });

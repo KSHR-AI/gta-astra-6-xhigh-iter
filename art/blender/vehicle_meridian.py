@@ -55,6 +55,7 @@ def palette():
         'taillight_left': material('taillight_left', (.48, .009, .012), .21, .08, emission=.5),
         'taillight_right': material('taillight_right', (.48, .009, .012), .21, .08, emission=.5),
         'screen': material('screen', (.022, .075, .10), .3, emission=.5),
+        'center_stop': material('center_stop', (.46, .009, .007), .21, .12, emission=.4),
         'brake': material('brake', (.16, .18, .19), .5, .55),
     }
 
@@ -376,10 +377,16 @@ def cabin(detail, m, chassis, driver):
     box('rear_seat_back', (0, .82, -1.267), (1.48, .436, .13), m['leather'], chassis, .055, 3)
     for x in [-.48, 0, .48]:
         box('rear_headrest', (x, 1.071, -1.265), (.253, .172, .108), m['leather'], chassis, .036)
-    ring('steering_wheel', (-.4, 1.0, .32), .145, .016, m['dark'], chassis, 'z', 28 if detail else 20, 7 if detail else 5)
-    cylinder('steering_hub', (-.4, 1.0, .32), .045, .035, m['dark'], chassis, 'z', 16)
+    # The three-spoke wheel turns inside the stationary steering column.
+    steering = empty('steering_wheel', chassis, (-.4, 1.0, .32))
+    ring('steering_rim', (0, 0, 0), .145, .016, m['dark'], steering, 'z', 28 if detail else 20, 7 if detail else 5)
+    cylinder('steering_hub', (0, 0, 0), .045, .035, m['dark'], steering, 'z', 16)
     for a in [0, math.pi, math.pi * 1.5]:
-        tube('wheel_spokes', [(-.4, 1.0, .32), (-.4 + .132 * math.cos(a), 1.0 + .132 * math.sin(a), .32)], .012, m['metal'], chassis, 5)
+        tube('wheel_spoke', [(0, 0, 0), (.132 * math.cos(a), .132 * math.sin(a), 0)], .012, m['metal'], steering, 5)
+    # A full-width parcel shelf closes the rear bench below the raked screen.
+    box('parcel_shelf', (0, 1.028, -1.328), (1.51, .037, .244), m['dark'], chassis, .014, 2)
+    box('high_stop_housing', (0, 1.084, -1.314), (.53, .085, .126), m['dark'], chassis, .023, 3)
+    box('high_stop_lens', (0, 1.09, -1.377), (.46, .036, .015), m['center_stop'], chassis, .006, 2)
     for side in [-1, 1]:
         tube('windshield_wiper', [(side * .12, 1.083, .92), (side * .60, 1.081, .89)], .008, m['dark'], chassis, 5)
     box('interior_rearview_mirror', (0, 1.351, .492), (.241, .073, .028), m['dark'], chassis, .017)
@@ -540,6 +547,7 @@ def build(detail):
         for v in o.data.vertices:
             v.co -= hinge
     driver.location = hinge
+    empty('driver_handle', driver, (-profile(-.27)[0]-.02+.935, .943, -.27-.841))
     for root in [chassis, driver, *wheels]:
         batch(root)
     if not detail:

@@ -31,14 +31,14 @@ function officer({ deferred = true } = {}) {
   return actor;
 }
 
-function fixture({ officers = [officer()], geometry = true, pedestrians = [] } = {}) {
+function fixture({ officers = [officer()], geometry = true, pedestrians = [], colliders = [] } = {}) {
   const playerPosition = v(), playerObject = { id: 'player' }, shots = [], queries = [];
   const mesh = new THREE.Object3D(); mesh.position.set(0, 0, 10);
   const police = { police: true, health: 100, speed: 0, heading: 0, steer: 0,
     model: { mesh, update() {}, setDamage() {}, setDoor() {} } };
   const shape = { player: { object: playerObject, position: playerPosition }, groundY: .04 };
   const simulation = createCitySimulation({ vehicles: [police], pedestrians, police, officers,
-    world: { colliders: [] }, carsOverlap: () => false,
+    world: { colliders }, carsOverlap: () => false,
     moveBody(position, dx, dz) { position.x += dx; position.z += dz; return false; },
     getPoliceShotGeometry: geometry ? context => { queries.push(context); return shape; } : undefined,
     policeRandom: () => 0, onPoliceShot: shot => shots.push(shot) });
@@ -167,4 +167,13 @@ test('Down and evicted pedestrians also use the deferred API without forcing a p
   assert.equal(down.events[0].options.dead, true);
   assert.deepEqual(evicted.events.map(event => event.type), ['advance']);
   assert.equal(evicted.events[0].options.speed, 0);
+});
+
+
+test('a reported position behind a wall does not deploy officers who cannot see the player', () => {
+  const f = fixture({ colliders: [{ minX: -4, maxX: 4, minZ: 4, maxZ: 6 }] });
+  f.simulation.reportCrime({ position: f.playerPosition, now: 0, force: true });
+  assert.equal(f.tick(3.6).wanted, 1);
+  assert.equal(f.officers[0].mesh.visible, false);
+  assert.equal(f.tick(6.3).policeState, 'searching');
 });

@@ -130,6 +130,8 @@ The original procedural sedan remains an offline fallback; the runtime sedan and
 - **Runtime:** creates a separate cool night variant with compressed sun radiance. The photographed sun is approximately 6.06° above the horizon. Background, reflections, and directional lighting share the -1.25-radian sky rotation. No terrain/buildings are part of the panorama. The original HDR remains the visible day sky. A separate runtime lighting texture replaces only the solar disc within 1° using the surrounding 1.25–2° sky annulus, with a 0.45° core and smooth edge. The aligned shadowed directional light supplies direct sunlight; broad sky glow, exposure and source HDR bytes are unchanged. The selected lighting environment is also used before baking local vehicle reflections.
 - **Source and license inspected:** October 16, 2026.
 
+Vehicle reflections use two lossless 384 × 512 RGBA16F PMREM atlases in `public/textures/sky/vehicle-probe-{performance,high}.bin`. They capture the authored district at (4.8, 1.2, 18) in the daylight above, excluding moving vehicles, actors and navigation markers. The High capture includes directional shadows. Regenerate both after editing the district lighting or reflected scenery with `CHROME_BIN=/path/to/chromium node scripts/bake-vehicle-probes.js`. The script runs the game's live capture and PMREM filter in an isolated Chromium session, then checks its compressed output against every original half-float bit. The game fetches the initial preset, retains its decoded pixels for context restoration, and can capture live when the atlas is unavailable.
+
 The previous `rustig_koppie_puresky_2k.hdr` remains in the repository as an unused reference, credited to Greg Zaal and Jarod Guest under the same Poly Haven CC0 terms: https://polyhaven.com/a/rustig_koppie_puresky.
 
 ### Original Blender asset library
@@ -145,13 +147,15 @@ All assets below are original project-authored geometry and artwork. They use no
 
 The beach parasol replaces the beach's plain cone canopies with eight curved cloth panels, a scalloped valance, narrow rolled hems, bowed ribs, stretchers and mast hardware. The original 64² woven-canvas normal is embedded in each GLB; no third-party inputs are used. Near/far exports contain 5,152 / 808 triangles and three shared material batches per active level, totaling 163,304 bytes. Eight placements preserve the previous positions and use restrained cloth tints. A camera-size-aware detail switch retains a single level per placement; the far export and a curved procedural canopy provide progressively simpler load fallbacks. The [parasol authoring guide](art/blender/beach_parasol_README.md) documents source regeneration and inspection.
 
-The Meridian includes a curved body with open wheel arches, cabin, articulated driver door, wheels/brakes, lamps, and original police livery/equipment. Sedan geometry is 34,184 triangles near / 11,806 far; the police variant adds 1,096 triangles. The streetscape library uses 6,606 source triangles and 21 shared material batches across eight placements. The sidearm uses 3,732 triangles and four PBR materials; its grip and muzzle anchors drive hand articulation and effects. The gameplay sports car now uses the original Astra Aurora asset; the Ferrari licensing caveat applies only to the historical benchmark fixture above.
+The Meridian includes a curved body with open wheel arches, cabin, articulated driver door, wheels/brakes, lamps, and original police livery/equipment. The driver’s door has a world-space grip attachment. A separately articulated steering wheel and a parcel-shelf stop lamp follow live driving input. Sedan geometry is 34,588 triangles near / 12,015 far; the police variant adds 1,096 triangles. The streetscape library uses 6,606 source triangles and 21 shared material batches across eight placements. The sidearm uses 3,732 triangles and four PBR materials; its grip and muzzle anchors drive hand articulation and effects. The gameplay sports car now uses the original Astra Aurora asset; the Ferrari licensing caveat applies only to the historical benchmark fixture above.
 
 
 
 ## Local recorded audio
 
 All shipped recordings are CC0 1.0 / public domain and are served locally from `public/audio/`. Total asset transfer is 355,804 bytes (about 348 KiB). Audio playback needs no remote asset requests, account, API key, or third-party runtime library.
+
+The workshop radio phrase, shutter motor, pier projector cue, surf wash and passing engine tones are original Web Audio synthesis in `src/audio.js`. Shutter slats, the handoff key and workshop tools reuse the credited local Kenney foley below.
 
 ### Recorded engine
 
@@ -205,7 +209,27 @@ Gunfire, horns, police sirens, sea/wind beds, engine enhancement, UI cues, and t
 - **Author/source:** original project-authored model and procedural materials, created in Blender 4.5 LTS. It contains no external car meshes, brand marks, photography, or textures.
 - **Editable source:** `art/blender/vehicle_astra_aurora.blend` and reproducible generator `art/blender/vehicle_astra_aurora.py`. The generator reuses the project's original Meridian mesh utility functions.
 - **Game exports:** `public/models/AstraAurora.glb` and `public/models/AstraAurora-lod.glb`, replacing the third-party Ferrari in gameplay.
-- **Design:** an original two-seat grand touring roadster with sculpted body panels, open wheel arches, a glass windshield, saddle leather cockpit, stitched bucket seats, rollover hoops, swept split-spoke wheels, fixed brake calipers, modeled cooling intakes and LED light guides. Driver door, steering wheel, wheel pivots and attachment anchors are articulated separately.
-- **Budgets:** 80,800 source triangles, 39,438 near / 12,758 far exported triangles, and 47 material batches per LOD. All geometry and materials are locally served; there are no remote asset requests.
+- **Design:** an original two-seat grand touring roadster with sculpted body panels, open wheel arches, a glass windshield, saddle leather cockpit, stitched bucket seats, rollover hoops, swept split-spoke wheels, fixed brake calipers, modeled cooling intakes and LED light guides. The twin rear fairings follow the bucket-seat shoulders. Driver door, exterior handle anchor, steering wheel and wheel pivots are articulated separately.
+- **Budgets:** 80,800 source triangles, 39,439 near / 12,758 far exported triangles, and 47 material batches per LOD. All geometry and materials are locally served; there are no remote asset requests.
 
 These Aurora assets are original repository work and introduce no third-party attribution or licensing dependency. The historical Ferrari benchmark fixture retains its separate provenance caveat above.
+
+## Title presentation and Pacific Wheel
+
+The original AI-generated title illustration of the Aurora outside the Paloma at sunset is stored in `public/art/last-light-paloma.webp`. The game serves Barlow Condensed and DM Sans locally. Their SIL Open Font License notices ship alongside the font files in `public/fonts/`. The pier, wheel and gondolas are original procedural geometry in `src/pacific-wheel.js`.
+
+## Vespucci storefront art
+
+The Calypso Surf Club mural in `public/art/world/calypso-surf.webp` was generated for the game with OpenAI ImageGen. The illustrated Calypso Surf Beach and Paloma Motor Lodge prints in `public/art/world/pacific-destination-prints.webp` were generated for this game with OpenAI ImageGen and share a 768 × 512 atlas. Their lighted display cases are modeled in `src/destination-prints.js`. The street lettering, Orbit travel posters, awnings, sign structures, diner cup, and surfboards are drawn or modeled in `src/vespucci-frontage.js`.
+
+The Solana Coastal Citrus refrigerated trailer, return cage, produce pallets and Sunline juice cart are original instanced geometry in `src/service-lane-dressing.js`. Their shared 768 × 256 livery is drawn locally from canvas paths and lettering. The kit adds no network-fetched models or textures.
+
+Night Shift’s linen bundles, projection cases, glass racks, trolleys, and detachable luggage carrier are original procedural meshes in `src/night-shift-freight.js`. Their project-authored labels share one locally drawn 512 × 512 atlas.
+
+The four coastal travelogue stills in `public/art/world/pier-travelogue.webp` were generated specifically for the pier drive-in with OpenAI ImageGen. `src/pier-screening.js` provides their projection, camera moves and optical dissolves.
+
+Astra Auto Works’ service furniture, tools, brake display, alignment diagram and parts shelving are original procedural artwork in `src/workshop-interior.js`. The period roadster sign at `public/art/world/astra-workshop.webp` is an original AI-generated illustration for the game. It loads on approach to the workshop. The interior reuses the district’s four-light night budget.
+
+Calypso’s limestone crown, bronze sunburst, window bays and shade ledges are original district geometry in `src/calypso-facade.js`. The low ridge visible down the eastbound streets is an original vertex-colored terrain mesh in `src/eastern-foothills.js`.
+
+Mara’s briefing and handoff use an original expression field in `src/mara-expression.js`. It deforms the existing female head and brow meshes and directs her eyes toward the Aurora. The source character and texture credits above also apply to these shots.

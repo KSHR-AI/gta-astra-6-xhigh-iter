@@ -1,3 +1,4 @@
+import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -275,7 +276,7 @@ function createOriginalCar({ color = 0xe4bb67, type = 'sport', police = false } 
   // The driver's door is a separate rigid panel, including its frameless glass.
   const doors = [];
   for (const side of [-1, 1]) {
-    const door = new THREE.Group(); door.userData.dynamic = true; door.position.set(side * 0.9, 0, 0.765); mesh.add(door);
+    const door = new THREE.Group(); door.name = side < 0 ? 'driver_door' : 'passenger_door'; door.userData.dynamic = true; door.position.set(side * 0.9, 0, 0.765); mesh.add(door);
     const local = (x, y, z) => [x - side * 0.9, y, z - 0.765];
     const exterior = [local(side * 0.873, 0.34, -0.77), local(side * 0.891, 0.34, 0.77), local(side * 0.93, 0.91, 0.77), local(side * 0.91, 0.934, -0.77)];
     const panel = quad(door, paint, side < 0 ? exterior : exterior.reverse());
@@ -293,6 +294,10 @@ function createOriginalCar({ color = 0xe4bb67, type = 'sport', police = false } 
       decal.rotation.y = side * Math.PI / 2;
     }
     batchParts(door);
+    if (side < 0) {
+      const handle = new THREE.Object3D(); handle.name = 'driver_handle';
+      handle.position.set(...local(-.923, .78, -.58)); door.add(handle);
+    }
     doors.push({ object: door, side });
   }
 
@@ -429,7 +434,7 @@ function prepareAuroraTemplate(scene) {
 export function loadVehicleAssets(loader = new GLTFLoader()) {
   if (!vehicleAssetsPromise) {
     const sports = Promise.allSettled([
-      loader.loadAsync('/models/AstraAurora.glb'), loader.loadAsync('/models/AstraAurora-lod.glb'),
+      loader.loadAsync(assetUrl('models/AstraAurora.glb')), loader.loadAsync(assetUrl('models/AstraAurora-lod.glb')),
     ]).then(results => {
       if (results[0].status !== 'fulfilled') throw results[0].reason;
       const near = prepareAuroraTemplate(results[0].value.scene);
@@ -440,7 +445,7 @@ export function loadVehicleAssets(loader = new GLTFLoader()) {
       }
     }).catch(error => console.warn('Aurora sports-car assets unavailable; using the original coupe.', error));
     const sedans = Promise.all([
-      loader.loadAsync('/models/vehicles/meridian.glb'), loader.loadAsync('/models/vehicles/meridian-lod.glb'),
+      loader.loadAsync(assetUrl('models/vehicles/meridian.glb')), loader.loadAsync(assetUrl('models/vehicles/meridian-lod.glb')),
     ]).then(models => { sedanVehicleTemplates = models.map(model => model.scene); })
       .catch(error => console.warn('Meridian sedan assets unavailable; using the original coupe.', error));
     vehicleAssetsPromise = Promise.all([sports, sedans]).then(() => Boolean(auroraVehicleTemplates || sedanVehicleTemplates));
@@ -476,13 +481,31 @@ function createAuroraCar({ color }) {
   const palette = new Map();
   const materialFor = source => {
     if (!palette.has(source.name)) {
-      let material = source.clone();
+      const material = source.clone();
+      // Preserve the artist's satin base and separate clear lacquer on the
+      // sculpted panels. The instance colour still participates in damage.
       if (source.name === 'body' || source.name === 'upper') {
-        material = new THREE.MeshPhysicalMaterial({ color, metalness: 0.32, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.13, envMapIntensity: 1 });
+        material.color.set(color);
+        material.metalness = .55;
+        material.clearcoat = 1;
+        material.clearcoatRoughness = .085;
         material.name = 'body';
+      } else if (source.name === 'chrome') {
+        material.roughness = .22;
+        material.color.setHex(0xe5e8e7);
+      } else if (source.name === 'rubber') {
+        material.color.setHex(0x252727);
+        material.roughness = .76;
+      } else if (source.name === 'lamp_lens') {
+        material.color.setHex(0x93a6b6);
+        material.metalness = .72;
+        material.roughness = .13;
       }
       if (source.name === 'glass') {
-        material.transparent = true; material.opacity = 0.27;
+        material.color.setHex(0xaac7c3);
+        material.metalness = .04;
+        material.roughness = .065;
+        material.transparent = true; material.opacity = .14;
         material.depthWrite = false; material.side = THREE.DoubleSide;
         material.forceSinglePass = true;
       } else material.side = THREE.FrontSide;
@@ -547,10 +570,11 @@ function createAuroraCar({ color }) {
 
 function sedanPalette(color, police) {
   const palette = vehiclePalette(police ? 0xe9e7df : color);
-  palette.body.roughness = 0.25;
+  palette.body.roughness = police ? .25 : .31;
   palette.body.clearcoat = 1.0;
-  palette.body.clearcoatRoughness = 0.14;
+  palette.body.clearcoatRoughness = police ? .14 : .19;
   palette.body.envMapIntensity = 1.0;
+  palette.center_stop = palette.taillight_left.clone(); palette.center_stop.name = 'center_stop';
   palette.upper = palette.body.clone(); palette.upper.name = 'body';
   if (police) palette.upper.color.setHex(0x14212b);
   palette.dark = new THREE.MeshStandardMaterial({ color: 0x161d22, roughness: 0.61, metalness: 0.15 });
@@ -613,7 +637,7 @@ function createSedanCar({ color, police }) {
     }
     lod.addLevel(level, index ? 26 : 0, index ? 0.12 : 0);
     level.visible = index === 0;
-    return { mesh: level, wheels, frontWheels, door: level.getObjectByName('driver_door') };
+    return { mesh: level, wheels, frontWheels, door: level.getObjectByName('driver_door'), steering: level.getObjectByName('steering_wheel') };
   });
   const map = drawPlate();
   const plateMaterial = new THREE.MeshStandardMaterial({ ...(map ? { map } : {}), color: 0xe1e2d5, roughness: 0.55 });
@@ -636,6 +660,7 @@ function createSedanCar({ color, police }) {
       doorAngle = THREE.MathUtils.damp(doorAngle, doorTarget, 9, dt);
       for (const level of levels) {
         level.door.rotation.y = doorAngle;
+        if (level.steering) level.steering.rotation.z = steer * .85;
         for (const wheel of level.wheels) wheel.rotation.x = wheelAngle;
         for (const pivot of level.frontWheels) pivot.rotation.y = THREE.MathUtils.clamp(steer, -0.65, 0.65);
       }
@@ -883,7 +908,7 @@ function enhanceVehicle(vehicle, { type, roadster }) {
   vehicle.type = type;
   vehicle.mesh.userData.vehicleType = type;
   vehicle.mesh.userData.damageHealth = 100;
-  const chassis = [], wheelPivots = [], paintMeshes = [], glassMeshes = [], headlights = [], taillights = [];
+  const chassis = [], wheelPivots = [], paintMeshes = [], glassMeshes = [], headlights = [], taillights = [], centerStops = new Set();
   const chassisFor = (parent, parts) => {
     const body = new THREE.Group(); body.name = 'suspended_chassis'; parent.add(body);
     for (const child of parts) body.add(child);
@@ -909,12 +934,27 @@ function enhanceVehicle(vehicle, { type, roadster }) {
   vehicle.mesh.traverse(object => {
     if (!object.isMesh || Array.isArray(object.material)) return;
     if (object.material === glass || object.material.name === 'glass') {
-      if (!glassCopies.has(object.material)) { const copy = object.material.clone(); copy.name = 'glass'; glassCopies.set(object.material, copy); }
+      if (!glassCopies.has(object.material)) {
+        const copy = object.material.clone(); copy.name = 'glass';
+        if (roadster) {
+          // Thin automotive glazing transmits the cabin head-on and reflects
+          // more sky at grazing angles. Avoid an extra scene transmission pass.
+          copy.onBeforeCompile = shader => {
+            shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', `
+              float grazing = 1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0);
+              diffuseColor.a = mix(diffuseColor.a, 0.8, pow(grazing, 5.0));
+              #include <opaque_fragment>
+            `);
+          };
+        }
+        glassCopies.set(object.material, copy);
+      }
       object.material = glassCopies.get(object.material); glassMeshes.push(object);
     }
     if (object.material.name === 'body') paintMeshes.push(object);
     if (object.material.name.startsWith('headlight_')) headlights.push(object.material);
     if (object.material.name.startsWith('taillight_')) taillights.push(object.material);
+    if (object.material.name === 'center_stop') centerStops.add(object.material);
   });
   const uniqueHeadlights = [...new Set(headlights)], uniqueTaillights = [...new Set(taillights)];
   const originalPaint = new Map();
@@ -931,6 +971,7 @@ function enhanceVehicle(vehicle, { type, roadster }) {
   let externalDynamics = false, damageHealth = 100, time = 0, lastSpeed = 0, lights = true, surfaceRevision = 0;
   const baseUpdate = vehicle.update.bind(vehicle), baseLights = vehicle.setLights.bind(vehicle);
   function updateLamps() {
+    for (const material of centerStops) material.emissiveIntensity = damageHealth < 8 ? 0 : dynamics.brake * 3.2;
     for (const material of uniqueHeadlights) {
       const broken = damageHealth < (material.name.endsWith('left') ? 62 : 24);
       material.emissiveIntensity = broken ? 0 : lights ? 2.1 : 0.2;
@@ -1060,6 +1101,17 @@ function enhanceVehicle(vehicle, { type, roadster }) {
     target.copy(driverSeat);
     chassis[0].updateMatrix(); return target.applyMatrix4(chassis[0].matrix);
   };
+  const handle = chassis[0].getObjectByName('driver_handle');
+  const door = chassis[0].getObjectByName('driver_door');
+  // Previous local asset revisions lack the named attachment. Keep its point
+  // door-local so opening, steering and suspension agree with the visible grip.
+  const handleInDoor = roadster ? new THREE.Vector3(-.938, .779, -.54) : new THREE.Vector3(-.99, .943, -.27);
+  if (door) handleInDoor.sub(door.position);
+  vehicle.getDoorHandleWorld = (target = new THREE.Vector3()) => handle
+    ? handle.getWorldPosition(target) : (door || chassis[0]).localToWorld(target.copy(handleInDoor));
+  // Midpoint of the Aurora's upper rear lens blade in its sprung body frame.
+  vehicle.getRearLampWorld = (side,target = new THREE.Vector3()) =>
+    chassis[0].localToWorld(target.set(side*.43,.727,-2.25));
   vehicle.getDoorPosition = (target = new THREE.Vector3()) => target.copy(doorEntry);
   vehicle.getDriverOrientation = (target = new THREE.Quaternion()) => chassis[0].getWorldQuaternion(target);
   let fullTriangles = 0;

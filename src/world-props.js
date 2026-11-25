@@ -1,3 +1,4 @@
+import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
@@ -27,7 +28,7 @@ const LOCAL_COLLIDERS = {
   ],
 };
 
-export function createCityProps(parent) {
+export function createCityProps(parent, registerInstances) {
   const root = new THREE.Group();
   root.name = 'Blender-authored Los Pacificos streetscape';
   parent.add(root);
@@ -46,7 +47,7 @@ export function createCityProps(parent) {
   const ownedGeometries = new Set(), ownedMaterials = new Set();
   let disposed = false;
   const stats = { drawCalls: 0, triangles: 0, placements: CITY_PROP_PLACEMENTS.length };
-  const ready = new GLTFLoader().loadAsync('/models/city/city-streetscape.glb').then(gltf => {
+  const ready = new GLTFLoader().loadAsync(assetUrl('models/city/city-streetscape.glb')).then(gltf => {
     gltf.scene.updateMatrixWorld(true);
     for (const assetName of new Set(CITY_PROP_PLACEMENTS.map(p => p.asset))) {
       const source = gltf.scene.getObjectByName(assetName);
@@ -79,6 +80,7 @@ export function createCityProps(parent) {
         instanced.instanceMatrix.needsUpdate = true;
         instanced.computeBoundingBox(); instanced.computeBoundingSphere();
         root.add(instanced);
+        registerInstances?.(instanced);
         stats.drawCalls++;
         stats.triangles += (part.geometry.index?.count ?? part.geometry.attributes.position.count) / 3 * placements.length;
       });

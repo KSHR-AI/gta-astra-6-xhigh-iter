@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { createMission, readProgress } from '../src/missions.js';
+import { LAST_LIGHT_FORK, LAST_LIGHT_ROUTES } from '../src/last-light.js';
+import { SCREENING_AUDIENCE, createMission, readProgress } from '../src/missions.js';
 import { createCitySimulation, hasSight } from '../src/simulation.js';
 
 const SAVE_KEY = 'grand-theft-astra:coastal-job:v1';
@@ -58,82 +59,139 @@ function simulationFixture({ policePosition = [0, 200], pedestrians = [], collid
   return { simulation, police, pedestrians, playerPosition, tick, toasts, policeShots };
 }
 
-test('The Coastal Job can be played from briefing to delivery and home, with the reward paid once', () => {
-  const { mission, landmarks, heroPosition, completions, dialogue, storage } = missionFixture();
-  const hero = { isJobCar: true, health: 100 };
-  assert.equal(mission.getState().mission, 0);
-  assert.equal(mission.getState().target, landmarks.contact);
-  assert.deepEqual(mission.interact('garage', { vehicle: hero }), {});
-  assert.deepEqual(mission.interact('safehouse'), {});
-
-  assert.equal(mission.interact('contact').accepted, true);
-  assert.equal(mission.getState().mission, 1);
-  assert.equal(mission.getState().target, heroPosition);
-  assert.equal(dialogue[0].speaker, 'MARA');
-  assert.ok(dialogue[0].lines.join(' ').includes('convertible'));
-
-  mission.onVehicleTaken({ isJobCar: false, health: 100 });
-  assert.equal(mission.getState().mission, 1, 'Stealing an unrelated car must not advance the job');
+function prepareAurora(fixture) {
+  const { mission, heroPosition } = fixture;
+  const hero = carAt(heroPosition.x, heroPosition.z, { isJobCar: true, heading: Math.PI });
+  const rear = point(heroPosition.x,heroPosition.z+2.4);
+  if (mission.getState().mission===0) mission.interact('contact');
   mission.onVehicleTaken(hero);
-  assert.equal(mission.getState().mission, 2);
-  mission.update({ wanted: 1, policeState: 'pursuit', vehicle: hero });
-  assert.equal(mission.getState().mission, 2);
-  mission.update({ wanted: 0, policeState: 'reported', vehicle: hero });
-  assert.equal(mission.getState().mission, 2, 'An incoming witness report is still heat');
-  mission.update({ wanted: 1, policeState: 'searching', vehicle: hero });
-  assert.equal(mission.getState().mission, 2);
-  assert.deepEqual(mission.interact('garage', { vehicle: hero }), {}, 'The workshop cannot pay before the escape');
+  assert.equal(mission.getState().mission,1,'Boarding before the required inspection cannot advance');
+  assert.equal(mission.inspectAction(rear,null,hero).kind,'inspect');
+  mission.interact('inspect',{position:rear,jobVehicle:hero});
+  mission.update({dt:1.5,position:rear,jobVehicle:hero});
+  assert.equal(mission.getState().lastLight.inspected,true);
+  mission.onVehicleTaken(hero);
+  return hero;
+}
 
-  mission.update({ wanted: 0, policeState: 'clear', vehicle: hero });
-  assert.equal(mission.getState().mission, 3);
-  assert.equal(mission.getState().target, landmarks.garage);
-  assert.deepEqual(mission.interact('garage', { vehicle: { isJobCar: false, health: 100 } }), {});
-  assert.equal(mission.interact('garage', { vehicle: hero }).delivered, true);
-  assert.equal(mission.getState().money, 2750);
-  assert.equal(mission.getState().completedJobs, 1);
-  assert.equal(mission.getState().target, landmarks.safehouse);
-  assert.deepEqual(completions, [{ title: 'THE COASTAL JOB', reward: 1500 }]);
+function driveTo(mission,hero,pointWanted) {
+  hero.model.mesh.position.set(pointWanted.x,0,pointWanted.z);
+  mission.update({vehicle:hero,jobVehicle:hero,wanted:0,policeState:'clear',dt:.13});
+}
 
-  mission.interact('garage', { vehicle: hero });
-  assert.equal(mission.getState().money, 2750, 'Repeated interaction must not duplicate the payout');
-  assert.equal(completions.length, 1);
-  assert.equal(mission.interact('safehouse').rest, true);
-  assert.equal(mission.getState().mission, 5);
-  assert.equal(mission.getState().missionProgress, 1);
-  assert.equal(mission.getState().target, null);
-  mission.interact('safehouse');
-  assert.equal(mission.getState().completedJobs, 1);
-  assert.equal(readProgress(storage).stage, 5);
-  assert.equal(readProgress(storage).money, 2750);
-});
+for (const [branch,health] of [['boulevard',100],['service',72]]) {
+  test(`Last Light pays once after physically completing the ${branch} route`, () => {
+    const fixture=missionFixture();
+    const {mission,landmarks,completions,storage}=fixture;
+    const hero=prepareAurora(fixture);
+    assert.equal(mission.getState().target,LAST_LIGHT_FORK);
+    driveTo(mission,hero,landmarks.garage);
+    assert.deepEqual(mission.interact('garage',{vehicle:hero}),{});
+    driveTo(mission,hero,LAST_LIGHT_FORK);
+    assert.equal(mission.getState().lastLight.phase,'fork');
+    assert.equal(mission.getState().secondaryTarget,LAST_LIGHT_ROUTES.service[0]);
+    hero.health=health;
+    for (const gate of LAST_LIGHT_ROUTES[branch]) driveTo(mission,hero,gate);
+    assert.equal(mission.getState().mission,3);
+    assert.equal(mission.getState().target,landmarks.garage);
+    assert.deepEqual(mission.interact('garage',{vehicle:hero}),{},'Park in the actual bay');
+    driveTo(mission,hero,landmarks.garage);
+    assert.deepEqual(mission.interact('garage',{vehicle:hero,wanted:2,policeState:'pursuit'}),{});
+    hero.speed=4;
+    assert.deepEqual(mission.interact('garage',{vehicle:hero}),{});
+    hero.speed=0;
+    assert.equal(mission.interact('garage',{vehicle:hero}).delivered,true);
+    const bonus=health>=85?500:0;
+    assert.equal(mission.getState().money,2750+bonus);
+    assert.equal(mission.getState().completedJobs,1);
+    assert.equal(mission.getState().mission,5);
+    assert.equal(completions[0].basePay,1500);assert.equal(completions[0].cleanBonus,bonus);
+    assert.equal(completions[0].reward,1500+bonus);
+    mission.interact('garage',{vehicle:hero});
+    assert.equal(completions.length,1);
+    const restored=missionFixture(storage).mission;
+    assert.deepEqual(restored.getState().target,landmarks.garage);
+    assert.equal(restored.getState().money,2750+bonus);
+    assert.equal(restored.getState().lastLight.routeRecords[branch],health);
+    assert.deepEqual(restored.interact('garage',{vehicle:hero}),{});
+  });
+}
 
-test('A wrecked delivery car resets the attempt without charging or paying the player', () => {
-  const { mission, completions, heroPosition } = missionFixture();
+test('the lamp check waits for a reachable stance and player input interrupts it near the bumper',()=>{
+  const {mission,heroPosition}=missionFixture();
+  const hero=carAt(heroPosition.x,heroPosition.z,{isJobCar:true,heading:Math.PI});
+  const rear=point(heroPosition.x,heroPosition.z+2.4);
   mission.interact('contact');
-  const hero = { isJobCar: true, health: 100 };
-  mission.onVehicleTaken(hero);
-  hero.health = 0;
-  assert.equal(mission.update({ wanted: 1, policeState: 'pursuit', vehicle: hero }).replaceJobCar, true);
-  assert.equal(mission.getState().mission, 1);
-  assert.equal(mission.getState().target, heroPosition);
-  assert.equal(mission.getState().money, 1250);
-  assert.equal(completions.length, 0);
-  hero.health = 100;
-  mission.onVehicleTaken(hero);
-  assert.equal(mission.getState().mission, 2, 'The replacement can be used for a new attempt');
+  mission.interact('inspect',{position:rear,jobVehicle:hero});
+  mission.update({dt:2,position:rear,jobVehicle:hero,inspectionReady:false});
+  assert.equal(mission.inspectionRemaining,1.4);
+  mission.update({dt:.75,position:rear,jobVehicle:hero});
+  mission.update({dt:.1,position:rear,jobVehicle:hero,interruptInspection:true});
+  assert.equal(mission.inspectionRemaining,0);
+  assert.equal(mission.getState().lastLight.inspected,false);
+  assert.equal(mission.inspectAction(rear,null,hero).kind,'inspect');
 });
 
-test('Reloading an active escape or delivery restores a usable pre-theft checkpoint', () => {
-  for (const stage of [2, 3]) {
-    const storage = memoryStorage({ version: 1, stage, money: 1100, completedJobs: 0, savedAt: 1700000000000 });
-    const { mission, heroPosition } = missionFixture(storage);
-    assert.equal(mission.getState().mission, 1);
-    assert.equal(mission.getState().target, heroPosition);
-    assert.equal(mission.getState().money, 1100);
-    assert.equal(mission.getState().completedJobs, 0);
+test('The inspection can be interrupted, and walking away from the assigned car keeps the route checkpoint',()=>{
+  const {mission,heroPosition}=missionFixture(), hero=carAt(heroPosition.x,heroPosition.z,{isJobCar:true,heading:Math.PI});
+  const rear=point(heroPosition.x,heroPosition.z+2.4);
+  mission.interact('contact');
+  mission.interact('inspect',{position:rear,jobVehicle:hero});
+  mission.update({dt:1.6,position:point(100,100),jobVehicle:hero});
+  assert.equal(mission.getState().lastLight.inspected,false);
+  mission.interact('inspect',{position:rear,jobVehicle:hero});
+  mission.update({dt:1.6,position:rear,jobVehicle:hero});
+  mission.onVehicleTaken(hero);
+  driveTo(mission,hero,LAST_LIGHT_FORK);driveTo(mission,hero,LAST_LIGHT_ROUTES.service[0]);
+  mission.update({vehicle:null,jobVehicle:hero,position:rear,wanted:0,policeState:'clear'});
+  assert.equal(mission.getState().target,heroPosition);
+  assert.equal(mission.getState().lastLight.mile,1);
+  assert.equal(mission.interact('recover').replaceJobCar,true);
+  assert.equal(mission.getState().mission,1);
+  assert.equal(mission.getState().jobCarCheckpoint.x,27);
+});
+
+test('Wreck/reload retain earned route milestones and a lost bonus without granting the reward',()=>{
+  const f=missionFixture(),hero=prepareAurora(f);
+  driveTo(f.mission,hero,LAST_LIGHT_FORK);
+  driveTo(f.mission,hero,LAST_LIGHT_ROUTES.service[0]);
+  hero.health=0;
+  assert.equal(f.mission.update({jobVehicle:hero,vehicle:null}).replaceJobCar,true);
+  const restored=missionFixture(f.storage).mission;
+  assert.equal(restored.getState().mission,1);
+  assert.equal(restored.getState().lastLight.cleanEligible,false);
+  assert.equal(restored.getState().money,1250);
+  hero.health=100;restored.onVehicleTaken(hero);
+  assert.equal(restored.getState().target,LAST_LIGHT_ROUTES.service[1]);
+  assert.equal(restored.getState().deliveryQuote.cleanBonus,0);
+});
+
+test('Legacy active jobs restart at the inspection and preserve wallet, radio and circuit records',()=>{
+  for(const stage of [1,2,3]){
+    const storage=memoryStorage({version:1,stage,money:1612,completedJobs:3,circuitBest:44,roomTone:{phase:'finished',site:'boulevard'}});
+    const {mission}=missionFixture(storage);
+    assert.equal(mission.getState().mission,1);
+    assert.equal(mission.getState().lastLight.inspected,false);
+    assert.equal(mission.getState().radioPhase,'finished');
+    assert.equal(mission.getState().money,1612);
+    assert.equal(mission.getState().circuitBest,44);
   }
 });
 
+test('Practice runs on a paid save remain unpaid across a mid-route reload',()=>{
+  const f=missionFixture(memoryStorage({version:1,stage:5,money:3100,completedJobs:2}));
+  assert.equal(f.mission.interact('replay').replayAccepted,true);
+  const hero=prepareAurora(f);
+  driveTo(f.mission,hero,LAST_LIGHT_FORK);driveTo(f.mission,hero,LAST_LIGHT_ROUTES.boulevard[0]);
+  const restored=missionFixture(f.storage);
+  restored.mission.onVehicleTaken(hero);
+  driveTo(restored.mission,hero,LAST_LIGHT_ROUTES.boulevard[1]);
+  driveTo(restored.mission,hero,restored.landmarks.garage);
+  restored.mission.interact('garage',{vehicle:hero});
+  assert.equal(restored.mission.getState().money,3100);
+  assert.equal(restored.mission.getState().completedJobs,2);
+  assert.equal(restored.completions[0].reward,0);
+});
 test('A paid delivery survives reload without granting a second reward; a fresh session clears it', () => {
   const storage = memoryStorage({ version: 1, stage: 4, money: 2750, completedJobs: 1, savedAt: 1700000000000 });
   const { mission, landmarks, completions } = missionFixture(storage);
@@ -377,4 +435,260 @@ test('An officer who has not deployed cannot reveal the player from a hidden mes
   assert.equal(officer.mesh.visible, false);
   assert.equal(tick(6.2).policeState, 'searching');
   assert.equal(tick(18.3).policeState, 'clear');
+});
+
+test('Pacific Circuit accepts free-roam drivers, pays once and preserves the best lap', () => {
+  const storage = memoryStorage({ version: 1, stage: 5, money: 2750, completedJobs: 1 });
+  const { mission, completions } = missionFixture(storage);
+  const vehicle = carAt(-5, 28);
+  const start = () => mission.interact('circuit', { vehicle });
+  const update = dt => mission.update({ vehicle, dt, wanted: 0, policeState: 'clear' });
+  assert.deepEqual(missionFixture().mission.interact('circuit', { vehicle }), {});
+  assert.deepEqual(mission.interact('circuit'), {});
+  assert.equal(start().startedCircuit, true);
+  assert.deepEqual(start(), {});
+  for (const secondsPerGate of [8, 12]) {
+    if (!mission.getState().circuitActive) start();
+    const firstGate = mission.getState().target;
+    vehicle.model.mesh.position.set(firstGate.x, 0, firstGate.z);
+    assert.equal(mission.getState().circuitSignal, '3');
+    for (const signal of ['2', '1']) {
+      update(1);
+      assert.equal(mission.getState().circuitSignal, signal);
+      assert.equal(mission.getState().missionProgress, 0);
+    }
+    vehicle.model.mesh.position.set(-5, 0, 28);
+    update(1);
+    assert.equal(mission.getState().circuitSignal, 'GO');
+    for (let gate = 0; gate < 5; gate++) {
+      const { target, missionProgress } = mission.getState();
+      assert.equal(missionProgress, gate / 5);
+      vehicle.model.mesh.position.set(target.x, 0, target.z);
+      update(secondsPerGate);
+    }
+    update(1);
+  }
+  assert.deepEqual(completions.map(result => result.reward), [750, 500]);
+  assert.equal(mission.getState().money, 4000);
+  assert.equal(mission.getState().completedJobs, 3);
+  assert.equal(missionFixture(storage).mission.getState().circuitBest, 40);
+  mission.fresh();
+  assert.equal(mission.getState().circuitBest, null);
+});
+
+test('the courtesy race returns a fresh player to Mara after interruption, finish and reload', () => {
+  const { mission, storage, landmarks } = missionFixture();
+  const vehicle = carAt(-8, 28, { circuitLoaner: true });
+  const desk = point(-16, 23.1);
+  const start = () => mission.interact('circuit', { vehicle });
+  assert.equal(start().startedCircuit, true);
+  assert.deepEqual(mission.interact('radio-start', { position: desk }), {});
+  assert.deepEqual(mission.interact('contact'), {});
+  mission.update({ dt: 1, vehicle: null });
+  assert.deepEqual(mission.getState().target, landmarks.contact);
+  assert.equal(mission.getState().money, 1250);
+  assert.equal(start().startedCircuit, true);
+  for (let gate = 0; gate < 5; gate++) {
+    const target = mission.getState().target;
+    vehicle.model.mesh.position.set(target.x, 0, target.z);
+    mission.update({ dt: 8, vehicle });
+  }
+  for (const state of [mission.getState(), missionFixture(storage).mission.getState()]) {
+    assert.equal(state.mission, 0);
+    assert.deepEqual(state.target, landmarks.contact);
+    assert.equal(state.money, 2000);
+  }
+  mission.interact('radio-start', { position: desk });
+  assert.deepEqual(start(), {});
+  assert.equal(missionFixture(storage).mission.getState().mission, 0);
+});
+
+test('Interrupted circuits allow a clean restart without payment', () => {
+  const { mission, completions } = missionFixture(memoryStorage({ version: 1, stage: 5, money: 2750 }));
+  const vehicle = carAt(-5, 28);
+  for (const event of [{ dt: 94, vehicle }, { vehicle: null }, { vehicle: carAt(0, 0) }]) {
+    assert.equal(mission.interact('circuit', { vehicle }).startedCircuit, true);
+    mission.update(event);
+    assert.equal(mission.getState().circuitActive, false);
+    assert.equal(mission.getState().money, 2750);
+  }
+  assert.equal(completions.length, 0);
+});
+
+test('Room Tone restores a usable recording checkpoint and pays once after the chosen take', () => {
+  for (const [site, position, seconds, fee] of [
+    ['courtyard', point(-28,37), 3, 350], ['boulevard', point(-13.5,-40), 4, 650],
+  ]) {
+    const desk = point(-16,23.1);
+    const { mission, storage } = missionFixture();
+    assert.equal(mission.radioAction(desk, null).kind, 'radio-start');
+    assert.deepEqual(mission.interact('radio-start', { position }), {});
+    mission.interact('radio-start', { position: desk });
+    mission.interact('radio-' + site, { position });
+    assert.equal(missionFixture(storage).mission.getState().radioPhase, 'choosing');
+    mission.update({ position, dt: 1 });
+    mission.interact('radio-cut', { position });
+    assert.equal(mission.getState().radioPhase, 'choosing');
+    mission.interact('radio-' + site, { position });
+    mission.update({ position, dt: seconds });
+    mission.interact('radio-cut', { position });
+    const restored = missionFixture(storage);
+    assert.equal(restored.mission.getState().radioPhase, 'returning');
+    assert.equal(restored.mission.getState().money, 1250);
+    restored.mission.interact('radio-return', { position: desk });
+    restored.mission.interact('radio-return', { position: desk });
+    assert.equal(restored.mission.getState().money, 1250 + fee);
+    assert.equal(restored.mission.getState().completedJobs, 1);
+    assert.equal(restored.completions.length, 1);
+    assert.equal(missionFixture(storage).mission.getState().radioPhase, 'finished');
+    assert.equal(restored.mission.getState().mission, 0);
+    restored.mission.fresh();
+    assert.equal(restored.mission.getState().radioPhase, 'available');
+  }
+});
+
+test('Room Tone permits switching locations after missing the cue, leaving or cancelling', () => {
+  const { mission, landmarks } = missionFixture();
+  const desk=point(-16,23.1), position=point(-28,37);
+  mission.interact('radio-start',{position:desk});
+  mission.interact('radio-courtyard',{position});
+  mission.update({position,dt:9});
+  assert.equal(mission.getState().radioPhase,'choosing');
+  mission.interact('radio-courtyard',{position});
+  mission.update({position:desk,dt:1});
+  assert.equal(mission.radioAction(desk,null).kind,'radio-cancel');
+  mission.interact('radio-cancel',{position:desk});
+  assert.equal(mission.getState().radioPhase,'available');
+  assert.equal(mission.getState().target,landmarks.contact);
+});
+
+test('Dispatch and story activities cannot overlap, and freight survives reload and cancellation', () => {
+  const f=missionFixture(memoryStorage({version:1,stage:5,money:2750,completedJobs:1}));
+  const car=carAt(f.landmarks.garage.x,f.landmarks.garage.z);
+  const m=f.mission;
+  assert.equal(m.nightShiftAction(car.model.mesh.position,car).kind,'shift-start');
+  assert.equal(m.interact('shift-start',{vehicle:car}).shiftInteraction,true);
+  assert.equal(m.getState().nightShiftActive,true);
+  assert.deepEqual(m.interact('replay'),{});
+  assert.deepEqual(m.interact('circuit',{vehicle:car}),{});
+  assert.equal(m.radioAction(point(-16,23.1),null),null);
+  const restored=missionFixture(f.storage).mission;
+  assert.equal(restored.getState().nightShiftActive,true);
+  assert.equal(restored.nightShiftAction(f.landmarks.garage,null).kind,'shift-cancel');
+  restored.interact('shift-cancel',{position:f.landmarks.garage});
+  assert.equal(restored.getState().nightShiftActive,false);
+  assert.equal(restored.getState().money,2750);
+  assert.equal(restored.interact('replay').replayAccepted,true);
+});
+
+test('Replaying the flagship preserves settled freight manifests through an active checkpoint', () => {
+  const storage=memoryStorage({version:1,stage:5,money:4300,completedJobs:4,nightShift:{paid:['paloma+sunline']}});
+  const first=missionFixture(storage).mission;
+  first.interact('replay');
+  const resumed=missionFixture(storage).mission;
+  resumed.save();
+  assert.deepEqual(readProgress(storage).nightShift.paid,['paloma+sunline']);
+  assert.equal(resumed.getState().money,4300);
+});
+
+test('First delivered film manifest unlocks the screening throughout practice and circuit play',()=>{
+  const f=missionFixture(memoryStorage({version:1,stage:5,money:2750,completedJobs:1}));
+  const m=f.mission,car=carAt(f.landmarks.garage.x,f.landmarks.garage.z);
+  assert.equal(m.getState().pierScreeningUnlocked,false);
+  m.interact('shift-start',{vehicle:car});
+  car.model.mesh.position.set(-91,0,5);
+  m.interact('shift-load-pier',{vehicle:car});
+  assert.equal(m.getState().pierScreeningUnlocked,false);
+  car.model.mesh.position.set(-8,0,53);
+  m.interact('shift-load-paloma',{vehicle:car});
+  car.model.mesh.position.copy(f.landmarks.garage);
+  m.interact('shift-deliver',{vehicle:car});
+  assert.equal(m.getState().pierScreeningUnlocked,true);
+  assert.match(f.completions.at(-1).replayHint,/screening/i);
+  const restored=missionFixture(f.storage).mission;
+  assert.equal(restored.getState().pierScreeningUnlocked,true);
+  restored.interact('circuit',{vehicle:car});
+  assert.equal(restored.getState().pierScreeningUnlocked,true);
+  restored.retry(); restored.interact('replay'); restored.save();
+  assert.equal(missionFixture(f.storage).mission.getState().pierScreeningUnlocked,true);
+  restored.fresh();
+  assert.equal(restored.getState().pierScreeningUnlocked,false);
+});
+
+test('The optional evening follows the film manifest and records first attendance without paying again',()=>{
+  const f=missionFixture(), {mission,landmarks,storage}=f;
+  const hero=prepareAurora(f);
+  assert.equal(mission.interact('contact',{reserve:0}).reminder,true);
+  assert.equal(mission.getState().money,1250);
+  driveTo(mission,hero,LAST_LIGHT_FORK);
+  for(const gate of LAST_LIGHT_ROUTES.boulevard)driveTo(mission,hero,gate);
+  driveTo(mission,hero,landmarks.garage);
+  mission.interact('garage',{vehicle:hero});
+  const handoff=mission.getState();
+  assert.equal(handoff.eveningPhase,'dispatch');
+  assert.equal(handoff.target,landmarks.garage);
+  assert.equal(handoff.money,3250);
+  assert.deepEqual(mission.interact('watch-screening',{position:SCREENING_AUDIENCE}),{});
+  mission.interact('shift-start',{vehicle:hero});
+  assert.equal(mission.getState().objectiveTitle,'Choose a freight pickup');
+  hero.model.mesh.position.set(-91,0,5);mission.interact('shift-load-pier',{vehicle:hero});
+  hero.model.mesh.position.set(55,0,-50);mission.interact('shift-load-sunline',{vehicle:hero});
+  hero.model.mesh.position.copy(landmarks.garage);mission.interact('shift-deliver',{vehicle:hero});
+  const projection=mission.getState();
+  assert.equal(projection.eveningPhase,'screening');
+  assert.equal(projection.target,SCREENING_AUDIENCE);
+  assert.equal(projection.money,3850);
+  assert.equal(projection.completedJobs,2);
+  assert.equal(mission.screeningAction(landmarks.garage,null),null);
+  hero.model.mesh.position.set(-96,0,5);hero.speed=12;
+  assert.equal(mission.screeningAction(SCREENING_AUDIENCE,hero),null);
+  hero.speed=0;
+  assert.equal(mission.screeningAction(SCREENING_AUDIENCE,hero).kind,'watch-screening');
+  mission.interact('radio-start',{position:point(-16,23.1)});
+  assert.equal(mission.screeningAction(SCREENING_AUDIENCE,hero),null);
+  assert.equal(mission.getState().objectiveTitle,'Choose your sound');
+  mission.interact('radio-cancel',{position:point(-16,23.1)});
+  assert.deepEqual(mission.interact('watch-screening',{vehicle:hero}),{screeningStarted:true,firstScreening:true});
+  assert.equal(mission.getState().eveningPhase,'free-roam');
+  assert.equal(mission.getState().target,null);
+  const before=storage.getItem(SAVE_KEY);
+  assert.deepEqual(mission.interact('watch-screening',{position:SCREENING_AUDIENCE}),{screeningStarted:true,firstScreening:false});
+  assert.equal(storage.getItem(SAVE_KEY),before);
+  const resumed=missionFixture(storage).mission;
+  assert.equal(resumed.getState().screeningSeen,true);
+  assert.equal(resumed.getState().money,3850);
+  assert.equal(resumed.getState().completedJobs,2);
+  assert.equal(resumed.interact('replay').replayAccepted,true);
+  assert.equal(resumed.getState().screeningSeen,true);
+  resumed.fresh();assert.equal(resumed.getState().screeningSeen,false);
+});
+
+test('A second press at Mara after briefing only repeats the inspection instructions',()=>{
+  const {mission,dialogue}=missionFixture();
+  mission.interact('contact',{reserve:0});
+  assert.deepEqual(mission.interact('contact',{reserve:0}),{reminder:true});
+  assert.equal(mission.getState().money,1250);
+  assert.match(dialogue.at(-1).lines[0],/rear lamp/);
+  const paid=missionFixture(memoryStorage({version:1,stage:5,money:2750})).mission;
+  assert.deepEqual(paid.interact('contact',{reserve:0}),{ammo:36});
+  assert.equal(paid.getState().money,2600);
+});
+
+test('fractional Aurora health agrees with the handoff fee across saves', () => {
+  for (const [health,shown,fee] of [[19.6,19,1500],[84.9,84,1500],[85,85,2000]]) {
+    const storage=memoryStorage({version:1,stage:3,money:1250,completedJobs:0,
+      lastLight:{forkPassed:true,route:'boulevard',mile:2,conditionPct:health}});
+    const {mission,landmarks,completions}=missionFixture(storage);
+    const car=carAt(landmarks.garage.x,landmarks.garage.z,{isJobCar:true,health});
+    assert.equal(mission.getState().lastLight.conditionPct,shown);
+    mission.onVehicleTaken(car);
+    mission.update({vehicle:car,jobVehicle:car,wanted:0,policeState:'clear'});
+    assert.equal(mission.getState().deliveryQuote.total,fee);
+    assert.ok(mission.interact('garage',{vehicle:car}).delivered);
+    assert.equal(completions[0].conditionPct,shown);
+    const restored=missionFixture(storage).mission;
+    assert.equal(restored.getState().money,1250+fee);
+    assert.equal(restored.getState().completedJobs,1);
+    assert.equal(restored.getState().lastLight.routeRecords.boulevard,shown);
+  }
 });

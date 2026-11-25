@@ -3,9 +3,12 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import * as THREE from 'three';
 import { createWeaponHandling, PISTOL } from '../../src/weapon-handling.js';
+import { advanceFootVelocity, WALK_SPEED, SPRINT_SPEED } from '../../src/foot-movement.js';
+import { createGamepadInput } from '../../src/gamepad.js';
 import { advanceGroundedPosition } from '../../src/character-grounding.js';
 import { createVehicleApproach } from '../../src/vehicle-approach.js';
 import { actor } from './character-animation-fixture.js';
+import { PIER_SCREEN_CENTER } from '../../src/pier-screening.js';
 import { createShotFrameScheduler } from '../../src/shot-frame-scheduler.js';
 export const RIGS=[{model:'CivilianMaleNatural.glb',motion:'civilian-male-motion.json',height:1.82},{model:'CivilianFemaleNatural.glb',motion:'pedestrian-motion.json',height:1.76}];
 const source=await readFile(new URL('../../src/main.js',import.meta.url),'utf8');
@@ -30,7 +33,8 @@ export async function combatHarness(rig=RIGS[0],{raised=true,distance=90,targetH
  const carMesh=new THREE.Group();carMesh.position.set(-1.6,0,0);
  const car={model:{mesh:carMesh,setDoor(){},getDriverSeat:p=>p.set(0,.5,0),getDoorPosition:p=>p.set(-1,0,0)},speed:0,heading:0,occupied:false};
  const world={heightAt:()=>0};
- const ctx={THREE,clamp,angleDiff,PISTOL,advanceGroundedPosition,createVehicleApproach,
+ const ctx={advanceFootVelocity,WALK_SPEED,SPRINT_SPEED,sprintExhausted:false,pad:createGamepadInput().poll([]),THREE,clamp,angleDiff,PISTOL,advanceGroundedPosition,createVehicleApproach,
+  cameraCue:null,conversationUntil:0,PIER_SCREEN_CENTER,
   handling,player,playerVelocity:new THREE.Vector3(),state:{ready:true,started:true,paused:false,mapOpen:false,health:100,ammo:12,reserve:96,stamina:100},
   weapon:true,aiming:raised,mouseDown:false,currentCar:null,interaction:null,reloading:false,reloadRemaining:0,elapsed:0,lastShot:-100,lastDryFire:-100,
   jumpVelocity:0,playerMoveSpeed:0,yaw:-Math.PI,pitch:0,doorTimer:0,keys:new Set(),world,
@@ -40,7 +44,7 @@ export async function combatHarness(rig=RIGS[0],{raised=true,distance=90,targetH
   photo:{active:false,enter(){this.active=true},exit(){this.active=false},change(){}},photoWasPaused:false,photoShadowState:[],photoActorVisibility:{enter(){},exit(){}},localSelfShadow:{release(){}},
   renderer:{shadowMap:{}},vehicles:[car],pedestrians:[],officers:[],contactActor:{mesh:new THREE.Group()}};
  vm.createContext(ctx);
- const names=['pause','setMap','enterPhoto','exitPhoto','action','reload','shoot','enterExit','anchor'];
+ const names=['watchingFilm','pause','setMap','enterPhoto','exitPhoto','action','reload','shoot','enterExit','anchor'];
  vm.runInContext(names.map(functionSource).join('\n')+'\n'+playerSource,ctx);
  const mouseStart=source.indexOf("canvas.addEventListener('mousedown',");
  const pointerEnd=source.indexOf("window.addEventListener('pointermove',",mouseStart);
