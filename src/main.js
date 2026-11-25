@@ -436,6 +436,7 @@ function orientDriver(actor,c,weight=1,uprightHeading=c.heading){
 }
 function groundActor(actor){const p=actor.mesh.position;p.y=world.heightAt(p.x,p.z);}
 function setActorShadow(actor,visible){const shadow=actor.mesh.getObjectByName('contact-shadow');if(shadow){shadow.visible=visible;if(visible&&!actor.contactShadow){const p=actor.mesh.position;shadow.position.y=world.heightAt(p.x,p.z)-p.y+.003;}}}
+function watchingFilm(){return watchingScreen&&conversationUntil>elapsed;}
 function contextAction(){
  if(interaction||job?.inspectionRemaining>0)return;
  const p=player.mesh.position,land=world.landmarks||{};
@@ -451,7 +452,7 @@ function contextAction(){
  const shiftAction=job.nightShiftAction?.(p,currentCar);
  if(shiftAction)return shiftAction;
  const screening=job.screeningAction?.(p,currentCar);
- if(screening)return screening;
+ if(screening)return watchingFilm()?null:screening;
  const radioAction=job.radioAction(p,currentCar);if(radioAction)return radioAction;
  if(ms.mission===5&&!ms.radioActive&&!ms.circuitActive&&!ms.nightShiftActive&&!currentCar&&near(land.contact,2.6))
   return {kind:'replay',title:'LAST LIGHT AT THE PALOMA',name:'Replay the delivery · practice run'};
@@ -703,7 +704,10 @@ function updatePlayer(dt){
  const pos=player.mesh.position,previous=pos.clone();
  moveBody(pos,playerVelocity.x*dt,0,.35);if(hitsVehicle(pos.x,pos.z))pos.x=previous.x;
  moveBody(pos,0,playerVelocity.z*dt,.35);if(hitsVehicle(pos.x,pos.z))pos.z=previous.z;
- if(playerVelocity.length()>.15||raised){
+ if(watchingFilm()&&!moveX&&!moveZ&&!raised){
+  const facing=Math.atan2(PIER_SCREEN_CENTER.x-pos.x,PIER_SCREEN_CENTER.z-pos.z);
+  player.mesh.rotation.y+=angleDiff(player.mesh.rotation.y,facing)*(1-Math.exp(-4*dt));
+ }else if(playerVelocity.length()>.15||raised){
   const target=raised?yaw+Math.PI:Math.atan2(playerVelocity.x,playerVelocity.z);
   const wantedTurn=angleDiff(player.mesh.rotation.y,target)*Math.min(1,dt*11);
   // Let the feet support a raised turn while camera and reticle intent stay free.
@@ -828,7 +832,7 @@ function updateCamera(dt){
  const ads=Boolean(aiming&&weapon&&!currentCar);
  const sprintView=currentCar||weapon||aiming||interaction?0:sprintFraming(playerMoveSpeed);
  const dist=currentCar?6.8+1.6*speedBlend:ads?2.4:4.2+.45*sprintView;
- const shoulder=currentCar?0:ads?.55:.45;
+ const shoulder = currentCar ? 0 : watchingFilm() ? .98 : ads ? .55 : .45;
  const pivot=base.clone().add(new THREE.Vector3(0,currentCar?1.25+.22*speedBlend:1.48,0));
  const vertical=clamp(pitch-handling.recoilPitch,-1.05,1.1),horizontal=yaw+handling.recoilYaw;
  const forward=new THREE.Vector3(-Math.sin(horizontal)*Math.cos(vertical),-Math.sin(vertical),-Math.cos(horizontal)*Math.cos(vertical));
@@ -896,7 +900,7 @@ function updateGame(dt){
     const muzzle=player.getMuzzlePosition(new THREE.Vector3());
     if(aimTarget.clone().sub(muzzle).dot(aimRay.ray.direction)<=0)aimRay.ray.at(aimRay.ray.origin.distanceTo(muzzle)+90,aimTarget);
    }
-   const lookTarget=state.subtitleSpeaker==='MARA'&&playerMoveSpeed<.2&&!weapon
+   const lookTarget=watchingFilm()?PIER_SCREEN_CENTER:state.subtitleSpeaker==='MARA'&&playerMoveSpeed<.2&&!weapon
     ?nearbyFaceTarget(player,contactActor,playerLookTarget):null;
    player.update(dt,{...playerPose,aimYaw,aimPitch:Math.asin(clamp(aimDirection.y,-1,1)),aimTarget,lookTarget});
    const shotSpread=handling.spread(aiming,playerMoveSpeed);
