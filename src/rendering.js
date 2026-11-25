@@ -53,6 +53,9 @@ export function createRendering(renderer, scene, camera, software) {
       vec3 glow(vec2 offset){vec3 c=texture2D(image,clamp(vUv+offset,vec2(0.),vec2(1.))).rgb;return c*max(0.,sceneLuminance(c)-1.5)/(sceneLuminance(c)+.001);}
       void main(){
         vec3 c=ApplyFXAA(image,pixel,vUv).rgb;
+        // A subsampled image will be filtered again when the canvas is displayed.
+        // Retain some center detail without exposing the hard steps on road markings.
+        if(cinematicEffects<.5)c=mix(texture2D(image,vUv).rgb,c,.55);
         // Optional photographic depth of field. Reject foreground samples when
         // blurring a background pixel so silhouettes do not acquire bright halos.
         if(aperture>.001){

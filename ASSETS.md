@@ -213,3 +213,7 @@ These Aurora assets are original repository work and introduce no third-party at
 ## Title presentation and Pacific Wheel
 
 The coastal title illustration is stored in `public/art/coastal-job.webp`. The game serves Barlow Condensed and DM Sans locally. Their SIL Open Font License notices ship alongside the font files in `public/fonts/`. The pier, wheel and gondolas are original procedural geometry in `src/pacific-wheel.js`.
+
+## Vespucci storefront art
+
+The Calypso Surf Club mural in `public/art/world/calypso-surf.webp` was generated for the game with OpenAI ImageGen. The street lettering, travel posters, awnings, sign structures, diner cup, and surfboards are drawn or modeled in `src/vespucci-frontage.js`.

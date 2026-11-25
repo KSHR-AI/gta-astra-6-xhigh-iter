@@ -20,9 +20,8 @@ for (const fail of [false, true]) test(`static recovery capture preserves actor 
   const scene = new THREE.Scene(), sun = new THREE.DirectionalLight();
   const actors = [true, false].map(visible => { const mesh = new THREE.Group(); mesh.visible = visible; return { mesh }; });
   const vehicles = [true, false].map(visible => { const mesh = new THREE.Group(); mesh.visible = visible; return { model: { mesh } }; });
-  const effects = [{ mesh: new THREE.Group() }], marker = new THREE.Group(); marker.visible = false;
-  const circuitGate = new THREE.Group();
-  const roots = [...actors.map(actor => actor.mesh), ...vehicles.map(car => car.model.mesh), effects[0].mesh, marker, circuitGate];
+  const effects = [{ mesh: new THREE.Group() }], navigationMarkers = new THREE.Group();
+  const roots = [...actors.map(actor => actor.mesh), ...vehicles.map(car => car.model.mesh), effects[0].mesh, navigationMarkers];
   const visibility = roots.map(root => root.visible);
   scene.background = { name: 'night sky' }; scene.environment = { name: 'night map' };
   scene.environmentRotation.set(.1, .2, .3); sun.position.set(80, 30, -90); sun.target.position.set(40, 0, -70);
@@ -48,7 +47,7 @@ for (const fail of [false, true]) test(`static recovery capture preserves actor 
         if (fail) throw new Error('capture failed');
       }
     },
-  }, scene, sun, sunOffset: new THREE.Vector3(3, 4, 5), renderer, vehicles, effects, marker, circuitGate,
+  }, scene, sun, sunOffset: new THREE.Vector3(3, 4, 5), renderer, vehicles, effects, navigationMarkers,
   night: true, photoShadowActors: () => actors,
   world: { restoreInstances() { restoreCalls++; } },
   setTime(value) { context.night = value; renderer.toneMappingExposure = 1; scene.background = {}; scene.environment = {}; },
@@ -70,7 +69,7 @@ test('actual frame gate freezes simulation while unavailable and charges no rebu
   const effectShaderWarmup = createEffectShaderWarmup({ renderer: { getContext: () => ({ isContextLost: () => false }) },
     prepare: () => { clock += 400; warmCalls++; return true; } });
   const context = { environmentLighting, effectShaderWarmup, lastEnvironmentBuild: 0, environmentError: null, lastFrame: 10,
-    renderFrame: 0, frameCount: 0, fpsTimer: 0, state: { started: true, paused: false, mapOpen: false },
+    pollController() {}, renderFrame: 0, frameCount: 0, fpsTimer: 0, state: { started: true, paused: false, mapOpen: false },
     performance: { now: () => clock }, requestAnimationFrame: callback => scheduled.push(callback),
     ui: { toast() { assert.fail('no failure UI during ordinary context loss'); } },
     updateGame: dt => updates.push(dt), updatePresentation() {}, keys: new Set(), camera: {}, drawingSize: {}, night: false,

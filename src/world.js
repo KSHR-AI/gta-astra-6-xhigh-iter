@@ -4,6 +4,7 @@ import { addAuthoredDistrict } from './world-district.js';
 import { addStreetDetails } from './world-streets.js';
 import { createPalmAssets } from './world-palms.js';
 import { createShrubBuilder } from './world-shrubs.js';
+import { addVespucciFrontage } from './vespucci-frontage.js';
 import { createPacificWheel } from './pacific-wheel.js';
 import { createOcean } from './world-ocean.js';
 import { createCityProps } from './world-props.js';
@@ -144,13 +145,37 @@ export function createWorld(scene) {
   // End the land at the beach; a flat slab under the waves would cut through
   // their troughs and expose large triangular patches of sand offshore.
   walkableBox(materials.sand, -5, -0.24, -25, 290, 0.35, 1200, 0, false, 'sand');
-  walkableBox(materials.sidewalk, 51, -0.10, -25, 324, 0.25, 540, 0, false, 'base-paving');
   const roads = [
     { x: 0, z: -20, width: 22, length: 440, axis: 'z' },
     { x: 80, z: -20, width: 20, length: 440, axis: 'z' },
     ...[-90, 0, 90].map(z => ({ x: 37, z, width: 20, length: 290, axis: 'x' })),
   ];
-  for (const road of roads) walkableBox(materials.asphalt, road.x, 0.012, road.z, road.axis === 'x' ? road.length : road.width, 0.045, road.axis === 'x' ? road.width : road.length, 0, false, 'road');
+  // Pave the district in disjoint strips. A full concrete plate underneath
+  // asphalt was only 9.5 mm below it; grazing views could resolve its slab grid.
+  const bounds = { left: -111, right: 213, near: -295, far: 245 };
+  const roadRects = roads.map(road => {
+    const halfX = (road.axis === 'x' ? road.length : road.width) / 2;
+    const halfZ = (road.axis === 'z' ? road.length : road.width) / 2;
+    return { left: road.x - halfX, right: road.x + halfX, near: road.z - halfZ, far: road.z + halfZ };
+  });
+  const zEdges = [...new Set([bounds.near, bounds.far, ...roadRects.flatMap(r => [r.near, r.far])])].sort((a, b) => a - b);
+  function paveStrip(left, right, near, far, road) {
+    if (right <= left) return;
+    walkableBox(road ? materials.asphalt : materials.sidewalk, (left + right) / 2,
+      road ? .012 : -.1, (near + far) / 2, right - left, road ? .045 : .25, far - near,
+      0, false, road ? 'road' : 'base-paving');
+  }
+  for (let i = 1; i < zEdges.length; i++) {
+    const near = zEdges[i - 1], far = zEdges[i];
+    const strips = roadRects.filter(r => r.near < far && r.far > near).sort((a, b) => a.left - b.left);
+    let cursor = bounds.left;
+    for (const strip of strips) {
+      paveStrip(cursor, strip.left, near, far, false);
+      paveStrip(Math.max(cursor, strip.left), strip.right, near, far, true);
+      cursor = Math.max(cursor, strip.right);
+    }
+    paveStrip(cursor, bounds.right, near, far, false);
+  }
   const intersections = [-90, 0, 90];
   const nearCross = (z, margin = 15) => intersections.some(c => Math.abs(z - c) < margin);
   const segments = [[-240, -100], [-80, -10], [10, 80], [100, 200]];
@@ -162,7 +187,9 @@ export function createWorld(scene) {
       for (const [a, b] of pavement) {
         walkableBox(materials.sidewalk, x, 0.10, (a + b) / 2, 5.7, 0.24, b - a, 0, false, 'sidewalk');
         walkableBox(materials.curb, curbX, 0.18, (a + b) / 2, 0.24, 0.32, b - a, 0, false, 'curb');
-        for (let z = a + 3; z < b; z += 4) box(materials.concrete, x, 0.225, z, 5.5, 0.01, 0.025, 0, false);
+        // The poured gutter slopes below the curb lip and sits flush at the road.
+        const gutterX = curbX + Math.sign(curbX - x) * .38;
+        box(materials.concrete, gutterX, .045, (a + b) / 2, .54, .016, b - a, 0, false);
       }
     }
     for (const x of [-0.15, 0.15, 79.85, 80.15]) box(materials.yellow, x, 0.039, (start + end) / 2, 0.1, 0.012, end - start, 0, false);
@@ -195,6 +222,37 @@ export function createWorld(scene) {
     box(materials.paint, x - 0.35, 0.055, z + dir * 0.9, 0.16, 0.014, 1, dir * 0.78, false);
     box(materials.paint, x + 0.35, 0.055, z + dir * 0.9, 0.16, 0.014, 1, -dir * 0.78, false);
   }
+  // Advance pavement warnings flank the two busiest coastal crossings.
+  // The chipped stencil stays on the road plane and follows each lane's travel direction.
+  const pedestrianMark = canvasTexture(256, 512, (ctx) => {
+    ctx.fillStyle = '#d6d1b8';
+    ctx.font = '900 80px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.save();
+    ctx.scale(1, 2.3);
+    ctx.fillText('XING', 128, 59, 219);
+    ctx.fillText('PED', 128, 165, 215);
+    ctx.restore();
+    let seed = 803;
+    const noise = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+    for (let chip = 0; chip < 3000; chip++) {
+      ctx.clearRect(noise() * 256, noise() * 512, 1 + noise() * 2, 1 + noise() * 5);
+    }
+  });
+  const crossingStencil = new THREE.MeshStandardMaterial({
+    map: pedestrianMark, transparent: true, opacity: .79, depthWrite: false, roughness: .97,
+    polygonOffset: true, polygonOffsetFactor: -1,
+  });
+  for (const crossing of [0, 90]) {
+    for (const side of [-1, 1]) {
+      instance(panelGeometry, crossingStencil, [side * 3.35, .043, crossing + side * 25],
+        [2.6, 5.5, 1], [-Math.PI / 2, 0, side > 0 ? 0 : Math.PI], false);
+    }
+  }
   for (let z = -210; z < 190; z += 39) {
     // A recessed seat and bevelled frame meet the .0345 m road surface.
     // Cast tread, lifting pockets and lettering use the original PBR atlas.
@@ -206,6 +264,11 @@ export function createWorld(scene) {
   // asphalt sit on the actual drivable road instead of adding collision bumps.
   for (const [x, z, w, d, rotation] of [[7.6, 28, 2.7, 7, .04], [-7, -31, 3.4, 4.2, -.07], [4.3, -65, 3, 6.2, 0], [-4, 65, 2.5, 9, .04]]) {
     box(materials.patch, x, .037, z, w, .006, d, rotation, false);
+  }
+  for (const [x, z, length, angle] of [[1.3, 19, 8.7, .85], [-6.2, 34, 5.8, -.2],
+    [8.5, 62, 6.4, 1.1], [3.7, -38, 7.4, -.35], [76, 19, 9.4, 1.3]]) {
+    instance(panelGeometry, materials.sealedJoint, [x, .038, z], [3.4, length, 1],
+      [-Math.PI / 2, 0, angle], false);
   }
   for (let i = 0; i < 29; i++) {
     const x = i % 2 ? 8.4 : -8.4;
@@ -499,6 +562,7 @@ export function createWorld(scene) {
   const districtAPI = { box, walkableBox, panel, cylinder, line, instance, materials, canvasTexture,
     root, colliders, panelGeometry, random, range, sign, palm, shrub };
   const district = addAuthoredDistrict(districtAPI);
+  const frontageReady = addVespucciFrontage(districtAPI);
   const streetDetails = addStreetDetails(districtAPI);
 
   function streetLamp(x, z, inward) {
@@ -647,7 +711,7 @@ export function createWorld(scene) {
       yaw: towelYaw + i * .37, canvasColor: parasolCanvas[(i / 3) % parasolCanvas.length] });
   }
   const beachParasols = createBeachParasols(root, parasolPlacements);
-  const ready = Promise.all([materialReady, beachReady, cityProps.ready, beachParasols.ready]);
+  const ready = Promise.all([materialReady, beachReady, cityProps.ready, beachParasols.ready, frontageReady]);
   const ocean = createOcean();
   // The shore steps meet the raised pier entrance at the district boundary.
   for (let step = 0; step < 12; step++) {

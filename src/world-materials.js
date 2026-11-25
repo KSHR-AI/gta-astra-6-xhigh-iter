@@ -24,7 +24,7 @@ export function applyCityMaterials(materials, canvasTexture, random) {
     sets[name] = { map: load(`${source}-color`, true), normalMap: load(`${source}-normal`), roughnessMap: load(`${source}-rough`) };
   }
 
-  function worldMapping(material, meters, weather = false, road = false) {
+  function worldMapping(material, meters, weather = false, road = false, pavement = false) {
     material.onBeforeCompile = shader => {
       shader.vertexShader = 'varying vec3 vCitySurface;\n' + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', `
@@ -74,11 +74,28 @@ export function applyCityMaterials(materials, canvasTexture, random) {
           float cityLane = min(abs(cityAcross - 2.65), abs(cityAcross - 7.85));
           float cityWheelWear = (1. - smoothstep(.18, .65, abs(cityLane - .82))) * cityJunction;
           cityWheelWear *= .6 + .4 * cityWeather(vec2(cityAcross * .7, cityAlong * .04));
-          diffuseColor.rgb *= 1. - .045 * cityWheelWear;
+          diffuseColor.rgb *= 1. - .12 * cityWheelWear;
+          // Dust collects in the gutter while traffic cleans the wheel paths.
+          float shoulder = smoothstep(8.5, 10.65, cityAcross) * cityJunction;
+          diffuseColor.rgb += vec3(.019, .014, .008) * shoulder;
         `);
         shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
           #include <roughnessmap_fragment>
           roughnessFactor *= 1. - .055 * cityWheelWear;
+        `);
+      } else if (pavement) {
+        shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+          #include <map_fragment>
+          // Cast panels retain metre-scale joints as each instance changes size.
+          vec2 slab = vCitySurface.xz / vec2(2.8, 2.9);
+          vec2 edge = (.5 - abs(fract(slab) - .5)) * vec2(2.8, 2.9);
+          float distanceToJoint = min(edge.x, edge.y);
+          float aa = max(.004, fwidth(distanceToJoint));
+          float joint = 1. - smoothstep(.009, .009 + aa, distanceToJoint);
+          float closeView = 1. - smoothstep(.025, .15, aa);
+          float slabTone = .90 + .18 * cityHash(floor(slab));
+          diffuseColor.rgb *= slabTone * (.92 + .16 * cityWeather(vCitySurface.xz * .22));
+          diffuseColor.rgb *= 1. - joint * closeView * .48;
         `);
       } else if (weather) shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
         #include <map_fragment>
@@ -93,7 +110,7 @@ export function applyCityMaterials(materials, canvasTexture, random) {
         diffuseColor.rgb *= .87 + .19 * cityWeather(vCitySurface.xz*.13);
       `);
     };
-    material.customProgramCacheKey = () => `city-world-${meters}-${weather}-${road}`;
+    material.customProgramCacheKey = () => `city-world-${meters}-${weather}-${road}-${pavement}`;
     material.needsUpdate = true;
   }
   for (const key of ['limestone', 'white', 'pale', 'blush', 'peach', 'sage']) {
@@ -106,19 +123,19 @@ export function applyCityMaterials(materials, canvasTexture, random) {
     Object.assign(materials[key], sets.concrete);
     materials[key].normalScale = new THREE.Vector2(.32, .32);
     materials[key].roughness = .95;
-    worldMapping(materials[key], key === 'sidewalk' ? 2.8 : 3.6, key !== 'sidewalk');
+    worldMapping(materials[key], key === 'sidewalk' ? 2.8 : 3.6, key !== 'sidewalk', false, key === 'sidewalk');
   }
   materials.brick = new THREE.MeshStandardMaterial({ color: '#a38d77', ...sets.brick, normalScale: new THREE.Vector2(.55, .55), roughness: .96 });
   worldMapping(materials.brick, 1.8, true);
   Object.assign(materials.asphalt, sets.asphalt);
-  materials.asphalt.color.set('#c9cbc7');
+  materials.asphalt.color.set('#dcdbd1');
   materials.asphalt.bumpMap = null;
   materials.asphalt.normalScale = new THREE.Vector2(.28, .28);
   materials.asphalt.roughness = 1;
   materials.asphalt.envMapIntensity = .35;
   worldMapping(materials.asphalt, 2.4, false, true);
   materials.patch = materials.asphalt.clone();
-  materials.patch.color.set('#868b88');
+  materials.patch.color.set('#b8b8ae');
   worldMapping(materials.patch, 2.4, false, true);
 
   Object.assign(materials.iron, sets.manhole);
@@ -221,6 +238,31 @@ export function applyCityMaterials(materials, canvasTexture, random) {
     }
   });
   materials.stain = new THREE.MeshStandardMaterial({ map: stain, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1 });
+  // Poured bitumen follows the broken joint and feathers out into hairline branches.
+  const sealedJoint = canvasTexture(384, 768, ctx => {
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const fracture = (points, width) => {
+      ctx.beginPath();
+      points.forEach(([x, y], index) => index ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+      ctx.strokeStyle = 'rgba(78,75,65,.56)';
+      ctx.lineWidth = width + 2;
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(31,32,31,.87)';
+      ctx.lineWidth = width;
+      ctx.stroke();
+    };
+    fracture([[180,3],[173,61],[190,109],[174,155],[194,213],[192,261],[211,293],
+      [193,342],[156,377],[163,410],[149,458],[176,483],[164,529],[180,578],
+      [157,625],[164,658],[131,706],[139,764]], 4.8);
+    fracture([[193,342],[219,351],[242,372],[281,379],[295,394],[333,401]], 2.4);
+    fracture([[164,529],[142,535],[134,553],[111,560],[102,578],[68,594]], 1.9);
+    fracture([[190,109],[213,103],[233,109],[249,92]], 1.3);
+  });
+  materials.sealedJoint = new THREE.MeshStandardMaterial({
+    map: sealedJoint, transparent: true, depthWrite: false, roughness: .76,
+    polygonOffset: true, polygonOffsetFactor: -1,
+  });
   const tyre = canvasTexture(256, 512, ctx => {
     ctx.clearRect(0, 0, 256, 512);
     for (const x of [45, 178]) for (let y = 0; y < 512; y += 3) {

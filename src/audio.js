@@ -519,6 +519,16 @@ export function createAudio() {
     play({ frequency: 660, volume: 0.035, duration: 0.18, attack: 0.015 });
     play({ frequency: 880, volume: 0.03, duration: 0.28, delay: 0.12, attack: 0.015, echo: 0.12 });
   }
+  function recordingCue(site) {
+    if (site === 'boulevard') {
+      play({ type: 'triangle', frequency: 135, endFrequency: 58, duration: .8, volume: .06, cutoff: 900, pan: -.4 });
+      play({ noise: true, volume: .055, duration: .9, cutoff: 1450, highpass: 180, attack: .13, pan: .35 });
+    } else {
+      play({ noise: true, volume: .04, duration: .45, cutoff: 2100, highpass: 500, attack: .1 });
+      play({ type: 'sine', frequency: 1800, endFrequency: 2450, volume: .018, duration: .11, delay: .15 });
+      play({ type: 'sine', frequency: 2100, endFrequency: 1600, volume: .017, duration: .13, delay: .34 });
+    }
+  }
   function mission() {
     for (const [i, note] of [440, 554.365, 659.255, 880].entries())
       play({ type: 'sine', frequency: note, volume: 0.04, duration: 0.55, delay: i * 0.11, attack: 0.015, echo: 0.25 });
@@ -541,5 +551,5 @@ export function createAudio() {
   }
 
   return { start, setEnabled, update, shoot, reload, cancelReload, dryFire, impact,
-    horn, crash, notify, door, mission, interact, dispose };
+    horn, crash, notify, door, mission, recordingCue, interact, dispose };
 }

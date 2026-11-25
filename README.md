@@ -1,6 +1,6 @@
 # Grand Theft Astra
 
-A single-player browser action game built with Three.js. Explore Los Pacificos, a compact coastal district, play **The Coastal Job**, steal and drive cars, and escape a police search. This is an original playable prototype inspired by open-world crime games, with a small authored neighborhood and one mission chain.
+A single-player browser action game built with Three.js. Explore Los Pacificos, a compact coastal district, play **The Coastal Job**, steal and drive cars, and escape a police search. This is an original playable prototype inspired by open-world crime games, with a story mission, a field-recording commission, a street circuit, and a postcard hunt.
 
 [Play Grand Theft Astra on GitHub Pages](https://kshr-ai.github.io/gta-astra-6-xhigh-iter/)
 
@@ -33,11 +33,15 @@ The GitHub Pages project build uses `npm run build:pages`. The repository publis
 4. Drive into Mara’s workshop, stop, and press **E** to deliver the car for **$1,500**.
 5. Visit the **Paloma Motor Lodge** courtyard to claim your safehouse, rest, and save.
 
-Claiming the safehouse unlocks the **Pacific Circuit**. Stop a working car on the boulevard outside the Paloma and press **E** to start. Follow five gates, finish within 90 seconds, and try to beat your saved personal best. Payouts range from **$300 to $750**.
+Before meeting Mara, enter the cream courtesy sedan beside the checkered flag outside the Paloma and press **E** to race the **Pacific Circuit**. After claiming the safehouse, you can bring your own car to the line. Launch on green, follow five gates, and use the sector times to beat your saved personal best within 90 seconds. Payouts range from **$300 to $750**.
 
 After the delivery, continue exploring. Mara sells **36 pistol rounds for $150**, subject to the 192-round reserve limit. The workshop repairs a damaged vehicle for **$100** after the job. Resting at the Paloma restores health and stamina and replenishes the reserve to at least 96 rounds. A wrecked mission car resets the attempt so the job can be retried.
 
 Progress uses the current browser’s `localStorage`, under `grand-theft-astra:coastal-job:v1`. Saves retain the mission checkpoint, money, and completed-job count. Returning during an escape or delivery restores the pre-theft checkpoint with a fresh mission car; it does not serialize the live traffic, police, or every vehicle’s position. The title menu offers Continue when a save exists. **Start a fresh session** clears this progress. If browser storage is unavailable, play continues without persistent saves. Saves are local to this browser and site origin, with no account or cloud synchronization.
+
+## Room Tone
+
+Look for the teal recorder marker beside the Paloma office. Borrow Vale’s recorder, choose the courtyard ($350) or the boulevard ($650), then cut the take in the indicated window and return it to the desk. A missed cue lets you try either location again.
 
 ## Coast postcards
 
@@ -61,6 +65,12 @@ Press **P** during free roam to open Photo mode. Follow the album clue, frame th
 | M | City map |
 | P | Enter / leave photo mode |
 | Escape | Pause / settings; leave photo mode |
+
+On the city map, click or tap a street to place a personal waypoint. Keyboard players can focus the map, move the cursor with the arrow keys, and press Enter to set it. Purple turn cues lead to the pin. Reaching or clearing it restores the mission route.
+
+On touchscreens, steer with your left thumb and use the gas, brake, or handbrake with your right. The pause menu lets you retry your mission checkpoint.
+
+Standard-mapped gamepads support exploration and driving. Press **A / Cross** or **Menu / Options** to begin. Move or steer with the **left stick**, look with the **right stick**, and hold **L3** to sprint. **A / Cross** jumps on foot and holds the handbrake while driving. **Y / Triangle** interacts, enters, or exits. **RT / R2** accelerates and **LT / L2** brakes, then reverses. **View / Share** toggles the map and **Menu / Options** toggles pause.
 
 Touch controls provide movement, run/jump, contextual Use, separate hold-to-aim and fire buttons, reload, and equip. Dragging the scene looks around without firing. The pistol fires once per press; an equipped weapon rests low until aiming or firing. The contextual prompt itself can also be tapped. Settings include sound, Cinematic/Performance rendering, golden hour/night, and session restart.
 

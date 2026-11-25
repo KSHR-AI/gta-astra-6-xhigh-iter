@@ -891,3 +891,72 @@ h1.title-lockup > .title-astra { font-size: clamp(112px, min(16vw, 22vh), 240px)
 .welcome-menu .welcome-settings > .button-arrow { margin-right: 0; }
 
 .photo-postcards { color: #eadac1; font-size: 12px; line-height: 1.4; margin-top: 8px; }
+
+.circuit-signal { position: absolute; top: 28%; left: 50%; transform: translateX(-50%); color: #fff1cd; font: 800 clamp(52px,8vw,100px)/1 'Barlow Condensed',Impact,sans-serif; font-variant-numeric: tabular-nums; text-shadow: 0 2px 3px #112936,0 4px 18px #112936; }
+.circuit-signal.is-go { color: #55ffcb; }
+
+/* Steer and work the pedals with separate thumbs. */
+.mobile-actions .drive-only { display: none; }
+@media (pointer: coarse) {
+  .is-driving .mobile-dpad {
+    grid-template: 52px / repeat(2, 52px);
+    gap: 6px;
+  }
+  .is-driving .mobile-dpad .up, .is-driving .mobile-dpad .down,
+  .is-driving .mobile-actions :is(.touch-utility, .touch-fire, .touch-aim, [data-code="ShiftLeft"]) {
+    display: none;
+  }
+  .is-driving .mobile-dpad .left { grid-area: 1 / 1; }
+  .is-driving .mobile-dpad .right { grid-area: 1 / 2; }
+  .is-driving .mobile-actions {
+    grid-template: 44px 52px / repeat(3, 52px);
+    gap: 6px;
+  }
+  .is-driving .mobile-controls .touch-key { width: 100%; height: 100%; }
+  .is-driving .mobile-actions .drive-only { display: flex; }
+  .is-driving .mobile-actions .drive-horn { grid-area: 1 / 1; }
+  .is-driving .mobile-actions .touch-interact { grid-area: 1 / 3; }
+  .is-driving .mobile-actions .touch-key[data-code="Space"] { grid-area: 1 / 2; font-size: 8px; }
+  .is-driving .mobile-actions .touch-key[data-code="Space"]::after { content: none; }
+  .is-driving .mobile-actions .drive-brake { grid-area: 2 / 1; }
+  .is-driving .mobile-actions .drive-gas {
+    grid-area: 2 / 2 / 3 / 4;
+    border-color: #ebc792a8;
+    background: #503b29d9;
+    font-size: 12px;
+  }
+  .is-driving .mobile-actions .drive-gas.is-held { background: #967247; }
+}
+
+.field-recorder {
+  position: absolute;
+  top: 17%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(200px, 50vw);
+  padding: 12px 15px;
+  background: #132321ed;
+  border: 1px solid #a8b6a85c;
+  color: #f0eadc;
+  font: 700 11px/1.2 system-ui, sans-serif;
+  letter-spacing: .1em;
+}
+.field-recorder[hidden] { display: none; }
+.field-recorder span { color: #ff9282; }
+.field-recorder strong { float: right; }
+.tape-track { position: relative; height: 9px; margin-top: 8px; background: #58635e; }
+.tape-track i { position: absolute; inset: 0 0 0 var(--window); background: #75bdae; }
+.tape-track b { position: absolute; top: -2px; bottom: -2px; left: var(--head); width: 2px; background: #fff5d5; }
+
+.city-map-dialog { overflow-y:auto; }
+.city-map-surface canvas { cursor:crosshair; }
+.city-map-surface canvas:focus-visible { outline:2px solid #c799ff; outline-offset:-3px; }
+.map-compass { pointer-events:none; }
+.map-legend .legend-waypoint { border-radius:0; transform:rotate(45deg); background:#c799ff; }
+.waypoint-tools { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:14px; }
+#waypoint-status { font-size:12px; color:#e5d0ff; }
+#waypoint-help { margin:4px 0 0; font-size:11px; line-height:1.4; color:#c4cebc; }
+#clear-waypoint { white-space:nowrap; border:1px solid #c799ff66; background:transparent; color:#e5d0ff; padding:9px 12px; border-radius:3px; font-size:11px; }
+#clear-waypoint:disabled { opacity:.45; }
+.city-map-dialog { scrollbar-width:thin; scrollbar-color:#637064 #1a2622; }
+.city-map-surface { height:clamp(140px, min(46vh, calc(90dvh - 325px)), 470px); }

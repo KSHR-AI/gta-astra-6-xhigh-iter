@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import * as THREE from 'three';
 import { createWeaponHandling, PISTOL } from '../../src/weapon-handling.js';
+import { advanceFootVelocity, WALK_SPEED, SPRINT_SPEED } from '../../src/foot-movement.js';
+import { createGamepadInput } from '../../src/gamepad.js';
 import { advanceGroundedPosition } from '../../src/character-grounding.js';
 import { createVehicleApproach } from '../../src/vehicle-approach.js';
 import { actor } from './character-animation-fixture.js';
@@ -30,7 +32,7 @@ export async function combatHarness(rig=RIGS[0],{raised=true,distance=90,targetH
  const carMesh=new THREE.Group();carMesh.position.set(-1.6,0,0);
  const car={model:{mesh:carMesh,setDoor(){},getDriverSeat:p=>p.set(0,.5,0),getDoorPosition:p=>p.set(-1,0,0)},speed:0,heading:0,occupied:false};
  const world={heightAt:()=>0};
- const ctx={THREE,clamp,angleDiff,PISTOL,advanceGroundedPosition,createVehicleApproach,
+ const ctx={advanceFootVelocity,WALK_SPEED,SPRINT_SPEED,sprintExhausted:false,pad:createGamepadInput().poll([]),THREE,clamp,angleDiff,PISTOL,advanceGroundedPosition,createVehicleApproach,
   handling,player,playerVelocity:new THREE.Vector3(),state:{ready:true,started:true,paused:false,mapOpen:false,health:100,ammo:12,reserve:96,stamina:100},
   weapon:true,aiming:raised,mouseDown:false,currentCar:null,interaction:null,reloading:false,reloadRemaining:0,elapsed:0,lastShot:-100,lastDryFire:-100,
   jumpVelocity:0,playerMoveSpeed:0,yaw:-Math.PI,pitch:0,doorTimer:0,keys:new Set(),world,

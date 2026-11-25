@@ -1,3 +1,4 @@
+import { applyHeroWorkshirt } from './hero-workshirt.js';
 import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -407,7 +408,7 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
   const skinTint = new THREE.Color(...skinTones[npc ? Math.floor(variant / 2) % skinTones.length : 0]);
   const hairTint = new THREE.Color(...hairTones[npc ? Math.floor(variant / 2) % hairTones.length : 0]);
   const wardrobeColors = [0x6d6757, 0x375c66, 0x824b49, 0x46594b, 0x74627a, 0x858074];
-  color ??= npc ? wardrobeColors[Math.floor(variant / 2) % wardrobeColors.length] : 0x495761;
+  color ??= npc ? wardrobeColors[Math.floor(variant / 2) % wardrobeColors.length] : 0x256c69;
   mesh.name = police ? 'Police officer' : npc ? 'Pedestrian' : 'Astra';
   mesh.userData.characterAsset = natural ? `MakeHuman CC0 ${male ? 'male' : 'female'} / ${male ? 'CivilianMaleNatural.glb' : 'CivilianFemaleNatural.glb'}` : male ? 'EmoPreben Bald Man / CivilianMale.glb' : civilian ? (npc && crowdAsset ? 'Mixamo Michelle / Michelle-crowd.glb' : 'Mixamo Michelle / Michelle.glb') : 'Mixamo Vanguard / Soldier.glb';
   const visual = new THREE.Group();
@@ -433,6 +434,7 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
     object.frustumCulled = false;
     const recolor = (original) => {
       const material = prepareCharacterMaterial(original, { civilian, male, natural, skinTint, hairTint, npc, color, police });
+      if (!npc && !police && male && natural && original.userData.clothingAuthored) applyHeroWorkshirt(material);
       materials.push(material);
       return material;
     };

@@ -167,3 +167,14 @@ test('Car avoidance remains traversable with 30 ms simulation steps', () => {
   }
   assert.ok(person.actor.mesh.position.z > 5);
 });
+
+test('oncoming traffic passes in separate right-hand lanes', () => {
+  const south = carAt(-4, -45, { traffic: true });
+  const north = carAt(2, -25, { traffic: true, innerLoop: true, heading: Math.PI });
+  const city = street({ cars: [south, north] });
+  for (let i = 0; i < 180; i++) city.tick();
+  assert.ok(south.model.mesh.position.z > north.model.mesh.position.z);
+  assert.ok(Math.abs(south.model.mesh.position.x + 4) < .01);
+  assert.ok(Math.abs(north.model.mesh.position.x - 2) < .01);
+  assert.ok(south.speed > 7 && north.speed > 7);
+});

@@ -6,6 +6,9 @@ const clamp = THREE.MathUtils.clamp;
 const turn = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 const distance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const crossroads = [-90, 0, 90];
+// Each circuit stays on the right side of both boulevards and both crossings.
+const outerTrafficLoop = [[-4, 94], [84, 94], [84, -94], [-4, -94]];
+const innerTrafficLoop = [[2, -86], [76, -86], [76, 86], [2, 86]];
 const advanceActor = (actor, dt, options) => {
   if (typeof actor.advance === 'function') actor.advance(dt, options);
   else actor.update(dt, options);
@@ -103,7 +106,6 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
   }
 
   function updateTraffic(dt, time, currentCar, playerPosition) {
-    const loop = [[-4, 82], [-4, -86], [84, -86], [84, 86]];
     const people = pedestrians.filter(person => !person.down).map(person => ({ position: person.actor.mesh.position, velocity: person.velocity }));
     if (!currentCar) people.push({ position: playerPosition });
     for (const car of vehicles) {
@@ -111,8 +113,9 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
       if (car === currentCar || car.police) continue;
       if (car.traffic && car.health > 0) {
         const p = car.model.mesh.position;
-        let [tx, tz] = loop[car.routeIndex % 4];
-        if (Math.hypot(tx - p.x, tz - p.z) < 8) { car.routeIndex = (car.routeIndex + 1) % 4; [tx, tz] = loop[car.routeIndex]; }
+        const loop = car.innerLoop ? innerTrafficLoop : outerTrafficLoop;
+        let [tx, tz] = loop[car.routeIndex % loop.length];
+        if (Math.hypot(tx - p.x, tz - p.z) < 8) { car.routeIndex = (car.routeIndex + 1) % loop.length; [tx, tz] = loop[car.routeIndex]; }
         const direction = Math.atan2(tx - p.x, tz - p.z);
         const angle = turn(car.heading, direction);
         const headingBefore = car.heading;

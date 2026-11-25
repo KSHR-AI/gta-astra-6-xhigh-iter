@@ -379,7 +379,7 @@ test('An officer who has not deployed cannot reveal the player from a hidden mes
   assert.equal(tick(18.3).policeState, 'clear');
 });
 
-test('Pacific Circuit accepts only completed-story drivers, pays once and preserves the best lap', () => {
+test('Pacific Circuit accepts free-roam drivers, pays once and preserves the best lap', () => {
   const storage = memoryStorage({ version: 1, stage: 5, money: 2750, completedJobs: 1 });
   const { mission, completions } = missionFixture(storage);
   const vehicle = carAt(-5, 28);
@@ -391,6 +391,17 @@ test('Pacific Circuit accepts only completed-story drivers, pays once and preser
   assert.deepEqual(start(), {});
   for (const secondsPerGate of [8, 12]) {
     if (!mission.getState().circuitActive) start();
+    const firstGate = mission.getState().target;
+    vehicle.model.mesh.position.set(firstGate.x, 0, firstGate.z);
+    assert.equal(mission.getState().circuitSignal, '3');
+    for (const signal of ['2', '1']) {
+      update(1);
+      assert.equal(mission.getState().circuitSignal, signal);
+      assert.equal(mission.getState().missionProgress, 0);
+    }
+    vehicle.model.mesh.position.set(-5, 0, 28);
+    update(1);
+    assert.equal(mission.getState().circuitSignal, 'GO');
     for (let gate = 0; gate < 5; gate++) {
       const { target, missionProgress } = mission.getState();
       assert.equal(missionProgress, gate / 5);
@@ -407,14 +418,88 @@ test('Pacific Circuit accepts only completed-story drivers, pays once and preser
   assert.equal(mission.getState().circuitBest, null);
 });
 
+test('the courtesy race returns a fresh player to Mara after interruption, finish and reload', () => {
+  const { mission, storage, landmarks } = missionFixture();
+  const vehicle = carAt(-8, 28, { circuitLoaner: true });
+  const desk = point(-16, 20);
+  const start = () => mission.interact('circuit', { vehicle });
+  assert.equal(start().startedCircuit, true);
+  assert.deepEqual(mission.interact('radio-start', { position: desk }), {});
+  assert.deepEqual(mission.interact('contact'), {});
+  mission.update({ dt: 1, vehicle: null });
+  assert.deepEqual(mission.getState().target, landmarks.contact);
+  assert.equal(mission.getState().money, 1250);
+  assert.equal(start().startedCircuit, true);
+  for (let gate = 0; gate < 5; gate++) {
+    const target = mission.getState().target;
+    vehicle.model.mesh.position.set(target.x, 0, target.z);
+    mission.update({ dt: 8, vehicle });
+  }
+  for (const state of [mission.getState(), missionFixture(storage).mission.getState()]) {
+    assert.equal(state.mission, 0);
+    assert.deepEqual(state.target, landmarks.contact);
+    assert.equal(state.money, 2000);
+  }
+  mission.interact('radio-start', { position: desk });
+  assert.deepEqual(start(), {});
+  assert.equal(missionFixture(storage).mission.getState().mission, 0);
+});
+
 test('Interrupted circuits allow a clean restart without payment', () => {
   const { mission, completions } = missionFixture(memoryStorage({ version: 1, stage: 5, money: 2750 }));
   const vehicle = carAt(-5, 28);
-  for (const event of [{ dt: 91, vehicle }, { vehicle: null }, { vehicle: carAt(0, 0) }]) {
+  for (const event of [{ dt: 94, vehicle }, { vehicle: null }, { vehicle: carAt(0, 0) }]) {
     assert.equal(mission.interact('circuit', { vehicle }).startedCircuit, true);
     mission.update(event);
     assert.equal(mission.getState().circuitActive, false);
     assert.equal(mission.getState().money, 2750);
   }
   assert.equal(completions.length, 0);
+});
+
+test('Room Tone restores a usable recording checkpoint and pays once after the chosen take', () => {
+  for (const [site, position, seconds, fee] of [
+    ['courtyard', point(-28,37), 3, 350], ['boulevard', point(-13.5,-40), 4, 650],
+  ]) {
+    const desk = point(-16,20);
+    const { mission, storage } = missionFixture();
+    assert.equal(mission.radioAction(desk, null).kind, 'radio-start');
+    assert.deepEqual(mission.interact('radio-start', { position }), {});
+    mission.interact('radio-start', { position: desk });
+    mission.interact('radio-' + site, { position });
+    assert.equal(missionFixture(storage).mission.getState().radioPhase, 'choosing');
+    mission.update({ position, dt: 1 });
+    mission.interact('radio-cut', { position });
+    assert.equal(mission.getState().radioPhase, 'choosing');
+    mission.interact('radio-' + site, { position });
+    mission.update({ position, dt: seconds });
+    mission.interact('radio-cut', { position });
+    const restored = missionFixture(storage);
+    assert.equal(restored.mission.getState().radioPhase, 'returning');
+    assert.equal(restored.mission.getState().money, 1250);
+    restored.mission.interact('radio-return', { position: desk });
+    restored.mission.interact('radio-return', { position: desk });
+    assert.equal(restored.mission.getState().money, 1250 + fee);
+    assert.equal(restored.mission.getState().completedJobs, 1);
+    assert.equal(restored.completions.length, 1);
+    assert.equal(missionFixture(storage).mission.getState().radioPhase, 'finished');
+    assert.equal(restored.mission.getState().mission, 0);
+    restored.mission.fresh();
+    assert.equal(restored.mission.getState().radioPhase, 'available');
+  }
+});
+
+test('Room Tone permits switching locations after missing the cue, leaving or cancelling', () => {
+  const { mission, landmarks } = missionFixture();
+  const desk=point(-16,20), position=point(-28,37);
+  mission.interact('radio-start',{position:desk});
+  mission.interact('radio-courtyard',{position});
+  mission.update({position,dt:9});
+  assert.equal(mission.getState().radioPhase,'choosing');
+  mission.interact('radio-courtyard',{position});
+  mission.update({position:desk,dt:1});
+  assert.equal(mission.radioAction(desk,null).kind,'radio-cancel');
+  mission.interact('radio-cancel',{position:desk});
+  assert.equal(mission.getState().radioPhase,'available');
+  assert.equal(mission.getState().target,landmarks.contact);
 });

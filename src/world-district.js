@@ -152,6 +152,12 @@ export function addAuthoredDistrict(api) {
   for (const z of [18.35, 21.65]) box(m.teal, -18.7, 1.4, z, .43, 2.8, .1);
   parapet(-29.5, 20.2, 21.8, 10.7, 3.7, m.peach);
   box(m.trim, -18.2, 3.48, 20.1, 3.4, .18, 10.8);
+  // Vale's outside broadcast table leaves the office doorway open.
+  table(-17.8, 23.1, .8, 1.6);
+  box(m.dark, -17.8, .98, 23.25, .43, .22, .63);
+  for (const z of [23.1,23.4]) cylinder(m.pale, -17.8, 1.108, z, .085, .025, false);
+  box(m.metal, -17.8, 1.33, 23.5, .02, .53, .02, 0, false);
+  sign('VALE FM', -17.37, .64, 23.1, 1.5, .32, Math.PI / 2, { background: '#1b3534', color: '#d9e7bc', fontSize: 60 });
   sign('OFFICE  /  VACANCY', -17.92, 3.27, 20.1, 7.8, .42, Math.PI / 2, { background: '#355d54', color: '#e8ddbd', fontSize: 61 });
   wall(wood, -29.2, 21.5, 1.25, 5, 1.02);
   box(cream, -29.2, 1.08, 21.5, 1.45, .12, 5.2);

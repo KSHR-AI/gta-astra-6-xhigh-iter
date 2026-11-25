@@ -477,13 +477,31 @@ function createAuroraCar({ color }) {
   const palette = new Map();
   const materialFor = source => {
     if (!palette.has(source.name)) {
-      let material = source.clone();
+      const material = source.clone();
+      // Preserve the artist's satin base and separate clear lacquer on the
+      // sculpted panels. The instance colour still participates in damage.
       if (source.name === 'body' || source.name === 'upper') {
-        material = new THREE.MeshPhysicalMaterial({ color, metalness: 0.32, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.13, envMapIntensity: 1 });
+        material.color.set(color);
+        material.metalness = .55;
+        material.clearcoat = 1;
+        material.clearcoatRoughness = .085;
         material.name = 'body';
+      } else if (source.name === 'chrome') {
+        material.roughness = .22;
+        material.color.setHex(0xe5e8e7);
+      } else if (source.name === 'rubber') {
+        material.color.setHex(0x252727);
+        material.roughness = .76;
+      } else if (source.name === 'lamp_lens') {
+        material.color.setHex(0x93a6b6);
+        material.metalness = .72;
+        material.roughness = .13;
       }
       if (source.name === 'glass') {
-        material.transparent = true; material.opacity = 0.27;
+        material.color.setHex(0xaac7c3);
+        material.metalness = .04;
+        material.roughness = .065;
+        material.transparent = true; material.opacity = .14;
         material.depthWrite = false; material.side = THREE.DoubleSide;
         material.forceSinglePass = true;
       } else material.side = THREE.FrontSide;
@@ -910,7 +928,21 @@ function enhanceVehicle(vehicle, { type, roadster }) {
   vehicle.mesh.traverse(object => {
     if (!object.isMesh || Array.isArray(object.material)) return;
     if (object.material === glass || object.material.name === 'glass') {
-      if (!glassCopies.has(object.material)) { const copy = object.material.clone(); copy.name = 'glass'; glassCopies.set(object.material, copy); }
+      if (!glassCopies.has(object.material)) {
+        const copy = object.material.clone(); copy.name = 'glass';
+        if (roadster) {
+          // Thin automotive glazing transmits the cabin head-on and reflects
+          // more sky at grazing angles. Avoid an extra scene transmission pass.
+          copy.onBeforeCompile = shader => {
+            shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', `
+              float grazing = 1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0);
+              diffuseColor.a = mix(diffuseColor.a, 0.8, pow(grazing, 5.0));
+              #include <opaque_fragment>
+            `);
+          };
+        }
+        glassCopies.set(object.material, copy);
+      }
       object.material = glassCopies.get(object.material); glassMeshes.push(object);
     }
     if (object.material.name === 'body') paintMeshes.push(object);

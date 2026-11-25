@@ -1,3 +1,4 @@
+import { createRoomTone } from './room-tone.js';
 const SAVE_KEY = 'grand-theft-astra:coastal-job:v1';
 const titles = ['A favor for Mara', 'Borrowed wheels', 'Disappear', 'Special delivery', 'A place to call home', 'Pacific Circuit'];
 // The start and gates sit in the traffic lanes of the authored 80 × 90 m grid.
@@ -25,7 +26,7 @@ export function readProgress(storage = browserStorage()) {
   } catch { return null; }
 }
 
-export function createMission({ landmarks, getHeroPosition, onDialogue, onToast, onComplete, storage = browserStorage() }) {
+export function createMission({ landmarks, getHeroPosition, onDialogue, onToast, onComplete, onRecordingCue, storage = browserStorage() }) {
   const saved = readProgress(storage);
   let stage = saved?.stage || 0;
   // The delivery car belongs to a live simulation. Restore at a useful checkpoint.
@@ -37,22 +38,28 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
   let repairCooldown = 0;
   let circuit = null;
   let best = Number.isFinite(saved?.circuitBest) && saved.circuitBest > 0 && saved.circuitBest <= circuitLimit ? saved.circuitBest : null;
+  const radio = createRoomTone(saved?.roomTone, { dialogue, toast: onToast, cue: onRecordingCue, save, finish(fee, take) {
+    money += fee; completedJobs++; save(); onComplete?.({ title: 'ROOM TONE · ' + take.toUpperCase(), reward: fee });
+  } });
+  const radioAvailable = () => (stage === 0 || stage === 5) && !circuit;
   function save() {
     const now = Date.now();
     try {
       if (!storage || typeof storage.setItem !== 'function') throw new Error('Storage unavailable');
-      storage.setItem(SAVE_KEY, JSON.stringify({ version: 1, stage, money, completedJobs, circuitBest: best, savedAt: now }));
+      storage.setItem(SAVE_KEY, JSON.stringify({ version: 1, stage, money, completedJobs, circuitBest: best, roomTone: radio.checkpoint(), savedAt: now }));
       savedAt = now; saveAvailable = true;
     } catch { saveAvailable = false; }
   }
   function dialogue(speaker, lines) { onDialogue?.(speaker, lines); }
-  function interact(kind, { vehicle, time = 0, reserve = 0 } = {}) {
-    if (kind === 'circuit' && stage === 5 && !circuit && vehicle?.health > 0) {
-      circuit = { vehicle, gate: 0, elapsed: 0 };
-      onToast?.('PACIFIC CIRCUIT', 'Clock running. Follow the marked gates.');
+  function interact(kind, { vehicle, time = 0, reserve = 0, position } = {}) {
+    if (kind.startsWith('radio-')) return radioAvailable() ? radio.interact(kind, position, vehicle) : {};
+    if (radio.active() && (kind === 'contact' || kind === 'circuit')) return {};
+    if (kind === 'circuit' && radioAvailable() && (stage === 5 || vehicle?.circuitLoaner) && vehicle?.health > 0) {
+      circuit = { vehicle, gate: 0, elapsed: -3, previousSplit: 0 };
+      onToast?.('PACIFIC CIRCUIT', 'Five gates. Launch on green.');
       return { startedCircuit: true };
     }
-    if (kind === 'contact') {
+    if (kind === 'contact' && !circuit) {
       if (stage === 0) {
         stage = 1;
         dialogue('MARA', ['Welcome to Los Pacificos. I have a buyer waiting for that teal convertible on the boulevard.', 'Bring it to my workshop up north. If anyone calls it in, lose the patrol before you show up.']);
@@ -84,7 +91,8 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
       dialogue('MARA', ['Someone saw you. Stay off the main road until the heat dies down.']);
     }
   }
-  function update({ wanted, policeState, vehicle, dt = 0 }) {
+  function update({ wanted, policeState, vehicle, dt = 0, position }) {
+    radio.update(dt, position, vehicle);
     if (circuit) {
       circuit.elapsed += Math.max(0, dt);
       if (vehicle !== circuit.vehicle || vehicle.health <= 0 || circuit.elapsed > circuitLimit) {
@@ -94,7 +102,7 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
       } else {
         const gate = circuitGates[circuit.gate];
         const p = vehicle.model.mesh.position;
-        if (Math.hypot(p.x - gate.x, p.z - gate.z) < 9) {
+        if (circuit.elapsed >= 0 && Math.hypot(p.x - gate.x, p.z - gate.z) < 9) {
           circuit.gate++;
           if (circuit.gate === circuitGates.length) {
             const finish = Math.max(.1, circuit.elapsed);
@@ -105,9 +113,11 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
             completedJobs++;
             circuit = null;
             save();
-            onComplete?.({ title: `${record ? 'PERSONAL BEST' : 'PACIFIC CIRCUIT'} · ${clock(finish)}`, reward });
+            onComplete?.({ title: `${record ? 'PERSONAL BEST' : 'PACIFIC CIRCUIT'} · ${clock(finish)}`, reward, replayHint: 'Stop at the Paloma gate to race again.' });
           } else {
-            onToast?.(`GATE ${circuit.gate} / ${circuitGates.length}`, circuitGates[circuit.gate].direction);
+            onToast?.(`GATE ${circuit.gate} / ${circuitGates.length} · ${clock(circuit.elapsed)}`,
+              `Sector ${clock(circuit.elapsed - circuit.previousSplit)} · ${circuitGates[circuit.gate].direction}`);
+            circuit.previousSplit = circuit.elapsed;
           }
         }
       }
@@ -124,9 +134,12 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
   function getState() {
     if (circuit) {
       const gate = circuitGates[circuit.gate];
-      return { mission: stage, money, completedJobs, savedAt, saveAvailable, circuitActive: true, circuitBest: best,
-        target: gate, objectiveTitle: `${gate.name} · ${Math.ceil(Math.max(0, circuitLimit - circuit.elapsed))}s`, missionStage: `PACIFIC CIRCUIT · ${circuit.gate + 1} / ${circuitGates.length}`,
-        objective: `${gate.direction}  ${clock(Math.max(0, circuitLimit - circuit.elapsed))} remaining.`,
+      const remaining = Math.max(0, circuitLimit - Math.max(0, circuit.elapsed));
+      return { mission: stage, money, completedJobs, savedAt, saveAvailable, circuitActive: true, secondaryTarget: null, radioActive: false, circuitBest: best,
+        circuitCountdown: circuit.elapsed < 0 ? Math.ceil(-circuit.elapsed) : 0,
+        circuitSignal: circuit.elapsed < 0 ? String(Math.ceil(-circuit.elapsed)) : circuit.elapsed < 1.2 ? 'GO' : '',
+        target: gate, objectiveTitle: `${gate.name} · ${Math.ceil(remaining)}s`, missionStage: `PACIFIC CIRCUIT · ${circuit.gate + 1} / ${circuitGates.length}`,
+        objective: `${gate.direction}  ${clock(remaining)} remaining.`,
         missionProgress: circuit.gate / circuitGates.length };
     }
     const target = stage === 0 ? landmarks.contact : stage === 1 ? getHeroPosition() : stage === 3 ? landmarks.garage : stage === 4 ? landmarks.safehouse : stage === 5 ? CIRCUIT_START : null;
@@ -138,12 +151,13 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
       'Visit the Paloma courtyard. Press E to claim your room.',
       'Stop on the boulevard outside the Paloma to race the Pacific Circuit.' + (best ? ` Best lap ${clock(best)}.` : ''),
     ][stage];
-    return { mission: stage, money, completedJobs, savedAt, saveAvailable, circuitActive: false, circuitBest: best, objectiveTitle: titles[stage], objective, missionStage: stage === 5 ? 'FREE ROAM' : `THE COASTAL JOB · ${Math.min(stage + 1, 5)} / 5`, missionProgress: stage / 5, target };
+    return { mission: stage, money, completedJobs, savedAt, saveAvailable, circuitActive: false, circuitCountdown: 0, circuitSignal:'', circuitBest: best, objectiveTitle: titles[stage], objective, missionStage: stage === 5 ? 'FREE ROAM' : `THE COASTAL JOB · ${Math.min(stage + 1, 5)} / 5`, missionProgress: stage / 5, target, ...radio.view(radioAvailable()) };
   }
   function fresh() {
-    circuit = null; best = null; repairCooldown = 0; stage = 0; money = 1250; completedJobs = 0; savedAt = null;
+    radio.restore(); circuit = null; best = null; repairCooldown = 0; stage = 0; money = 1250; completedJobs = 0; savedAt = null;
     try { storage?.removeItem(SAVE_KEY); } catch { saveAvailable = false; }
   }
-  function retry() { circuit = null; if (stage === 2 || stage === 3) stage = 1; save(); }
-  return { interact, onVehicleTaken, update, getState, save, fresh, retry };
+  function retry() { radio.restore(radio.checkpoint()); circuit = null; if (stage === 2 || stage === 3) stage = 1; save(); }
+  const radioAction = (position, vehicle) => radioAvailable() ? radio.action(position, vehicle) : null;
+  return { radioAction, interact, onVehicleTaken, update, getState, save, fresh, retry };
 }
