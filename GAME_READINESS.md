@@ -2,6 +2,21 @@
 
 This is a playable browser prototype, not a release-ready AAA game. The ongoing goal is a game ready for AAA studio review and release; the current vertical slice is only an intermediate milestone. A passing build or a good screenshot does not establish release readiness.
 
+## Public playtest on November 25, 2026
+
+The build from `db5c529` is playable on [GitHub Pages](https://kshr-ai.github.io/gta-astra-6-xhigh-iter/). The deployed files are on `gh-pages` at `67106d4`. Rebuilding from source reproduced all 88 distribution files. The release suite passed 662 automated tests.
+
+- **Driving.** The same 60 km/h corner produced 28.53° of heading change in the Aurora and 17.94° in the Meridian. Applying the brakes at the end of the turn took 14.49 m and 17.24 m to stop respectively. A separate continuous three-minute recording followed the sedan for 1,066 m using keyboard controls and the live audio mix. That recording covers 132 seconds of simulation on SwiftShader.
+- **Opening.** Mara’s expression leads into a view of her convertible. The ordinary HUD originally placed subtitles over her face on a 640 × 360 desktop. Replaying the briefing and car reveal at five compact screen and input configurations confirmed that both subjects stay clear. Android Chrome accepted simultaneous accelerator and steering touches for a 45.3 m drive after the rear-lamp inspection.
+- **Uncoached driving.** One fresh AI player completed the boulevard delivery for $1,500 and scored driving feel 3/5 and visual coherence 4/5. They overshot the fork, slipped into reverse while braking, and saw conflicting bodywork percentages. On the revised release, the straight and right-turn options appear with the car still at rest. Holding the brake stops the car in neutral. Release and press it again to reverse. The dashboard, mission card and receipt use the same integer bodywork value. The returning player then stopped reliably from 27 and 68 km/h and chose Sunline before accelerating. Their remaining cue complaint led to removing the boulevard-only distance at the two-exit junction. The next distance reappears after the car commits to its route.
+- **Startup.** At 25 Mbps and 40 ms latency, an Intel Arc Pro B50–backed Android emulator on `86311bf` took 16.14, 8.32 and 8.35 seconds from cold navigation to first movement. Each transferred 15.37 MiB. A warm visit took 4.44 seconds. The first cold visit missed the 10-second target during an 8.97-second main-thread task after Start.
+- **Touch driving.** On the same release a driver braked from 9.78 m/s, remained stationary through 45 samples over 1.50 seconds, and reversed at 1.74 m/s after releasing and pressing again. At 25.48% raw bodywork both visible condition displays showed 25%.
+- **Recovery.** The public gameplay build passed a deliberate WebGL interruption at the workshop at night. Simulation time stopped while graphics were unavailable, the car returned with its payment and the next freight manifest remained usable. On the caption release, reloading a selected Paloma freight stop restored the same curb and wallet.
+
+An uninterrupted 30-minute public test on Pages `8cab02e` completed both story routes, the circuit and the recorder. It also picked up two freight orders, lost the vehicle and cancelled the manifest. The browser recorded zero errors, crashes, failed requests or context losses. Shared SwiftShader recorded 19 frame gaps above two seconds, including a 5.94-second maximum. Reloading into `86311bf` preserved both route records and the $3,900 wallet.
+
+The public slice is ready for hands-on review. The plan’s physical controller, phone, RTX 3060 and Iris Xe runs and ten first-time human sessions are still open. Human ratings for driving, art and first-session pacing will inform the decision about expanding the map. [Playtest evidence](https://niteshift.dev/html-output/task_int_e7fp7ivi8umrhewd/verification.html)
+
 ## Current slice
 
 - Last Light at the Paloma with a rear-lamp inspection, a boulevard or loading-lane drive, an itemized handoff, and persistent route records. Night Shift adds two-stop freight, visible cargo, condition-based pay and an earned pier screening.
