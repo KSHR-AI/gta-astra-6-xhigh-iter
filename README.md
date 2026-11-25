@@ -69,9 +69,11 @@ Press **P** during free roam to open Photo mode. Follow the album clue, frame th
 
 On the city map, choose an available activity by name, or click or tap a street to place a personal waypoint. Keyboard players can focus the map, move the cursor with the arrow keys, and press Enter to set it. Purple turn cues lead to the pin. Reaching or clearing it restores the mission route.
 
+Hold the brake to stop and keep the car still. Release and press it again to reverse. The brake is **S** or **Down** on a keyboard, **LT / L2** on a controller, and **Brake** on the touch HUD.
+
 On touchscreens, steer with your left thumb and use the gas, brake, or handbrake with your right. The pause menu lets you retry your mission checkpoint.
 
-Standard-mapped gamepads support exploration and driving. Press **A / Cross** or **Menu / Options** to begin. Move or steer with the **left stick**, look with the **right stick**, and hold **L3** to sprint. **A / Cross** jumps on foot and holds the handbrake while driving. **Y / Triangle** uses the active prompt. **B / Circle** exits the vehicle even at an activity pickup or handoff. Use the **D-pad** to navigate menus, **A / Cross** to select, and **B / Circle** to go back. **RT / R2** accelerates and **LT / L2** brakes, then reverses. **View / Share** toggles the map and **Menu / Options** toggles pause.
+Standard-mapped gamepads support exploration and driving. Press **A / Cross** or **Menu / Options** to begin. Move or steer with the **left stick**, look with the **right stick**, and hold **L3** to sprint. **A / Cross** jumps on foot and holds the handbrake while driving. **Y / Triangle** uses the active prompt. **B / Circle** exits the vehicle even at an activity pickup or handoff. Use the **D-pad** to navigate menus, **A / Cross** to select, and **B / Circle** to go back. **RT / R2** accelerates and **LT / L2** brakes. **View / Share** toggles the map and **Menu / Options** toggles pause.
 
 Touch controls provide movement, run/jump, contextual Use, separate hold-to-aim and fire buttons, reload, and equip. Dragging the scene looks around without firing. The pistol fires once per press; an equipped weapon rests low until aiming or firing. The contextual prompt itself can also be tapped. When a delivery or activity has its own action, **Exit** stays separate from **Use**. On a keyboard, **F** exits while **E** uses the activity. Settings include sound, Cinematic/Performance rendering, golden hour/night, and session restart.
 

@@ -19,6 +19,9 @@ test('sticks preserve analog movement, ignore center drift and cap diagonals', (
   assert.ok(Math.abs(sample().throttle - .5) < 1e-8);
   device.buttons[6].value = 1;
   assert.ok(Math.abs(sample().throttle + .5) < 1e-8);
+  device.buttons[7].value = 1;
+  assert.equal(sample().throttle, 0);
+  assert.equal(sample().brake, 1);
 });
 test('actions fire once per press and input returns to neutral on disconnect or blur', () => {
   const device = makePad(), controller = createGamepadInput(), actions = [];

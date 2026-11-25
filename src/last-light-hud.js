@@ -1,3 +1,5 @@
+import { vehicleConditionPercent } from './last-light.js';
+
 const dollars = value => '$' + Number(value).toLocaleString('en-US');
 
 export const lastLightPanel = `
@@ -32,16 +34,17 @@ export function createLastLightHud(root) {
     panel.hidden = !active;
     root.classList.toggle('has-dispatch', Boolean(active));
     if (!active) return;
-    const choosing = run.phase === 'fork';
+    const approaching = run.phase === 'approach';
+    const choosing = approaching || run.phase === 'fork';
     const arrived = run.phase === 'handoff';
     const waitingForClearance = arrived && (state.wanted > 0 || ['reported','pursuit','searching'].includes(state.policeState));
     fork.hidden = !choosing;
     condition.hidden = choosing;
     panel.dataset.route = run.route || '';
     setText(kicker, arrived ? 'Auto Works · delivery bay' : run.replay ? 'Last Light · practice run' : 'Last Light at the Paloma');
-    setText(title, choosing ? 'Choose your route' : waitingForClearance ? 'Lose the patrol' : arrived ? 'Park for the handoff' : run.routeLabel || 'North to Calypso');
+    setText(title, approaching ? 'Ahead at Calypso' : choosing ? 'Choose your route' : waitingForClearance ? 'Lose the patrol' : arrived ? 'Park for the handoff' : run.routeLabel || 'North to Calypso');
     if (choosing) return;
-    const pct = Math.round(run.conditionPct);
+    const pct = vehicleConditionPercent(run.conditionPct);
     setText(percent, pct + '%');
     condition.style.setProperty('--condition', pct + '%');
     condition.style.setProperty('--threshold', run.cleanThreshold + '%');
@@ -59,7 +62,7 @@ export function showDeliveryReceipt(element, info) {
   if (!receipt) return;
   for (const [label, value] of [
     ['Route', info.routeLabel],
-    ['Final condition', Math.round(info.conditionPct) + '%'],
+    ['Final condition', vehicleConditionPercent(info.conditionPct) + '%'],
     ['Delivery fee', dollars(info.basePay)],
     ['Clean bonus', dollars(info.cleanBonus)],
   ]) {

@@ -120,7 +120,7 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
     if (kind === 'contact' && !circuit) {
       if (stage === 0) {
         stage = 1;
-        dialogue('MARA', ['That teal convertible is our last car before the night shift. Check the rear lamp, then take the keys.', 'Auto Works pays fifteen hundred. Keep the body at 85 percent or better and I’ll add five hundred. At the Calypso mural, the approach is yours.'], {replace:true});
+        dialogue('MARA', ['That teal convertible is our last car before the night shift. Check the rear lamp, then take the keys.', 'Fifteen hundred for the run. Keep her at 85 percent and I’ll add five hundred. At the mural, stay straight on Vespucci or turn right for Sunline.'], {replace:true});
         onToast?.('LAST LIGHT AT THE PALOMA', 'Inspect the Aurora before you leave.');
         save(); return { accepted: true };
       }

@@ -673,3 +673,22 @@ test('A second press at Mara after briefing only repeats the inspection instruct
   assert.deepEqual(paid.interact('contact',{reserve:0}),{ammo:36});
   assert.equal(paid.getState().money,2600);
 });
+
+test('fractional Aurora health agrees with the handoff fee across saves', () => {
+  for (const [health,shown,fee] of [[19.6,19,1500],[84.9,84,1500],[85,85,2000]]) {
+    const storage=memoryStorage({version:1,stage:3,money:1250,completedJobs:0,
+      lastLight:{forkPassed:true,route:'boulevard',mile:2,conditionPct:health}});
+    const {mission,landmarks,completions}=missionFixture(storage);
+    const car=carAt(landmarks.garage.x,landmarks.garage.z,{isJobCar:true,health});
+    assert.equal(mission.getState().lastLight.conditionPct,shown);
+    mission.onVehicleTaken(car);
+    mission.update({vehicle:car,jobVehicle:car,wanted:0,policeState:'clear'});
+    assert.equal(mission.getState().deliveryQuote.total,fee);
+    assert.ok(mission.interact('garage',{vehicle:car}).delivered);
+    assert.equal(completions[0].conditionPct,shown);
+    const restored=missionFixture(storage).mission;
+    assert.equal(restored.getState().money,1250+fee);
+    assert.equal(restored.getState().completedJobs,1);
+    assert.equal(restored.getState().lastLight.routeRecords.boulevard,shown);
+  }
+});

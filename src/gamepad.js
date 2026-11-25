@@ -1,4 +1,4 @@
-const neutral = Object.freeze({ moveX: 0, moveY: 0, lookX: 0, lookY: 0, throttle: 0, sprint: false, handbrake: false });
+const neutral = Object.freeze({ moveX: 0, moveY: 0, lookX: 0, lookY: 0, throttle: 0, brake: 0, sprint: false, handbrake: false });
 const buttonActions = [[9, 'menu'], [8, 'map'], [3, 'context'], [0, 'jump'], [1, 'back'], [12, 'up'], [13, 'down'], [14, 'left'], [15, 'right']];
 
 function stick(x = 0, y = 0) {
@@ -39,7 +39,7 @@ export function createGamepadInput() {
       if (mask || moveX || moveY || lookX || lookY || gas || brake || sprint) onMode?.('gamepad');
       for (const [button, action] of buttonActions) if ((mask & ~previous) & (1 << button)) onPress(action);
       previous = mask;
-      return { moveX, moveY, lookX, lookY, throttle: gas - brake, sprint, handbrake };
+      return { moveX, moveY, lookX, lookY, throttle: gas - brake, brake, sprint, handbrake };
     },
   };
 }

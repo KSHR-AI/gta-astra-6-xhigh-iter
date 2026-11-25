@@ -76,3 +76,25 @@ test('stationary patrol contact stops the sedan, suppresses bumper chatter and r
   assert.equal(impacts.length, 2);
   assert.ok(impacts[1] > 8 && sedan.health < health);
 });
+
+test('forward braking holds until the shared reverse pedal is released', () => {
+  for (const type of ['sport', 'sedan']) {
+    for (const demand of [1, .27]) {
+      const car = { speed: 12, health: 100, model: { type, mesh: { position: { x: 0, z: 0 } } } };
+      const step = (throttle, reverseHeld = throttle < 0) => updateVehiclePhysics(car, 1 / 60, { throttle, reverseHeld });
+      for (let i = 0; i < 360; i++) assert.ok(step(-demand).speed >= 0);
+      assert.equal(car.speed, 0);
+      const parked = car.model.mesh.position.z;
+      step(0, true); // Both pedals cancel; the brake remains physically down.
+      for (let i = 0; i < 90; i++) assert.equal(step(-demand).gear, 'N');
+      assert.equal(car.model.mesh.position.z, parked);
+      step(0); // A distinct press now selects reverse.
+      for (let i = 0; i < 120; i++) step(-demand);
+      assert.ok(car.speed < -1);
+      for (let i = 0; i < 240; i++) step(1);
+      assert.ok(car.speed > 3);
+      for (let i = 0; i < 540; i++) step(-demand);
+      assert.equal(car.speed, 0);
+    }
+  }
+});

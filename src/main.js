@@ -740,8 +740,10 @@ const drivingGround = {};
 function updateDriving(dt){
  const c=currentCar;
  const handbrake=!!state.circuitCountdown||pad.handbrake||keys.has('Space');
+ const reverseKey=keys.has('KeyS')||keys.has('ArrowDown');
  const telemetry=updateVehiclePhysics(c,dt,{
-  throttle:state.circuitCountdown?0:(keys.has('KeyW')||keys.has('ArrowUp')?1:0)-(keys.has('KeyS')||keys.has('ArrowDown')?1:0)+pad.throttle,
+  reverseHeld:reverseKey||pad.brake>0,
+  throttle:state.circuitCountdown?0:(keys.has('KeyW')||keys.has('ArrowUp')?1:0)-(reverseKey?1:0)+pad.throttle,
   steering:(keys.has('KeyA')||keys.has('ArrowLeft')?1:0)-(keys.has('KeyD')||keys.has('ArrowRight')?1:0)-pad.moveX,
   surface:world.sampleGround(c.model.mesh.position.x,c.model.mesh.position.z,drivingGround).kind,
   handbrake,moveBody,vehicles,carsOverlap,
@@ -1053,7 +1055,7 @@ function updatePresentation(dt){
  turnCue.visible=turnCue.visible&&active&&!photo.active&&!!destination;
  if(miniTimer>.1){
    if(active&&waypoint&&!waypoint.freightPickup&&player&&Math.hypot(player.mesh.position.x-waypoint.x,player.mesh.position.z-waypoint.z)<8){
-     setWaypoint(null,'Waypoint reached');ui.toast('WAYPOINT REACHED',world.locationAt(player.mesh.position.x,player.mesh.position.z));
+     setWaypoint(null,'Map pin reached');ui.toast('MAP PIN REACHED',world.locationAt(player.mesh.position.x,player.mesh.position.z));
    }
    drawMap(mapCanvas());miniTimer=0;
    const turn=active&&!photo.active&&(waypoint||state.target)&&player&&nextMapTurn(mapRoute(world.roads,player.mesh.position,waypoint||goal),currentCar?48:32);

@@ -16,6 +16,7 @@ export const LAST_LIGHT_FORK = fork;
 export const LAST_LIGHT_ROUTES = routes;
 const names = { boulevard: 'Vespucci Boulevard', service: 'Sunline service lane' };
 const close = (p, gate) => p && Math.hypot(p.x - gate.x, p.z - gate.z) <= gate.radius;
+export const vehicleConditionPercent = health => Math.max(0, Math.min(100, Math.floor(health)));
 const basePay = 1500, cleanPay = 500, cleanThreshold = 85;
 const cleanState = () => ({ inspected: false, forkPassed: false, route: null, mile: 0, conditionPct: 100, cleanEligible: true });
 
@@ -37,7 +38,7 @@ export function createLastLight(stored, legacyPaid = false) {
       drive.mile = Math.max(1,Math.min(routes[drive.route].length,stored.mile));
     }
     checkpointHealth = Number.isFinite(stored.conditionPct) ? Math.max(1,Math.min(100,stored.conditionPct)) : 100;
-    drive.conditionPct = checkpointHealth;
+    drive.conditionPct = vehicleConditionPercent(checkpointHealth);
     drive.cleanEligible = stored.cleanEligible !== false && checkpointHealth >= cleanThreshold;
   }
   function saveState() { return { ...drive, conditionPct: Math.max(1,drive.conditionPct), paid, replay, routeRecords:{...routeRecords} }; }
@@ -52,7 +53,7 @@ export function createLastLight(stored, legacyPaid = false) {
   }
   function condition(health) {
     if (!Number.isFinite(health)) return false;
-    drive.conditionPct = Math.max(0,Math.min(100,Math.floor(health)));
+    drive.conditionPct = vehicleConditionPercent(health);
     const lost = drive.cleanEligible && drive.conditionPct < cleanThreshold;
     if (lost) drive.cleanEligible = false;
     return lost;

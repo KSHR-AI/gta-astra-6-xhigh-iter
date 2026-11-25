@@ -37,7 +37,7 @@ function freshState(car) {
     vx: Math.sin(heading) * speed, vz: Math.cos(heading) * speed,
     accumulator: 0, clock: 0, yawRate: 0, acceleration: 0, slip: 0,
     roll: 0, pitch: 0, heave: 0, rollVelocity: 0, pitchVelocity: 0, heaveVelocity: 0,
-    brake: 0, brakePressure: 0, rearSlip: 0, rpm: 850, gear: 1, lastShift: -1,
+    brake: 0, holdingForwardBrake: false, brakePressure: 0, rearSlip: 0, rpm: 850, gear: 1, lastShift: -1,
     lastX: position.x, lastZ: position.z, lastHeading: heading, lastSpeed: speed,
     contacts: new Map(), impact: null,
   };
@@ -276,7 +276,7 @@ function simulate(car, state, dt, options) {
   const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
   let longitudinal = state.vx * fx + state.vz * fz;
   const speed = Math.hypot(state.vx, state.vz);
-  const serviceBrake = throttle * longitudinal < -.45;
+  const serviceBrake = throttle < 0 && state.holdingForwardBrake || throttle * longitudinal < -.45;
   state.brake = handbrake ? 1 : serviceBrake ? Math.abs(throttle) : alive ? 0 : .35;
 
   state.brakePressure = approach(state.brakePressure, serviceBrake ? Math.abs(throttle) : 0,
@@ -321,7 +321,7 @@ function simulate(car, state, dt, options) {
   state.vx += rightX * lateralDelta;
   state.vz += rightZ * lateralDelta;
 
-  if (Math.hypot(state.vx, state.vz) < .06 && (throttle === 0 || !alive)) {
+  if (Math.hypot(state.vx, state.vz) < .06 && (throttle === 0 || serviceBrake || !alive)) {
     state.vx = state.vz = state.yawRate = 0;
   }
   advance(car, state, nextHeading, dt, options);
@@ -330,7 +330,7 @@ function simulate(car, state, dt, options) {
   state.slip = clamp(Math.abs(Math.atan2(longitudinal, Math.max(2, Math.abs(car.speed)))) / .6, 0, 1);
   state.acceleration = approach(state.acceleration, clamp(driveDelta / dt, -25, 14), 9, dt);
   suspension(state, tuning, lateralDelta / dt, dt);
-  transmission(car, state, tuning, throttle, dt);
+  transmission(car, state, tuning, state.holdingForwardBrake && throttle < 0 ? 0 : throttle, dt);
 }
 
 /**
@@ -345,6 +345,11 @@ export function updateVehiclePhysics(car, dt, options = {}) {
   if (!car?.model?.mesh?.position) throw new TypeError('A vehicle with model.mesh.position is required.');
   const state = stateFor(car);
   synchronize(car, state);
+  const throttle = Number(options.throttle) || 0;
+  // The brake and reverse share a pedal. Opposing forward motion commits this
+  // press to braking until the physical pedal releases, even if gas overlaps.
+  if (!(options.reverseHeld ?? (throttle < 0))) state.holdingForwardBrake = false;
+  else if (throttle < 0 && car.speed > .001) state.holdingForwardBrake = true;
   state.impact = null;
   const frameTime = Number.isFinite(dt) ? clamp(dt, 0, MAX_FRAME_TIME) : 0;
   state.accumulator += frameTime;
@@ -367,8 +372,7 @@ export function updateVehiclePhysics(car, dt, options = {}) {
   state.lastZ = mesh.position.z;
   state.lastHeading = car.heading;
   state.lastSpeed = car.speed;
-  const throttle = Number(options.throttle) || 0;
-  const gear = car.speed < -.35 || throttle < 0 && Math.abs(car.speed) < .35 ? 'R'
-    : Math.abs(car.speed) < .35 && throttle === 0 ? 'N' : state.gear;
+  const gear = car.speed < -.35 || throttle < 0 && !state.holdingForwardBrake && Math.abs(car.speed) < .35 ? 'R'
+    : Math.abs(car.speed) < .35 && (throttle === 0 || throttle < 0 && state.holdingForwardBrake) ? 'N' : state.gear;
   return { speed: car.speed, gear, rpm: Math.round(state.rpm), slip: state.slip, impact: state.impact };
 }
