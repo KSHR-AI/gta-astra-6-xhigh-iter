@@ -2,26 +2,26 @@ import { assetUrl } from './asset-url.js';
 // Recorded CC0 foley sits under a small, continuously running Web Audio mixer.
 // Nothing opens an AudioContext until start() is called from a user gesture.
 const ASSETS = {
-  engine: 'engine-loop.wav', gulls: 'coastal-gulls.mp3',
+  score: 'low-water.ogg', pursuit: 'low-water-pursuit.ogg', engine: 'engine-loop.wav', gulls: 'coastal-gulls.mp3',
   concrete1: 'step-concrete-1.mp3', concrete2: 'step-concrete-2.mp3', concrete3: 'step-concrete-3.mp3',
   grass1: 'step-grass-1.mp3', grass2: 'step-grass-2.mp3', grass3: 'step-grass-3.mp3',
   metal: 'metal-impact.mp3', click: 'metal-click.mp3', door: 'door-thump.mp3',
   glass: 'glass-impact.mp3', magazine: 'magazine.mp3',
 };
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-const RADIO_NOTES = [293.66, 349.23, 440, 392, 0, 349.23, 329.63, 261.63];
 const finite = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
 
 export function createAudio() {
-  let context, master, world, radioBus, echoInput, noiseBuffer;
-  let radioAt = 0, radioBeat = 0, toolAt = 0;
+  let context, master, world, scoreGain, scoreFilter, scorePan, echoInput, noiseBuffer;
+  let pursuitGain, scoreEpoch;
+  let toolAt = 0;
   let passPan, passGain, passFilter, passTone;
   let engine, exhaust, transmission, engineFilter, engineGain, exhaustGain, transmissionGain;
   let engineSample, engineSampleGain, roadFilter, roadGain, tireFilter, tireGain, tireTone;
   let seaPan, seaFilter, windGain, seaGain, gullGain, siren, sirenHarmonic, sirenFilter, sirenGain, sirenPan;
   let enabled = true, disposed = false, active = true;
   let lastTime = 0, lastSpeed = 0, lastGear = 1, lastDistance = 80, shiftUntil = 0;
-  let stepDistance = 0, stepIndex = 0, trafficAt = 4, musicAt = 0, musicBeat = 0;
+  let stepDistance = 0, stepIndex = 0, trafficAt = 4;
   let lastCrash = -10, lastHorn = -10;
   let previousCar = false;
   let lastPistol = -1, groundSurface = 'concrete';
@@ -53,13 +53,13 @@ export function createAudio() {
     targets.set(param, value);
     param.setTargetAtTime(value, context.currentTime, time);
   }
-  function loop(buffer, target, rate = 1) {
+  function loop(buffer, target, rate = 1, when = 0, offset = 0) {
     const node = track(context.createBufferSource());
     node.buffer = buffer;
     node.loop = true;
     node.playbackRate.value = rate;
     node.connect(target);
-    node.start();
+    node.start(when, offset);
     continuous.add(node);
     return node;
   }
@@ -210,7 +210,11 @@ export function createAudio() {
     limiter.attack.value = 0.004; limiter.release.value = 0.16;
     master.connect(limiter); limiter.connect(context.destination);
     world = gain(active ? 1 : 0, master);
-    radioBus = gain(1);
+    scoreGain = gain(0);
+    scorePan = context.createStereoPanner ? track(context.createStereoPanner()) : null;
+    scorePan?.connect(scoreGain);
+    scoreFilter = filter('lowpass', 15000, scorePan || scoreGain);
+    pursuitGain = gain(0, scoreFilter);
     noiseBuffer = context.createBuffer(1, context.sampleRate * 4, context.sampleRate);
     const samples = noiseBuffer.getChannelData(0);
     for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
@@ -267,7 +271,7 @@ export function createAudio() {
   }
 
   async function loadAssets() {
-    // All requests are local, total transfer < 400 KB; synthesis remains usable on failure.
+    // The score and recorded foley load independently after the first audio gesture.
     const owner = context;
     await Promise.allSettled(Object.entries(ASSETS).map(async ([name, filename]) => {
       const response = await fetch(assetUrl(`audio/${filename}`), { signal: abort.signal });
@@ -277,6 +281,13 @@ export function createAudio() {
       const buffer = await new Promise((resolve, reject) => owner.decodeAudioData(data, resolve, reject));
       if (disposed || context !== owner) return;
       buffers[name] = buffer;
+      if (name === 'score' || name === 'pursuit') {
+        // Both exports have exactly the same sample length. Join the running
+        // performance in phase even when one request finishes much later.
+        const when = owner.currentTime + .05;
+        scoreEpoch ??= when;
+        loop(buffer, name === 'score' ? scoreFilter : pursuitGain, 1, when, (when - scoreEpoch) % buffer.duration);
+      }
       if (name === 'engine') engineSample = loop(buffer, filter('lowpass', 1800, engineSampleGain));
       if (name === 'gulls') loop(buffer, filter('lowpass', 4200, gullGain));
     }));
@@ -341,7 +352,7 @@ export function createAudio() {
     groundSurface = surface || (playerPosition && playerPosition.x < -119 ? 'sand' : 'concrete');
     if (!active || !enabled) {
       stepDistance = 0; lastSpeed = Math.abs(finite(speed));
-      musicAt = now + 0.5; trafficAt = now + 5;
+      trafficAt = now + 5;
       return;
     }
 
@@ -387,17 +398,16 @@ export function createAudio() {
     const coast = Math.max(shoreline, paloma * .62);
     const workshop = landmarks?.garage && playerPosition ? Math.max(0, 1 - Math.hypot(listener.x - landmarks.garage.x, listener.z - landmarks.garage.z) / 34) : 0;
     const cabin = inCar ? sedan ? .43 : .78 : 1;
-    smooth(radioBus.gain, dialogueActive ? .17 : 1, dialogueActive ? .075 : .45);
-    const radioVolume = inCar ? (sedan ? .42 : .27) : workshop;
-    if (radioVolume > .04 && now >= radioAt) {
-      const radioPan = inCar ? -.13 : spatial(landmarks.garage).pan;
-      const note = RADIO_NOTES[radioBeat % RADIO_NOTES.length];
-      if (note) play({ type: 'triangle', frequency: note, duration: .35, attack: .025, volume: .058 * radioVolume,
-        highpass: 240, cutoff: 1550, pan: radioPan, bus: radioBus });
-      if (radioBeat % 4 === 0) play({ type: 'triangle', frequency: note ? note / 2 : 130.81, duration: .55,
-        volume: .032 * radioVolume, highpass: 90, cutoff: 740, pan: radioPan, bus: radioBus });
-      radioBeat++; radioAt = now + .39;
-    }
+    // Shift the same performance toward the workshop radio or dash without
+    // restarting the song as the listener crosses a doorway or enters a car.
+    const radioPresence = inCar ? 1 : workshop;
+    const scoreLevel = .47 + radioPresence * .16;
+    const tension = wanted >= 2 ? .36 + .10 * (Math.min(wanted, 5) - 2) : 0;
+    smooth(pursuitGain.gain, tension, tension > 0 ? .23 : .62);
+    smooth(scoreGain.gain, scoreLevel * (dialogueActive ? .27 : 1), dialogueActive ? .075 : .48);
+    smooth(scoreFilter.frequency, 15000 - radioPresence * (inCar && !sedan ? 3800 : 8500), .36);
+    const radioPan = inCar ? -.08 : workshop > 0 ? spatial(landmarks.garage).pan * workshop * .5 : 0;
+    smooth(scorePan?.pan, radioPan, .28);
     if (workshop > .1 && now >= toolAt) {
       const tools = spatial(landmarks.garage);
       for (const delay of [0, .27]) play({ sample: 'metal', volume: .09 * workshop * cabin, duration: .14,
@@ -458,16 +468,6 @@ export function createAudio() {
         endRate: 0.72, volume: (0.018 + (1 - coast) * 0.022) * cabin * (1 - darkness * 0.45),
         cutoff: district === 'Ocean Drive' ? 1050 : 650, pan: side * 0.85, endPan: side * -0.85 });
     }
-    // Quiet original D-minor pulses emerge only during a pursuit, below the siren.
-    if (wanted >= 2 && now > musicAt) {
-      musicAt = now + 0.6;
-      const notes = [73.416, 73.416, 87.307, 73.416, 110, 98, 87.307, 65.406];
-      if (musicBeat % 2 === 0 || wanted >= 4) {
-        play({ type: 'triangle', frequency: notes[musicBeat % 8], volume: 0.009 + Math.min(wanted, 5) * 0.002,
-          duration: 0.5, attack: 0.035, cutoff: 260, echo: 0.16 });
-      }
-      musicBeat++;
-    } else if (!wanted) { musicBeat = 0; musicAt = now + 0.4; }
   }
 
   function setEnabled(value) {

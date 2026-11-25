@@ -153,9 +153,11 @@ The Meridian includes a curved body with open wheel arches, cabin, articulated d
 
 ## Local recorded audio
 
-All shipped recordings are CC0 1.0 / public domain and are served locally from `public/audio/`. Total asset transfer is 355,804 bytes (about 348 KiB). Audio playback needs no remote asset requests, account, API key, or third-party runtime library.
+The original score and the CC0 field recordings are served locally from `public/audio/`. The score and pursuit stem occupy about 1002 KiB together and the foley occupies about 348 KiB. Audio playback needs no remote asset requests, account, API key, or third-party runtime library.
 
-The workshop radio phrase, shutter motor, pier projector cue, surf wash and passing engine tones are original Web Audio synthesis in `src/audio.js`. Shutter slats, the handoff key and workshop tools reuse the credited local Kenney foley below.
+**Low Water** is an original 24-bar instrumental composed and rendered for Los Pacificos. The stereo recording in `public/audio/low-water.ogg` combines a picked electric guitar melody, tine electric piano, bass, soft strings and brushed electronic drums at 91 BPM. The performance and instrument sounds were synthesized for this game. The workshop and car radios share the same cue. A separate mono bass ostinato enters at two wanted stars and grows through five. Both recordings are sample-aligned. The reproducible arrangement and synthesizers live in `art/audio/low_water.py`.
+
+The shutter motor, pier projector cue, surf wash and passing engine tones are original Web Audio synthesis in `src/audio.js`. Shutter slats, the handoff key and workshop tools reuse the credited local Kenney foley below.
 
 ### Recorded engine
 
@@ -198,7 +200,7 @@ The workshop radio phrase, shutter motor, pier projector cue, surf wash and pass
 
 CC0 license: https://creativecommons.org/publicdomain/zero/1.0/
 
-Gunfire, horns, police sirens, sea/wind beds, engine enhancement, UI cues, and the subdued adaptive D-minor pursuit pulses are original Web Audio synthesis in `src/audio.js`. The short pursuit motif does not reproduce any commercial-game soundtrack.
+Gunfire, horns, police sirens, sea/wind beds, engine enhancement, and UI cues are original Web Audio synthesis in `src/audio.js`.
 
 ## Original coastal water surface
 
