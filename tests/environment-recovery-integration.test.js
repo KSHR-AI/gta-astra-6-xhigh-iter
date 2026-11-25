@@ -69,9 +69,9 @@ test('actual frame gate freezes simulation while unavailable and charges no rebu
   const effectShaderWarmup = createEffectShaderWarmup({ renderer: { getContext: () => ({ isContextLost: () => false }) },
     prepare: () => { clock += 400; warmCalls++; return true; } });
   const context = { environmentLighting, effectShaderWarmup, lastEnvironmentBuild: 0, environmentError: null, lastFrame: 10,
-    pollController() {}, renderFrame: 0, frameCount: 0, fpsTimer: 0, state: { started: true, paused: false, mapOpen: false },
+    pollController() {}, updateCamera() {}, renderFrame: 0, frameCount: 0, fpsTimer: 0, state: { started: true, paused: false, mapOpen: false },
     performance: { now: () => clock }, requestAnimationFrame: callback => scheduled.push(callback),
-    ui: { toast() { assert.fail('no failure UI during ordinary context loss'); } },
+    ui: { revealGame() {}, toast() { assert.fail('no failure UI during ordinary context loss'); } },
     updateGame: dt => updates.push(dt), updatePresentation() {}, keys: new Set(), camera: {}, drawingSize: {}, night: false,
     photo: { active: false, update() {}, afterRender() {} },
     renderer: { shadowMap: { enabled: false }, getDrawingBufferSize: value => value },
@@ -107,7 +107,7 @@ for (const mode of ['graphics-error', 'context-lost', 'fallback', 'normal']) {
     const failure = mode === 'graphics-error' ? 'PMREM capture failed' : null;
     const context = { atmosphere: { ready: Promise.resolve(skyData) },
       world: { ready: Promise.resolve(), setSky: value => registrations.push(value) },
-      charactersReady: Promise.resolve(),
+      charactersReady: Promise.resolve(), vehicleProbe:{ready:Promise.resolve()},
       sunOffset: new THREE.Vector3(), shadowAnchor: new THREE.Vector3(), sun: new THREE.DirectionalLight(),
       environmentLighting: { revision: 1, setSky: value => registrations.push(value), update: () => { updates.push(1); return mode === 'normal' || mode === 'fallback'; }, getInfo: () => ({ error: failure, ready: mode === 'normal' || mode === 'fallback' }) },
       effectShaderWarmup: { update: revision => { warmed.push(revision); return true; } },

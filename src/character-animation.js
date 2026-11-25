@@ -194,13 +194,13 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       seated = false, steering = 0, jumping = false, verticalVelocity = 0,
       reloading = false, reloadProgress, aimPitch = 0, aimYaw = 0, aimTarget = null, lookTarget = null,
       interactionProgress = 0, interactionPhase = '', hit = false, doorHandleTarget = null,
-      ambientGesture = null, gestureProgress = 0, inspectionTarget = null, inspectionProgress = 0,
+      ambientGesture = null, gestureProgress = 0, dialogueTilt = 0, dialogueNod = 0, inspectionTarget = null, inspectionProgress = 0,
     } = options;
     const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.25);
     const input = [speed, armed, weaponVisible, aiming, shooting, shotId, dead, seated, steering,
       jumping, verticalVelocity, reloading, reloadProgress, aimPitch, aimYaw,
       aimTarget?.x, aimTarget?.y, aimTarget?.z, lookTarget?.x, lookTarget?.y, lookTarget?.z,
-      interactionProgress, interactionPhase, hit, doorHandleTarget?.x, doorHandleTarget?.y, doorHandleTarget?.z, ambientGesture, gestureProgress, gesture, inspectionTarget?.x, inspectionTarget?.y, inspectionTarget?.z, inspectionProgress];
+      interactionProgress, interactionPhase, hit, doorHandleTarget?.x, doorHandleTarget?.y, doorHandleTarget?.z, ambientGesture, gestureProgress, gesture, dialogueTilt, dialogueNod, inspectionTarget?.x, inspectionTarget?.y, inspectionTarget?.z, inspectionProgress];
     mesh.updateWorldMatrix(true, false);
     // Mixer.update(0) may leave unchanged source tracks unwritten. Reapplying
     // procedural blends would then blend the previous solved pose again, so a
@@ -330,7 +330,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     const reloadT = clamp(reloading ? reloadProgress ?? reloadElapsed / 1.45 : 1, 0, 1);
     currentReloadProgress = reloadT;
     pendingPoseTime += step;
-    pendingPose = { ambientGesture, gestureProgress, doorHandleTarget: doorHandleTarget?.isVector3 ? doorHandleTarget.clone() : null, interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
+    pendingPose = { dialogueTilt, dialogueNod, ambientGesture, gestureProgress, doorHandleTarget: doorHandleTarget?.isVector3 ? doorHandleTarget.clone() : null, interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
       movingWeight, aiming, shooting, dead, seated, steering, verticalVelocity,
       reloading, reloadT, aimPitch, aimYaw, aimTarget: aimTarget?.isVector3 ? aimTarget.clone() : null,
       lookTarget: lookTarget?.isVector3 && lookTarget.toArray().every(Number.isFinite) ? lookTarget.clone() : null, interactionPhase };
@@ -339,7 +339,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
 
   function flushPose() {
     if (!pendingPose) return false;
-    const { ambientGesture, gestureProgress, doorHandleTarget, interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
+    const { dialogueTilt, dialogueNod, ambientGesture, gestureProgress, doorHandleTarget, interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
       movingWeight, aiming, shooting, dead, seated, steering, verticalVelocity,
       reloading, reloadT, aimPitch, aimYaw, aimTarget, lookTarget, interactionPhase } = pendingPose;
     const step = pendingPoseTime;
@@ -744,8 +744,8 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       }
       lookPitch -= inspectionWeight*.48;
       if (gesture === 'handoff') lookPitch -= .12*Math.sin(Math.PI*smooth(gestureTime,.28,1.38));
-      if (gesture === 'briefing') lookYaw -= .20*Math.sin(Math.PI*smooth(gestureTime,.34,1.85));
-      lookEuler.set(-clamp(lookPitch, -0.82, 0.82), lookYaw, 0);
+      if (gesture === 'briefing' && !dialogueTilt) lookYaw -= .20*Math.sin(Math.PI*smooth(gestureTime,.34,1.85));
+      lookEuler.set(-clamp(lookPitch+dialogueNod, -0.82, 0.82), lookYaw, dialogueTilt);
       wantedLook.setFromEuler(lookEuler);
       headLook.slerp(wantedLook, headInitialized ? 1 - Math.exp(-12 * step) : 1);
       headInitialized = true;

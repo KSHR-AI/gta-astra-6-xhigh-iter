@@ -7,6 +7,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { createHumanoidAnimator } from './character-animation.js';
 import { createCharacterLOD, registerCharacterLODs } from './character-lod.js';
 import { createCharacterBounds } from './character-bounds.js';
+import { createMaraExpression } from './mara-expression.js';
 import { createCharacterFace } from './character-face.js';
 import { measureCharacterScale } from './character-scale.js';
 
@@ -517,6 +518,7 @@ export function createCharacter({ npc = false, color, police = false, role, grou
   });
   animator.update(0);
   const lod = createCharacterLOD(model, mesh, { enabled: npc });
+  const expression = isMara && natural && !male ? createMaraExpression(model) : null;
   const face = createCharacterFace(model, mesh, { seed: npc ? variant + 2 : 1 });
   const renderBounds = createCharacterBounds(model, mesh, { height });
   function turnTowardVisitor(dt, options) {
@@ -530,16 +532,22 @@ export function createCharacter({ npc = false, color, police = false, role, grou
     const outsideGaze = Math.sign(turn)*Math.max(0,Math.abs(turn)-.22);
     mesh.rotation.y += THREE.MathUtils.clamp(outsideGaze*(1-Math.exp(-4*dt)),-1.8*dt,1.8*dt);
   }
+  function performanceOptions(dt, options) {
+    turnTowardVisitor(dt,options);
+    if(!expression) return options;
+    expression.advance(dt,options?.dialogueLine,options?.dead||options?.speed>.3);
+    return expression.direct(options,mesh);
+  }
   const getHitVolumes = createHitVolumeReader(mesh, model, bones);
   return {
     mesh, mixer, weapon, muzzle,
-    updateLOD(camera) { animator.flushPose(); const level = lod.update(camera); face.update(camera, level); renderBounds.update(); return level; },
+    updateLOD(camera) { animator.flushPose(); const level = lod.update(camera); const faceVisible=face.update(camera, level); expression?.present(faceVisible); renderBounds.update(); return level; },
     getLODInfo() { return { ...lod.getInfo(), culling: renderBounds.getInfo() }; },
-    update(dt, options) { turnTowardVisitor(dt, options); animator.update(dt, options); face.advance(dt, options); },
-    advance(dt, options) { turnTowardVisitor(dt, options); animator.advance(dt, options); face.advance(dt, options); },
-    performGesture: animator.performGesture,
+    update(dt, options) { const performance=performanceOptions(dt,options); animator.update(dt,performance); face.advance(dt,performance); },
+    advance(dt, options) { const performance=performanceOptions(dt,options); animator.advance(dt,performance); face.advance(dt,performance); },
+    performGesture(kind,cleanDelivery) { animator.performGesture(kind); expression?.cue(kind,cleanDelivery); },
     flushPose: animator.flushPose,
-    resetGrounding: animator.resetGrounding,
+    resetGrounding() { animator.resetGrounding(); expression?.reset(); },
     getEvaluationStats: animator.getEvaluationStats,
     seatOffset: animator.seatOffset,
     seatAnchor: animator.seatAnchor,
@@ -549,7 +557,7 @@ export function createCharacter({ npc = false, color, police = false, role, grou
     getFootContactSurfaces: animator.getFootContactSurfaces,
     getAimState: animator.getAimState,
     applyShot: animator.applyShot,
-    getFaceInfo: face.getInfo,
+    getFaceInfo() { const info=face.getInfo(); if(expression)info.expression=expression.info(); return info; },
     getAttentionInfo: animator.getAttentionInfo,
     getLookPosition(target = new THREE.Vector3()) {
       if (face.getEyePosition(target)) return target;

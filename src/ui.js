@@ -133,12 +133,16 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
   const start = () => {
     if (elements['start-button'].disabled) return;
     started = true;
-    root.classList.remove('is-welcome');
-    root.classList.add('is-playing');
+    elements['start-button'].disabled = true;
+    text('start-label', 'Entering Los Pacificos…');
     syncFocusScope();
     call('onStart');
     focusGame();
   };
+  function revealGame() {
+    root.classList.remove('is-welcome');
+    root.classList.add('is-playing');
+  }
   const focusGame = () => document.querySelector('#game')?.focus({ preventScroll: true });
   const usableFocus = (element) => element?.isConnected && !element.closest('[hidden], [inert]') && element.getClientRects().length;
   const restoreFocus = (element) => usableFocus(element) ? element.focus({ preventScroll: true }) : focusGame();
@@ -574,5 +578,5 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
     if (!started) return controllerMenuInput(button, elements['welcome-screen'], null, find('start-button'));
     return false;
   }
-  return { selectTime, setInputMode: prompts.setMode, handleControllerMenu, start, update, updateCombat, toast, missionComplete, setPaused, setReady, showMap, setPhotoMode, updatePhoto, photoStatus, postcardCaption: value => { find('photo-postcards').textContent = value; }, root, get photoMode() { return photoMode; }, get started() { return started; }, get paused() { return paused; }, get mapOpen() { return mapOpen; } };
+  return { revealGame, selectTime, setInputMode: prompts.setMode, handleControllerMenu, start, update, updateCombat, toast, missionComplete, setPaused, setReady, showMap, setPhotoMode, updatePhoto, photoStatus, postcardCaption: value => { find('photo-postcards').textContent = value; }, root, get photoMode() { return photoMode; }, get started() { return started; }, get paused() { return paused; }, get mapOpen() { return mapOpen; } };
 }

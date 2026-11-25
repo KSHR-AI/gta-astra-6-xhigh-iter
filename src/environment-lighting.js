@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 
 /**
- * PMREM outputs contain only GPU-rendered pixels. Unlike their retained HDR
- * sources, those pixels cannot be uploaded again after a WebGL context loss.
- * Rebuild all three maps before publishing them or advancing the visible game.
+ * Rebuild the sky atlases from retained HDR data after context loss. Reupload
+ * the retained vehicle atlas or recreate its live capture before publishing
+ * the three maps together and advancing the visible game.
  */
-export function createEnvironmentLighting({ renderer, captureVehicleCube, apply,
+export function createEnvironmentLighting({ renderer, captureVehicleCube, createVehicleTarget, apply,
   createPMREM = () => new THREE.PMREMGenerator(renderer) }) {
   const canvas = renderer.domElement;
   let source, targets, pending = false, disposed = false, error = null;
@@ -43,8 +43,11 @@ export function createEnvironmentLighting({ renderer, captureVehicleCube, apply,
         next.night = sky.nightTexture ? pmrem.fromEquirectangular(sky.nightTexture) : next.day;
         // The capture must use this new day map: the previous one lost its GPU
         // contents, and would bake dark buildings into the replacement map.
-        capture = captureVehicleCube(next.day.texture, sky);
-        next.vehicle = pmrem.fromCubemap(capture.texture);
+        next.vehicle = createVehicleTarget?.(renderer.shadowMap.enabled, sky);
+        if (!next.vehicle) {
+          capture = captureVehicleCube(next.day.texture, sky);
+          next.vehicle = pmrem.fromCubemap(capture.texture);
+        }
         if (disposed || lost()) return false;
         publishing = true; apply(maps(next)); publishing = false;
         disposeTargets(targets); targets = next; pending = false;

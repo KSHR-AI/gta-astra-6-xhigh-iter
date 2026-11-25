@@ -1,3 +1,4 @@
+import { createEasternFoothills } from './eastern-foothills.js';
 import { createWorkshopInterior } from './workshop-interior.js';
 import { createNightShiftFreight } from './night-shift-freight.js';
 import { createWorkshopShutter } from './workshop-shutter.js';
@@ -742,7 +743,7 @@ export function createWorld(scene) {
     walkableBox(materials.terracotta, -141.1 - step * .6, rise / 2, 0, .6, rise, 6.4, 0, false, 'pier-steps');
   }
   const pacificWheel = createPacificWheel();
-  root.add(ocean.mesh, pacificWheel.root);
+  root.add(ocean.mesh, pacificWheel.root, createEasternFoothills());
 
   // Distant metropolitan silhouettes wrap the drivable district without walls.
   // Conventional repeated interior atlas here gives each long strip a bank of

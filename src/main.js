@@ -9,6 +9,7 @@ import { keyboardCode } from './input-prompts.js';
 import { createAudio } from './audio.js';
 import { createAtmosphere } from './atmosphere.js';
 import { createEnvironmentLighting } from './environment-lighting.js';
+import { loadVehicleProbe } from './vehicle-probe.js';
 import { createDistrictLighting } from './district-lighting.js';
 import { createRendering } from './rendering.js';
 import { createGamepadInput } from './gamepad.js';
@@ -48,6 +49,7 @@ const renderer = new THREE.WebGLRenderer({canvas, antialias:false, powerPreferen
 const gl=renderer.getContext(),debugInfo=gl.getExtension('WEBGL_debug_renderer_info');
 const softwareRenderer=debugInfo&&/swiftshader|llvmpipe|software/i.test(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL));
 let graphicsQuality = softwareRenderer ? 'performance' : 'high';
+const vehicleProbe = loadVehicleProbe(graphicsQuality);
 let fastMotion = false, lastMotionTime = -Infinity;
 function gameplayPixelRatio() {
  if (graphicsQuality === 'high') return softwareRenderer ? .65 : Math.min(devicePixelRatio, 1.5);
@@ -140,7 +142,7 @@ const photoActorVisibility=createPhotoActorVisibility({pedestrians,vehicles});
 // A single local depth map adds face/limb contact only in close daylight photos.
 const photoShadowActors=()=>[player,contactActor,...pedestrians.map(p=>p.actor),...officers,...vehicles.map(car=>car.driver)].filter(Boolean);
 const localSelfShadow=createPhotoCharacterShadow({renderer,camera,scene,sun,getActors:photoShadowActors});
-const environmentLighting=createEnvironmentLighting({renderer,captureVehicleCube,apply:applyEnvironmentMaps});
+const environmentLighting=createEnvironmentLighting({renderer,captureVehicleCube,createVehicleTarget:vehicleProbe.createTarget,apply:applyEnvironmentMaps});
 const effectShaderWarmup=createEffectShaderWarmup({renderer,materials:effectMaterials,
  prepare:retainedMaterials=>warmKnownEffectVariants({renderer,camera,scene,retainedMaterials,
   sun,hemisphere,streetLights,headlights,dayEnvironment:effectDayEnvironment}),
@@ -503,7 +505,7 @@ function interact(){
  if(result.ammo)state.reserve=Math.min(192,state.reserve+result.ammo);
  if(result.repair){currentCar.health=100;currentCar.model.setDamage?.(100);}
  if(result.rest){state.health=100;state.stamina=100;state.reserve=Math.max(96,state.reserve);sound.notify();}
- if(result.delivered){currentCar.isJobCar=false;state.health=Math.max(75,state.health);contactActor.performGesture?.('handoff');cameraCue='handoff';conversationUntil=elapsed+3.3;sound.handoff?.();}
+ if(result.delivered){currentCar.isJobCar=false;state.health=Math.max(75,state.health);contactActor.performGesture?.('handoff',job.getState().lastLight?.cleanEligible);cameraCue='handoff';conversationUntil=elapsed+3.3;sound.handoff?.();}
  if(result.screeningStarted){
   world.restartPierScreening();
   if(!night)ui.selectTime('night');
@@ -823,6 +825,7 @@ function updateCamera(dt){
  const base=currentCar?currentCar.model.mesh.position:player.mesh.position;
  const roadPace=currentCar?clamp(Math.abs(currentCar.speed)/34,0,1):0;
  const speedBlend=roadPace*roadPace*(3-2*roadPace);
+ let speakerWeight=0;
  if(conversationUntil>elapsed){
   const moving=Math.abs(currentCar?.speed||0)>1.5||pad.moveX||pad.moveY||pad.throttle||
    keys.has('KeyW')||keys.has('KeyA')||keys.has('KeyS')||keys.has('KeyD')||
@@ -830,7 +833,10 @@ function updateCamera(dt){
   if(moving||aiming||interaction||state.paused||state.mapOpen)conversationUntil=0;
   else{
    // Follow Mara's gesture to the car she is describing across the street.
-   const showCar=cameraCue==='briefing'&&!currentCar&&elapsed>conversationUntil-3.55;
+   const briefing=cameraCue==='briefing'&&!currentCar;
+   const remaining=conversationUntil-elapsed;
+   if(briefing)speakerWeight=THREE.MathUtils.smoothstep(remaining,2.75,3.15);
+   const showCar=briefing&&remaining<3.05;
    const p = watchingFilm() ? PIER_SCREEN_CENTER : showCar ? heroCar.model.mesh.position : contactActor.mesh.position;
    const heading=Math.atan2(base.x-p.x,base.z-p.z);
    yaw+=angleDiff(yaw,heading)*(1-Math.exp(-3.5*dt));
@@ -853,17 +859,31 @@ function updateCamera(dt){
  const forward=new THREE.Vector3(-Math.sin(horizontal)*Math.cos(vertical),-Math.sin(vertical),-Math.cos(horizontal)*Math.cos(vertical));
  const right=new THREE.Vector3(Math.cos(horizontal),0,-Math.sin(horizontal));
  const desired=pivot.clone().addScaledVector(forward,-dist).addScaledVector(right,shoulder);
+ let face;
+ if(speakerWeight>0){
+  face=contactActor.mesh.position.clone();face.y+=1.47;
+  const towardPlayer=new THREE.Vector3(base.x-face.x,0,base.z-face.z);
+  if(towardPlayer.lengthSq()<.001)towardPlayer.set(Math.sin(contactActor.mesh.rotation.y),0,Math.cos(contactActor.mesh.rotation.y));
+  towardPlayer.normalize();
+  const portrait=face.clone().addScaledVector(towardPlayer,2.4);
+  portrait.x+=towardPlayer.z*.95;portrait.z-=towardPlayer.x*.95;portrait.y+=.14;
+  desired.lerp(portrait,speakerWeight);
+ }
  if(currentCar)desired.y+=1.0+.22*speedBlend;desired.y=Math.max(.35,desired.y);
  camera.position.lerp(clipCameraBoom(pivot,desired),1-Math.exp(-(currentCar?10+roadPace*9:ads?16:9)*dt));
  camera.position.copy(clipCameraBoom(pivot,camera.position));camera.position.y=Math.max(.35,camera.position.y);
  // Use one forward direction for view, reticle and shot convergence. Orbit
  // pitch is an actual angle, rather than moving a camera that looks at a fixed Y.
  cameraLook.copy(camera.position).addScaledVector(forward,30);
+ if(face){
+  const towardFace=face.sub(camera.position).normalize();
+  cameraLook.lerp(towardFace.multiplyScalar(30).add(camera.position),speakerWeight);
+ }
  if(currentCar)cameraLook.y-=2.8*Math.cos(vertical);
  camera.lookAt(cameraLook);
  const lean=currentCar?clamp(-currentCar.steer*Math.abs(currentCar.speed)*.004,-.035,.035):0;
  cameraRoll=damp(cameraRoll,lean,4,dt);camera.rotateZ(cameraRoll);
- camera.fov=damp(camera.fov,currentCar?55+12*speedBlend:ads?46:55+3*sprintView,currentCar?3.5:10,dt);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
+ camera.fov=damp(camera.fov,currentCar?55+12*speedBlend:ads?46:55+3*sprintView-12*speakerWeight,currentCar?3.5:10,dt);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
 }
 function updateNightLights(){
  if(!night)return;
@@ -949,6 +969,8 @@ function updateGame(dt){
  }else if(!state.started){vehicles.forEach(c=>c.model.update(simDt,0,0));pedestrians.forEach(p=>{p.actor.mesh.visible=p.actor.mesh.position.distanceTo(camera.position)<70;p.actor.advance(simDt,{speed:0});});player?.update(simDt,{speed:0});}
  for(const c of vehicles)if(c!==currentCar&&!c.traffic&&!c.police&&!c.occupied&&Math.abs(c.speed)>.05){updateVehiclePhysics(c,simDt,{throttle:0,steering:0,moveBody,vehicles,carsOverlap});c.model.update(simDt,c.speed,c.steer);}
  updateDrivers(simDt);contactActor?.advance(simDt,{speed:0,
+  dialogueLine:state.subtitleSpeaker==='MARA'&&state.health>0&&player.mesh.position.distanceToSquared(contactActor.mesh.position)<49?state.subtitle:'',
+  dialogueFocus:heroCar.model.mesh.position,
   lookTarget:state.started&&state.health>0?nearbyFaceTarget(contactActor,player,contactLookTarget):null});
  if(job){const progress=job.getState();Object.assign(state,progress);mission=progress.mission;
  const selectedPickup=progress.nightShiftSelectedPickup;
@@ -1173,7 +1195,7 @@ function captureVehicleCube(dayEnvironment,skyData){
 
 async function boot(){
  try{
-  const [skyData]=await Promise.all([atmosphere.ready,world.ready,charactersReady]);
+  const [skyData]=await Promise.all([atmosphere.ready,world.ready,charactersReady,vehicleProbe.ready]);
   if(skyData?.texture){
    world.setSky(skyData);
    sunOffset.copy(skyData.sunDirection).multiplyScalar(350);
@@ -1217,12 +1239,13 @@ function frame(now){
  }
  if(lastEnvironmentBuild!==environmentLighting.revision){lastEnvironmentBuild=environmentLighting.revision;now=performance.now();lastFrame=now;}
  pollController(Math.min(.25,Math.max(0,(now-lastFrame)/1000)));
- // Render one warm frame, then let the opaque title artwork own the screen.
- if (!state.started && renderFrame > 0) {
+ // The title is opaque. Save the first scene submission for the playable camera.
+ if (!state.started) {
   lastFrame = now;
   requestAnimationFrame(frame);
   return;
  }
+ if(renderFrame===0)updateCamera(10);
  renderFrame++;
  const wallDt=Math.max(0,(now-lastFrame)/1000),dt=Math.min(wallDt,.25);lastFrame=now;frameCount++;fpsTimer+=wallDt;
  if(fpsTimer>1){state.fps=Math.round(frameCount/fpsTimer);frameCount=0;fpsTimer=0;}
@@ -1230,6 +1253,6 @@ function frame(now){
  // pose once while the photo camera and presentation keep their frame cadence.
  advanceFrameSimulation(dt,state.paused||state.mapOpen);photo.update(dt,keys);updatePresentation(dt);world.updateWires(camera,renderer.getDrawingBufferSize(drawingSize));const refreshShadows=renderer.shadowMap.enabled&&(renderer.shadowMap.autoUpdate||renderer.shadowMap.needsUpdate);
  if(refreshShadows){sun.updateWorldMatrix(true,false);sun.target.updateWorldMatrix(true,false);sun.shadow.updateMatrices(sun);}
- world.updateInstanceVisibility(camera,{preserveShadows:refreshShadows,shadowFrusta:refreshShadows?[sun.shadow.getFrustum()]:undefined});localSelfShadow.update({photoActive:photo.active,night,started:state.started});rendering.render();photo.afterRender();requestAnimationFrame(frame);
+ world.updateInstanceVisibility(camera,{preserveShadows:refreshShadows,shadowFrusta:refreshShadows?[sun.shadow.getFrustum()]:undefined});localSelfShadow.update({photoActive:photo.active,night,started:state.started});rendering.render();if(renderFrame===1)ui.revealGame();photo.afterRender();requestAnimationFrame(frame);
 }
 boot();

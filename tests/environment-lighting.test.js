@@ -10,7 +10,7 @@ function sky({ night = true, separated = true } = {}) {
   return { texture, lightingTexture: separated ? disposable('lighting HDR') : texture,
     nightTexture: night ? disposable('night HDR') : undefined };
 }
-function setup() {
+function setup(createVehicleTarget) {
   const listeners = new Map();
   const canvas = new EventTarget();
   const add = canvas.addEventListener.bind(canvas), remove = canvas.removeEventListener.bind(canvas);
@@ -23,7 +23,7 @@ function setup() {
     setRenderTarget(target, nextFace = 0, nextMip = 0) { currentTarget = target; face = nextFace; mip = nextMip; } };
   const targets = [], generators = [], captures = [], publications = [], inputs = [], hooks = {};
   const target = name => { const value = { ...disposable(name), texture: { name: `${name} texture` } }; targets.push(value); return value; };
-  const controller = createEnvironmentLighting({ renderer,
+  const controller = createEnvironmentLighting({ renderer, createVehicleTarget,
     createPMREM() {
       const generator = { ...disposable('generator'),
         fromEquirectangular(source) { inputs.push(source); hooks.equirect?.(source); return target(`environment ${targets.length}`); },
@@ -166,4 +166,21 @@ test('disposal during capture cleans the in-flight build without publishing it',
   assert.equal(f.publications.length, 0); assert.equal(f.listeners.size, 0);
   assert.ok(f.targets.every(target => target.disposals === 1));
   assert.equal(f.captures[0].disposals, 1); assert.equal(f.generators[0].disposals, 1);
+});
+
+test('a retained vehicle probe creates a fresh texture wrapper on restore without recapturing the city', () => {
+  const textures = [], atlas = new Uint16Array(8);
+  const f = setup((shadows, source) => {
+    assert.ok(source.lightingTexture);
+    const texture = { image: { data: atlas } };
+    const target = { ...disposable('retained probe'), texture };
+    textures.push(target);
+    return target;
+  });
+  f.controller.setSky(sky()); assert.equal(f.controller.update(), true);
+  f.lose(); f.restore(); assert.equal(f.controller.update(), true);
+  assert.equal(textures.length, 2); assert.equal(f.captures.length, 0);
+  assert.equal(textures[0].disposals, 1);
+  assert.equal(f.publications[1].vehicle.image.data, atlas);
+  assert.notEqual(f.publications[0].vehicle, f.publications[1].vehicle);
 });

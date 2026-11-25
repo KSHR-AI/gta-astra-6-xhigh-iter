@@ -82,7 +82,7 @@ export function compactCharacterModel(input, emitTexture) {
     previews.set(view, preview);
   }
   gltf.bufferViews = reachable(gltf.bufferViews, viewRefs);
-  const chunks = [];
+  const chunks = [], locations = new Map();
   let offset = 0;
   for (const view of gltf.bufferViews) {
     const start = view.byteOffset ?? 0;
@@ -90,6 +90,15 @@ export function compactCharacterModel(input, emitTexture) {
     if (view.buffer !== 0 || original.length !== view.byteLength) throw new Error('Invalid character buffer view');
     const bytes = previews.get(view) ?? original;
     view.byteLength = bytes.length;
+    // Alternate primitives can share the same encoded attribute bytes. Keep all
+    // view definitions (including targets and strides) and reuse the BIN range.
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const previous = locations.get(hash);
+    if (previous !== undefined) {
+      view.byteOffset = previous;
+      continue;
+    }
+    locations.set(hash, offset);
     const padding = (4 - bytes.length % 4) % 4;
     chunks.push(bytes, Buffer.alloc(padding));
     view.byteOffset = offset;

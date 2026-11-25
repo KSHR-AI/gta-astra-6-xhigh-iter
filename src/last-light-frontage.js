@@ -1,8 +1,10 @@
+import { addCalypsoFacade } from './calypso-facade.js';
 import * as THREE from 'three';
 
 // The Paloma, Calypso and the lane mouths use the district's existing instanced
 // material batches. The lamps use baked emissive faces without extra lights.
 export function addLastLightFrontage(api) {
+  addCalypsoFacade(api);
   const {box,walkableBox,cylinder,line,panel,materials:m,sign}=api;
   const floor=walkableBox ?? box;
   // Palm-green porte-cochère: layer the stepped roof, ribbed cream soffit,

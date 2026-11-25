@@ -40,6 +40,14 @@ for (const name of ['Male', 'Female']) test(`${name} delivery preserves geometry
     assert.deepEqual(delivered.data[key], source.data[key]);
   }
   assert.ok(output.byteLength < input.byteLength / 2);
+  const physicalRanges = new Map();
+  for (const [index, view] of delivered.data.bufferViews.entries()) {
+    const bytes = delivered.view(index), digest = hash(bytes);
+    assert.equal(view.byteOffset % 4, 0);
+    if (physicalRanges.has(digest)) assert.equal(view.byteOffset, physicalRanges.get(digest));
+    physicalRanges.set(digest, view.byteOffset);
+  }
+  assert.ok(physicalRanges.size < delivered.data.bufferViews.length, 'duplicate authored views share a BIN range');
   for (const [index, image] of delivered.data.images.entries()) {
     const original = source.view(source.data.images[index].bufferView);
     const initial = delivered.view(image.bufferView);

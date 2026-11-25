@@ -227,3 +227,7 @@ Night Shift’s linen bundles, projection cases, glass racks, trolleys, and deta
 The four coastal travelogue stills in `public/art/world/pier-travelogue.webp` were generated specifically for the pier drive-in with OpenAI ImageGen. `src/pier-screening.js` provides their projection, camera moves and optical dissolves.
 
 Astra Auto Works’ service furniture, tools, brake display, alignment diagram and parts shelving are original procedural artwork in `src/workshop-interior.js`. The period roadster sign at `public/art/world/astra-workshop.webp` is an original AI-generated illustration for the game. It loads on approach to the workshop. The interior reuses the district’s four-light night budget.
+
+Calypso’s limestone crown, bronze sunburst, window bays and shade ledges are original district geometry in `src/calypso-facade.js`. The low ridge visible down the eastbound streets is an original vertex-colored terrain mesh in `src/eastern-foothills.js`.
+
+Mara’s briefing and handoff use an original expression field in `src/mara-expression.js`. It deforms the existing female head and brow meshes and directs her eyes toward the Aurora. The source character and texture credits above also apply to these shots.
