@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blender · Grand Theft Astra</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #171a20; color: #eceff4; font: 14px system-ui, sans-serif; height: 100dvh; display: flex; flex-direction: column; }
+    header { display: flex; align-items: center; gap: 12px; padding: 9px 14px; background: #252a33; flex-wrap: wrap; }
+    strong { letter-spacing: .03em; } #status { color: #a8b3c5; flex: 1; }
+    button { border: 1px solid #535d6d; color: inherit; background: #333b48; padding: 7px 11px; border-radius: 5px; cursor: pointer; }
+    button:hover { background: #49546a; } button:focus-visible { outline: 2px solid #f5a35b; }
+    #screen { flex: 1; min-height: 0; overflow: hidden; }
+    footer { font-size: 12px; color: #acb6c8; padding: 6px 14px; }
+    dialog { background: #252a33; color: #eceff4; border: 1px solid #535d6d; border-radius: 10px; max-width: 560px; }
+    dialog::backdrop { background: #0009; } li { margin: 12px 0; } code { color: #f5ba81; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>BLENDER / GRAND THEFT ASTRA</strong>
+    <span id="status" role="status">Connecting to desktop…</span>
+    <button id="save" title="Send Ctrl+S to Blender">Save</button>
+    <button id="search" title="Send F3 to search Blender commands">Command search</button>
+    <button id="fullscreen">Fullscreen</button>
+    <button id="help">Help</button>
+    <button id="reconnect" hidden>Reconnect</button>
+  </header>
+  <main id="screen" aria-label="Interactive Blender desktop"></main>
+  <footer>Click the viewport to use Blender. Middle-drag to orbit · Scroll to zoom · Tab for Edit Mode · Source art: art/blender/</footer>
+  <dialog id="instructions">
+    <h2>Blender workspace</h2>
+    <ul>
+      <li>Click inside the desktop to give Blender keyboard focus. The toolbar sends shortcuts that browsers may otherwise intercept.</li>
+      <li>Use <b>File → Import → glTF 2.0</b> to open the game's models in <code>public/models/</code>. Save editable projects in <code>art/blender/</code>.</li>
+      <li>Export game-ready meshes with <b>File → Export → glTF 2.0</b>, choosing <b>glTF Binary (.glb)</b>.</li>
+      <li>This cloud desktop uses CPU graphics. Solid shading is best for modeling; complex rendered previews can be slow.</li>
+      <li>Closing Blender reopens it. Save your work before restarting the desktop service. Reloading this browser page keeps Blender running.</li>
+    </ul>
+    <button id="dismiss">Back to Blender</button>
+  </dialog>
+  <script type="module">
+    import RFB from './novnc/core/rfb.js';
+    const screen = document.querySelector('#screen');
+    const status = document.querySelector('#status');
+    const reconnect = document.querySelector('#reconnect');
+    let rfb;
+    function connect() {
+      rfb?.disconnect();
+      screen.replaceChildren();
+      status.textContent = 'Connecting to desktop…';
+      reconnect.hidden = true;
+      const connection = new RFB(screen, `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/websockify`);
+      rfb = connection;
+      connection.scaleViewport = true;
+      connection.resizeSession = false;
+      connection.qualityLevel = 7;
+      connection.compressionLevel = 2;
+      connection.addEventListener('connect', () => { status.textContent = 'Desktop connected'; });
+      connection.addEventListener('disconnect', () => {
+        if (rfb !== connection) return;
+        status.textContent = 'Desktop disconnected';
+        reconnect.hidden = false;
+      });
+    }
+    function shortcut(keysym, code, control = false) {
+      if (control) rfb.sendKey(0xffe3, 'ControlLeft', true);
+      rfb.sendKey(keysym, code);
+      if (control) rfb.sendKey(0xffe3, 'ControlLeft', false);
+      rfb.focus();
+    }
+    document.querySelector('#save').onclick = () => shortcut(0x73, 'KeyS', true);
+    document.querySelector('#search').onclick = () => shortcut(0xffc0, 'F3');
+    document.querySelector('#fullscreen').onclick = async () => {
+      try { document.fullscreenElement ? await document.exitFullscreen() : await document.documentElement.requestFullscreen(); }
+      catch { status.textContent = 'Open this preview in a tab to use fullscreen'; }
+      rfb.focus();
+    };
+    document.querySelector('#help').onclick = () => document.querySelector('#instructions').showModal();
+    document.querySelector('#dismiss').onclick = () => { document.querySelector('#instructions').close(); rfb.focus(); };
+    reconnect.onclick = connect;
+    connect();
+  </script>
+</body>
+</html>

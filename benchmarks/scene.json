@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "width": 960,
+  "height": 540,
+  "backend": "webgl2",
+  "antialias": false,
+  "warmupMs": 4000,
+  "durationMs": 12000,
+  "shadowMapSize": 1024,
+  "background": "#9db6cd",
+  "ground": {
+    "size": 110,
+    "color": "#5c6263"
+  },
+  "buildings": {
+    "rows": 8,
+    "columns": 8,
+    "spacing": 10,
+    "width": 6,
+    "depth": 6,
+    "colors": [
+      "#bfb6a5",
+      "#718393",
+      "#a7aaa6",
+      "#9a8d7c"
+    ],
+    "roadOffset": 8
+  },
+  "camera": {
+    "radius": 65,
+    "height": 32,
+    "target": [
+      0,
+      4,
+      0
+    ],
+    "fovDegrees": 60,
+    "near": 0.1,
+    "far": 180,
+    "orbitRadiansPerSecond": 0.08
+  },
+  "sun": {
+    "position": [
+      30,
+      55,
+      30
+    ],
+    "intensity": 2,
+    "color": "#fff3de"
+  },
+  "ambient": {
+    "color": "#d6e5ff",
+    "intensity": 0.65
+  },
+  "assets": {
+    "car": {
+      "url": "/models/vehicles/ferrari-lod.glb",
+      "positions": [
+        [
+          -8,
+          0,
+          -0.8
+        ],
+        [
+          8,
+          0,
+          -0.8
+        ]
+      ],
+      "yaw": 1.5707963267948966
+    },
+    "character": {
+      "url": "/models/Soldier.glb",
+      "positions": [
+        [
+          -6,
+          0,
+          1
+        ],
+        [
+          -2,
+          0,
+          1
+        ],
+        [
+          2,
+          0,
+          1
+        ],
+        [
+          6,
+          0,
+          1
+        ]
+      ],
+      "clip": "Walk"
+    }
+  }
+}

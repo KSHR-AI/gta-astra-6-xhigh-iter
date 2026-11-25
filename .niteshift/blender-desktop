@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+repo_dir=$PWD
+command -v blender >/dev/null || { echo 'Run .niteshift/setup to install Blender first.' >&2; exit 1; }
+
+# Separate from Niteshift's :99 browser display and its reserved VNC ports.
+export DISPLAY=:100
+export LIBGL_ALWAYS_SOFTWARE=1
+export LP_NUM_THREADS=4
+export OMP_NUM_THREADS=4
+export XDG_RUNTIME_DIR="${TMPDIR:-/tmp}/astra-blender-runtime-$(id -u)"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+runtime_dir=$(mktemp -d /tmp/astra-blender-desktop.XXXXXX)
+pids=()
+cleanup() {
+  trap - EXIT INT TERM
+  if (( ${#pids[@]} )); then
+    kill "${pids[@]}" 2>/dev/null || true
+    wait "${pids[@]}" 2>/dev/null || true
+  fi
+  rm -r "$runtime_dir"
+}
+trap cleanup EXIT
+trap 'exit 0' INT TERM
+
+if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+  echo "Display $DISPLAY is already in use; refusing to share another desktop." >&2
+  exit 1
+fi
+Xvfb "$DISPLAY" -screen 0 1600x900x24 -nolisten tcp -noreset >"$runtime_dir/xvfb.log" 2>&1 &
+pids+=("$!")
+for attempt in {1..50}; do
+  xdpyinfo -display "$DISPLAY" >/dev/null 2>&1 && break
+  kill -0 "${pids[0]}" 2>/dev/null || { cat "$runtime_dir/xvfb.log" >&2; exit 1; }
+  sleep 0.1
+done
+xdpyinfo -display "$DISPLAY" >/dev/null
+openbox --sm-disable &
+pids+=("$!")
+xsetroot -solid '#1c2028'
+
+# RFB stays on loopback; only the web client is exposed behind preview authentication.
+x11vnc -display "$DISPLAY" -localhost -rfbport 5902 -forever -shared -nopw \
+  -xkb -noxdamage -quiet &
+pids+=("$!")
+cp .niteshift/desktop/index.html "$runtime_dir/index.html"
+ln -s /usr/share/novnc "$runtime_dir/novnc"
+websockify --web "$runtime_dir" "${PORT:-6082}" localhost:5902 &
+pids+=("$!")
+
+# Reopening Blender does not restart the desktop. User preferences remain in ~/.config/blender.
+(
+  trap '[[ -z ${editor_pid:-} ]] || kill "$editor_pid" 2>/dev/null; exit 0' INT TERM
+  while true; do
+    blender --window-geometry 0 0 1600 900 --threads 4 --python "$repo_dir/scripts/blender/startup.py" &
+    editor_pid=$!
+    wait "$editor_pid" || true
+    sleep 2
+  done
+) &
+pids+=("$!")
+
+# Let the service supervisor restart the complete desktop if a required process fails.
+wait -n "${pids[@]}"
+exit 1

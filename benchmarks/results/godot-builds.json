@@ -1,0 +1,27 @@
+{
+  "recordedAt": "2026-10-15T23:37:57.670964+00:00",
+  "engine": "Godot",
+  "version": "4.7.2.stable.official.ed1daf0bf",
+  "conditions": [
+    "Official precompiled single-thread Compatibility release web template; this measures export/packing, not engine compilation.",
+    "Source assets and importer settings prepared before this command; OS filesystem caches are not flushed.",
+    "Invoke only after all rendering benchmarks and other builds are paused.",
+    "Cold import means no Godot .godot resource cache. Importer settings retain disabled mesh LOD/shadow-mesh generation. Download/source and OS page caches are warm."
+  ],
+  "coldImportSeconds": 3.393,
+  "warmExportSeconds": [
+    3.365,
+    3.215,
+    3.112
+  ],
+  "files": {
+    "index.audio.position.worklet.js": 2973,
+    "index.audio.worklet.js": 7298,
+    "index.html": 2927,
+    "index.js": 279815,
+    "index.pck": 2668696,
+    "index.png": 21443,
+    "index.wasm": 39514754
+  },
+  "webBytes": 42497906
+}

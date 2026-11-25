@@ -1,19 +1,41 @@
 import * as THREE from 'three';
+import { applyCityMaterials } from './world-materials.js';
+import { addAuthoredDistrict } from './world-district.js';
+import { addStreetDetails } from './world-streets.js';
+import { createPalmAssets } from './world-palms.js';
+import { createShrubBuilder } from './world-shrubs.js';
+import { createOcean } from './world-ocean.js';
+import { createCityProps } from './world-props.js';
+import { createInstanceVisibility } from './instance-visibility.js';
+import { createBuildingOcclusion } from './building-occlusion.js';
+import { createWalkableGround } from './world-ground.js';
+import { applyBeachSurface } from './beach-surface.js';
+import { createBeachParasols } from './beach-parasols.js';
 
 // Everything in the district is real geometry. Repeated architectural details
 // share instanced meshes, so the dense streetscape stays inexpensive to render.
 export function createWorld(scene) {
   const root = new THREE.Group();
-  root.name = 'Pacific district';
+  root.name = 'Grand Theft Astra — Pacific district';
   scene.add(root);
   const colliders = [];
+  const ground = createWalkableGround();
+  const solidBuildingBounds = [];
+  const lampPositions = [];
+  const illuminatedSigns = [];
   const batches = new Map();
+  const instanceVisibility = createInstanceVisibility();
   const object = new THREE.Object3D();
   const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
   const panelGeometry = new THREE.PlaneGeometry(1, 1);
   const cylinderGeometry = new THREE.CylinderGeometry(1, 1, 1, 10);
-  const manholeGeometry = new THREE.CylinderGeometry(1, 1, 1, 32);
-  const manholeRimGeometry = new THREE.TorusGeometry(0.495, 0.009, 4, 32);
+  const bayGeometry = new THREE.CylinderGeometry(1, 1, 1, 24);
+  const manholeGeometry = new THREE.CylinderGeometry(1, 1, 1, 48);
+  const manholeRimGeometry = new THREE.LatheGeometry([
+    [.534, .0335], [.534, .0375], [.529, .0415], [.486, .0415],
+    [.482, .0385], [.482, .0335], [.534, .0335],
+  ].map(([radius, y]) => new THREE.Vector2(radius, y)), 48);
+  const manholeSeatGeometry = new THREE.RingGeometry(.476, .486, 48);
   const trunkGeometry = new THREE.CylinderGeometry(0.86, 1, 1, 9);
   const distantTrunkGeometry = new THREE.CylinderGeometry(0.84, 1, 1, 5);
   const sphereGeometry = new THREE.SphereGeometry(1, 8, 5);
@@ -27,11 +49,11 @@ export function createWorld(scene) {
   const mat = (color, roughness = 0.8, extra = {}) =>
     new THREE.MeshStandardMaterial({ color, roughness, ...extra });
   const materials = {
-    limestone: mat('#e8d9c4'), white: mat('#efede0'), pale: mat('#d1cbb8'),
-    blush: mat('#c98e79'), peach: mat('#dec4a2'), terracotta: mat('#98604c'),
-    sage: mat('#9cafa2'), teal: mat('#376e6e'), blue: mat('#688f9c'),
+    limestone: mat('#dacdb5'), white: mat('#e2e0d3'), pale: mat('#c4c0b3'),
+    blush: mat('#bd9581'), peach: mat('#cbb699'), terracotta: mat('#785245'),
+    sage: mat('#96a399'), teal: mat('#3e5b59'), blue: mat('#728b94'),
     concrete: mat('#b2b0a4'), curb: mat('#d2d2c2'), sidewalk: mat('#b8b8aa'),
-    trim: mat('#ece9d7'), dark: mat('#293638', 0.64), metal: mat('#5b6664', 0.42, { metalness: 0.65 }),
+    trim: mat('#d7d2c0'), dark: mat('#263033', 0.64), metal: mat('#616965', 0.42, { metalness: 0.65 }),
     blackMetal: mat('#202b2e', 0.42, { metalness: 0.6 }),
     glass: mat('#527c88', 0.22, { metalness: 0.65 }),
     glassDark: mat('#263f49', 0.24, { metalness: 0.55 }),
@@ -65,6 +87,10 @@ export function createWorld(scene) {
   function box(material, x, y, z, w, h, d, rotation = 0, shadow = true) {
     instance(boxGeometry, material, [x, y, z], [w, h, d], [0, rotation, 0], shadow);
   }
+  function walkableBox(material, x, y, z, w, h, d, rotation = 0, shadow = true, kind = 'floor') {
+    box(material, x, y, z, w, h, d, rotation, shadow);
+    ground.addBox({ x, y, z, width: w, height: h, depth: d, rotation, kind });
+  }
   function panel(material, x, y, z, width, height, rotation = 0) {
     instance(panelGeometry, material, [x, y, z], [width, height, 1], [0, rotation, 0], false);
   }
@@ -94,50 +120,9 @@ export function createWorld(scene) {
     texture.anisotropy = 4;
     return texture;
   }
-  const asphaltTexture = canvasTexture(512, 512, (ctx, w, h) => {
-    ctx.fillStyle = '#8b8e88'; ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 26000; i++) {
-      const value = Math.floor(range(65, 170));
-      ctx.fillStyle = `rgba(${value},${value},${value - 3},${range(0.1, 0.45)})`;
-      ctx.fillRect(random() * w, random() * h, range(0.5, 2), range(0.5, 2));
-    }
-    for (let i = 0; i < 12; i++) {
-      ctx.strokeStyle = 'rgba(35,37,34,.08)'; ctx.lineWidth = range(1, 3);
-      ctx.beginPath(); ctx.moveTo(random() * w, 0);
-      ctx.bezierCurveTo(random() * w, h / 3, random() * w, h / 2, random() * w, h); ctx.stroke();
-    }
-  });
-  asphaltTexture.wrapS = asphaltTexture.wrapT = THREE.RepeatWrapping;
-  asphaltTexture.repeat.set(8, 100);
-  materials.asphalt.map = asphaltTexture;
-  const asphaltBump = asphaltTexture.clone();
-  asphaltBump.colorSpace = THREE.NoColorSpace;
-  asphaltBump.needsUpdate = true;
-  materials.asphalt.bumpMap = asphaltBump;
-  materials.asphalt.bumpScale = 0.055;
-  const previousSeed = seed;
-  const asphaltRoughness = canvasTexture(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#f2f2f2'; ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 14000; i++) {
-      const value = Math.floor(range(175, 250));
-      ctx.fillStyle = `rgb(${value},${value},${value})`;
-      ctx.fillRect(random() * w, random() * h, range(0.5, 2), range(0.5, 2));
-    }
-  });
-  seed = previousSeed;
-  asphaltRoughness.colorSpace = THREE.NoColorSpace;
-  asphaltRoughness.wrapS = asphaltRoughness.wrapT = THREE.RepeatWrapping;
-  asphaltRoughness.repeat.copy(asphaltTexture.repeat);
-  materials.asphalt.roughnessMap = asphaltRoughness;
-  const wallTexture = canvasTexture(128, 128, (ctx, w, h) => {
-    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
-    for (let i = 0; i < 4200; i++) {
-      ctx.fillStyle = `rgba(70,65,50,${random() * 0.055})`;
-      ctx.fillRect(random() * w, random() * h, 1, 1);
-    }
-  });
-  wallTexture.wrapS = wallTexture.wrapT = THREE.RepeatWrapping;
-  for (const key of ['limestone', 'white', 'pale', 'blush', 'peach', 'terracotta', 'sage', 'concrete']) materials[key].map = wallTexture;
+  const { ready: materialReady } = applyCityMaterials(materials, canvasTexture, random);
+  const { ready: beachReady } = applyBeachSurface(materials.sand);
+  const shrub = createShrubBuilder({ instance, materials, canvasTexture, random, range });
   const breeze = { value: 0 };
   materials.leaves.onBeforeCompile = shader => {
     shader.uniforms.breezeTime = breeze;
@@ -155,23 +140,29 @@ export function createWorld(scene) {
   };
 
   // Terrain and street grid. Pavements sit above the roads, with actual curbs.
-  box(materials.sand, -310, -0.24, -25, 900, 0.35, 1200, 0, false);
-  box(materials.sidewalk, 51, -0.10, -25, 324, 0.25, 540, 0, false);
+  // End the land at the beach; a flat slab under the waves would cut through
+  // their troughs and expose large triangular patches of sand offshore.
+  walkableBox(materials.sand, -5, -0.24, -25, 290, 0.35, 1200, 0, false, 'sand');
+  walkableBox(materials.sidewalk, 51, -0.10, -25, 324, 0.25, 540, 0, false, 'base-paving');
   const roads = [
     { x: 0, z: -20, width: 22, length: 440, axis: 'z' },
     { x: 80, z: -20, width: 20, length: 440, axis: 'z' },
     ...[-90, 0, 90].map(z => ({ x: 37, z, width: 20, length: 290, axis: 'x' })),
   ];
-  for (const road of roads) box(materials.asphalt, road.x, 0.012, road.z, road.axis === 'x' ? road.length : road.width, 0.045, road.axis === 'x' ? road.width : road.length, 0, false);
+  for (const road of roads) walkableBox(materials.asphalt, road.x, 0.012, road.z, road.axis === 'x' ? road.length : road.width, 0.045, road.axis === 'x' ? road.width : road.length, 0, false, 'road');
   const intersections = [-90, 0, 90];
   const nearCross = (z, margin = 15) => intersections.some(c => Math.abs(z - c) < margin);
   const segments = [[-240, -100], [-80, -10], [10, 80], [100, 200]];
   for (const [start, end] of segments) {
     for (const x of [-14.1, 14.1, 66.8, 93.2]) {
-      box(materials.sidewalk, x, 0.10, (start + end) / 2, 5.7, 0.24, end - start, 0, false);
       const curbX = x < 0 ? -11.25 : x < 30 ? 11.25 : x < 80 ? 69.65 : 90.35;
-      box(materials.curb, curbX, 0.18, (start + end) / 2, 0.24, 0.32, end - start, 0, false);
-      for (let z = start + 3; z < end; z += 4) box(materials.concrete, x, 0.225, z, 5.5, 0.01, 0.025, 0, false);
+      // The repair shop has a flush, wide driveway through the actual curb.
+      const pavement = x === 14.1 && start < -132 && end > -120 ? [[start, -132], [-120, end]] : [[start, end]];
+      for (const [a, b] of pavement) {
+        walkableBox(materials.sidewalk, x, 0.10, (a + b) / 2, 5.7, 0.24, b - a, 0, false, 'sidewalk');
+        walkableBox(materials.curb, curbX, 0.18, (a + b) / 2, 0.24, 0.32, b - a, 0, false, 'curb');
+        for (let z = a + 3; z < b; z += 4) box(materials.concrete, x, 0.225, z, 5.5, 0.01, 0.025, 0, false);
+      }
     }
     for (const x of [-0.15, 0.15, 79.85, 80.15]) box(materials.yellow, x, 0.039, (start + end) / 2, 0.1, 0.012, end - start, 0, false);
     for (const x of [-10.4, 10.4, 70.6, 89.4]) box(materials.paint, x, 0.04, (start + end) / 2, 0.11, 0.012, end - start, 0, false);
@@ -190,10 +181,10 @@ export function createWorld(scene) {
       for (const side of [-1, 1]) box(materials.paint, xCenter + side * 5.4, 0.051, z + side * 16, 9.2, 0.014, 0.23, 0, false);
     }
     for (const side of [-1, 1]) {
-      box(materials.sidewalk, -55, 0.1, z + side * 13, 88, 0.24, 5.5, 0, false);
-      box(materials.sidewalk, 40, 0.1, z + side * 13, 48, 0.24, 5.5, 0, false);
-      box(materials.curb, -55, 0.18, z + side * 10.2, 88, 0.3, 0.23, 0, false);
-      box(materials.curb, 40, 0.18, z + side * 10.2, 48, 0.3, 0.23, 0, false);
+      walkableBox(materials.sidewalk, -55, 0.1, z + side * 13, 88, 0.24, 5.5, 0, false, 'sidewalk');
+      walkableBox(materials.sidewalk, 40, 0.1, z + side * 13, 48, 0.24, 5.5, 0, false, 'sidewalk');
+      walkableBox(materials.curb, -55, 0.18, z + side * 10.2, 88, 0.3, 0.23, 0, false, 'curb');
+      walkableBox(materials.curb, 40, 0.18, z + side * 10.2, 48, 0.3, 0.23, 0, false, 'curb');
     }
   }
   // Painted turn arrows and manhole covers add scale at eye level.
@@ -204,11 +195,28 @@ export function createWorld(scene) {
     box(materials.paint, x + 0.35, 0.055, z + dir * 0.9, 0.16, 0.014, 1, -dir * 0.78, false);
   }
   for (let z = -210; z < 190; z += 39) {
-    instance(manholeGeometry, materials.iron, [1.8, 0.037, z], [0.52, 0.008, 0.52], [0, 0, 0], false);
-    instance(manholeRimGeometry, materials.dark, [1.8, 0.042, z], [1, 1, 0.2], [-Math.PI / 2, 0, 0], false);
-    for (let offset = -0.3; offset <= 0.3; offset += 0.1) {
-      box(materials.dark, 1.8, 0.043, z + offset, Math.sqrt(0.17 - offset * offset) * 2, 0.002, 0.012, 0, false);
-    }
+    // A recessed seat and bevelled frame meet the .0345 m road surface.
+    // Cast tread, lifting pockets and lettering use the original PBR atlas.
+    instance(manholeGeometry, materials.iron, [1.8, .0365, z], [.477, .006, .477], [0, 0, 0], false);
+    instance(manholeRimGeometry, materials.manholeFrame, [1.8, 0, z], [1, 1, 1], [0, 0, 0], false);
+    instance(manholeSeatGeometry, materials.dark, [1.8, .0355, z], [1, 1, 1], [-Math.PI / 2, 0, 0], false);
+  }
+  // Surface wear stays flat and instanced: tyre arcs, oil staining and repaired
+  // asphalt sit on the actual drivable road instead of adding collision bumps.
+  for (const [x, z, w, d, rotation] of [[7.6, 28, 2.7, 7, .04], [-7, -31, 3.4, 4.2, -.07], [4.3, -65, 3, 6.2, 0], [-4, 65, 2.5, 9, .04]]) {
+    box(materials.patch, x, .037, z, w, .006, d, rotation, false);
+  }
+  for (let i = 0; i < 29; i++) {
+    const x = i % 2 ? 8.4 : -8.4;
+    const z = -207 + i * 13.3;
+    instance(panelGeometry, materials.stain, [x + range(-1, 1), .058, z], [range(1.8, 4), range(2, 5), 1], [-Math.PI / 2, 0, range(-.5, .5)], false);
+  }
+  for (const z of [-116, -24, 18, 62, 114]) {
+    instance(panelGeometry, materials.tyre, [4.8, .061, z], [2.3, 12, 1], [-Math.PI / 2, 0, -.07], false);
+    instance(panelGeometry, materials.tyre, [-5.1, .061, z - 8], [2.2, 9, 1], [-Math.PI / 2, 0, .08], false);
+  }
+  for (const z of intersections) for (const side of [-1, 1]) {
+    box(materials.red, side * 11.23, .19, z + side * 20, .27, .29, 6.5, 0, false);
   }
 
   function sign(text, x, y, z, width, height, rotation = 0, options = {}) {
@@ -224,6 +232,7 @@ export function createWorld(scene) {
       ctx.fillText(text, w / 2, h / 2 + 3, w - 60);
     });
     const material = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.72, emissive: '#e1c89c', emissiveMap: texture, emissiveIntensity: options.glow || 0.09 });
+    illuminatedSigns.push({material, intensity:material.emissiveIntensity});
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
     mesh.position.set(x, y, z); mesh.rotation.y = rotation; root.add(mesh);
     return mesh;
@@ -233,10 +242,16 @@ export function createWorld(scene) {
     const floorHeight = 3.2;
     const height = 4.2 + floors * floorHeight;
     const detailed = Math.abs(x) < 50 && Math.abs(z) < 100;
-    const palette = [materials.white, materials.limestone, materials.blush, materials.sage, materials.peach, materials.pale];
+    const palette = [materials.white, materials.brick, materials.blush, materials.limestone, materials.pale, materials.sage];
     const facade = palette[style % palette.length];
     const accent = style % 3 === 0 ? materials.teal : style % 3 === 1 ? materials.terracotta : materials.dark;
     box(facade, x, height / 2 + 0.2, z, width, height, depth);
+    // Exact opaque body bounds, distinct from inflated gameplay collision boxes.
+    // Hollow authored interiors are deliberately not registered as occluders.
+    solidBuildingBounds.push(new THREE.Box3(
+      new THREE.Vector3(x - width / 2, .2, z - depth / 2),
+      new THREE.Vector3(x + width / 2, height + .2, z + depth / 2),
+    ));
     colliders.push({ minX: x - width / 2 - 0.2, maxX: x + width / 2 + 0.2, minY: 0, maxY: height + 3, minZ: z - depth / 2 - 0.2, maxZ: z + depth / 2 + 0.2 });
     // Separate retail plinth, cornices, roof coping and recessed dark frontage.
     box(accent, x, 2.0, z, width + 0.15, 3.7, depth + 0.15);
@@ -247,6 +262,12 @@ export function createWorld(scene) {
     for (const dx of [-1, 1]) box(facade, x + dx * (width / 2 - 0.2), height + 0.65, z, 0.4, 0.8, depth);
     if (style === 0 || style === 3) {
       for (let f = 1; f <= floors; f++) box(materials.trim, x, 4.2 + f * floorHeight, z, width + 0.22, 0.13, depth + 0.22, 0, false);
+    }
+    if (style === 3) {
+      // A recessed curtain-wall bay changes the silhouette of the street-facing
+      // elevation; existing glass panels sit in front of its dark backing.
+      box(materials.dark, x + front * (width / 2 + .013), height / 2 + 2.3, z, .035, height - 4.2, depth * .7, 0, false);
+      for (const dz of [-depth * .35, depth * .35]) box(materials.trim, x + front * (width / 2 + .22), height / 2 + 2.1, z + dz, .5, height - 4, .42);
     }
     for (const side of [-1, 1]) {
       for (let i = 0; i < Math.floor(depth / 3.5); i++) {
@@ -314,6 +335,58 @@ export function createWorld(scene) {
       cylinder(materials.metal, xx + 2.6, height + 1.0, z - 2, 0.23, 1.4);
       box(materials.metal, xx + 1.9, height + 0.6, z - 2, 2.1, 0.5, 0.55);
     }
+    // Distinct building types replace a uniform wall of identical cuboids.
+    if (style === 0 && index < 20) {
+      const radius = 3.1;
+      const bx = x + front * (width / 2 - 2.65), bz = z + depth / 2 - 3.2;
+      instance(bayGeometry, facade, [bx, height / 2 + 2.1, bz], [radius, height - 3.6, radius]);
+      for (let floor = 0; floor < floors; floor++) {
+        const yy = 5.85 + floor * floorHeight;
+        instance(bayGeometry, materials.trim, [bx, yy - 1.3, bz], [radius + .13, .16, radius + .13], [0, 0, 0], false);
+        for (let col = -2; col <= 2; col++) {
+          const angle = (front > 0 ? 0 : Math.PI) + col * .36;
+          panel(materials.glass, bx + Math.cos(angle) * (radius + .035), yy, bz + Math.sin(angle) * (radius + .035), .83, 2.1, Math.PI / 2 - angle);
+        }
+      }
+      instance(bayGeometry, materials.trim, [bx, height + .55, bz], [radius + .23, .35, radius + .23]);
+    }
+    if (style === 1 && detailed) {
+      const ex = x + front * (width / 2 + .9), ez = z - depth * .28;
+      for (let floor = 0; floor < Math.min(floors, 5); floor++) {
+        const yy = 4.6 + floor * floorHeight;
+        box(materials.blackMetal, ex, yy, ez, 1.6, .12, 4.5);
+        box(materials.blackMetal, ex + front * .75, yy + 1, ez, .045, .05, 4.5, 0, false);
+        for (let k = 0; k < 10; k++) box(materials.blackMetal, ex + front * .75, yy + .5, ez - 2.1 + k * .46, .035, 1, .035, 0, false);
+        if (floor > 0) {
+          for (let step = 0; step < 9; step++) box(materials.blackMetal, ex, yy - step * .355, ez - 1.85 + step * .42, 1.35, .06, .39, 0, false);
+          line(materials.blackMetal, [ex + front * .65, yy + .9, ez - 1.85], [ex + front * .65, yy - 2.3, ez + 1.85], .035, cylinderGeometry, false);
+        }
+      }
+      const tx = x - front * width * .2;
+      for (const dx of [-1, 1]) for (const dz of [-1, 1]) box(materials.blackMetal, tx + dx, height + 1.5, z + dz, .12, 2.7, .12);
+      instance(bayGeometry, materials.terracotta, [tx, height + 3.4, z], [1.65, 2.5, 1.65]);
+      instance(coneGeometry, materials.dark, [tx, height + 4.9, z], [1.8, .7, 1.8]);
+    }
+    if (style === 2 || style === 3) {
+      const terraceY = height + 1.1;
+      for (const dx of [-1, 1]) for (const dz of [-1, 1]) box(materials.trunk, x + dx * width * .23, terraceY + 1.4, z + dz * depth * .23, .18, 2.8, .18);
+      for (let k = 0; k < 10; k++) box(materials.trunkLight, x - width * .27 + k * width * .06, terraceY + 2.9, z, .14, .17, depth * .58);
+      for (const dz of [-1, 1]) {
+        box(materials.concrete, x, height + .8, z + dz * depth * .37, width * .72, .8, .8);
+        for (let k = 0; k < 5; k++) shrub(x - width * .29 + k * width * .145, height + 1.3, z + dz * depth * .37, 2.2, 1.2, 1);
+      }
+    }
+    if (style === 4) {
+      const extra = index % 2 ? 9 : 5;
+      box(materials.concrete, x + front * 3, height + extra / 2, z - 1, width * .64, extra, depth * .68);
+      for (const side of [-1, 1]) {
+        panel(materials.glassDark, x + front * 3, height + extra * .56, z - 1 + side * (depth * .34 + .03), width * .6, extra * .65, side < 0 ? Math.PI : 0);
+        panel(materials.glass, x + front * 3 + side * (width * .32 + .03), height + extra * .56, z - 1, depth * .62, extra * .65, side * Math.PI / 2);
+      }
+      box(materials.trim, x + front * 3, height + extra + .15, z - 1, width * .68, .3, depth * .72);
+      cylinder(materials.metal, x, height + extra + 3.3, z, .055, 6.4);
+      colliders[colliders.length - 1].maxY = height + extra + 1;
+    }
     if (index < 21) {
       const names = ['PALMA SOCIAL', 'THE MARLOW', 'SOL MARKET', 'COASTAL RECORDS', 'MOTEL AZUL', 'PACIFIC COFFEE', 'CASA LUNA', 'MARINA CLUB', 'LAUNDROMAT', 'SUNDOWN STUDIO', 'PALMETTO HOTEL', 'FRESH & LOCAL', 'GOLDEN HOUR', 'OCEAN DRIVE', 'VELOCE MOTORS', 'WAVES SURF CO.', 'CINÉMA', 'FLORIDA ROOM', 'THE TERRACE', 'SUNSET DELI', 'BAR CALYPSO'];
       const sx = x + front * (width / 2 + 0.25);
@@ -329,27 +402,17 @@ export function createWorld(scene) {
   // A hand-composed main street keeps the first view legible and varied.
   const mainBuildings = [
     [-33, -208, 32, 25, 8, 4], [-32, -178, 30, 27, 6, 1], [-35, -144, 36, 31, 10, 0], [-31, -115, 28, 20, 5, 2],
-    [-32, -63, 30, 27, 7, 0], [-34, -32, 34, 26, 5, 3],
+    [-32, -63, 30, 27, 5, 3], [-34, -32, 34, 26, 5, 3],
     [-33, 31, 32, 26, 6, 1], [-31, 62, 28, 27, 4, 2],
     [-32, 122, 30, 30, 7, 4], [-34, 158, 34, 31, 5, 0],
     [33, -209, 32, 26, 7, 3], [32, -177, 30, 27, 11, 4], [33, -143, 32, 29, 6, 2], [31, -115, 28, 20, 4, 1],
-    [34, -63, 34, 27, 5, 2], [32, -32, 30, 26, 8, 0],
+    [34, -63, 34, 27, 5, 2], [32, -32, 30, 26, 6, 1],
     [32, 31, 30, 26, 5, 3], [34, 62, 34, 27, 7, 1],
     [33, 122, 32, 30, 9, 0], [32, 158, 30, 31, 6, 4],
     [-76, -55, 27, 36, 3, 0],
   ];
-  mainBuildings.forEach((b, i) => building(...b, i, b[0] < 0 ? 1 : -1));
-  const hotelTexture = canvasTexture(192, 1024, (ctx, w, h) => {
-    ctx.fillStyle = '#b96f53'; ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#f5d8ab'; ctx.lineWidth = 5; ctx.strokeRect(12, 12, w - 24, h - 24);
-    ctx.fillStyle = '#fff0ce'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = 'bold 116px Arial';
-    for (const [i, letter] of [...'HOTEL'].entries()) ctx.fillText(letter, w / 2, 123 + i * 192);
-  });
-  const hotelSign = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 9), new THREE.MeshStandardMaterial({ map: hotelTexture, emissiveMap: hotelTexture, emissive: '#ffd29e', emissiveIntensity: 0.18, roughness: 0.6 }));
-  hotelSign.position.set(-17.1, 12.7, -18.5); root.add(hotelSign);
-  box(materials.dark, -17.1, 12.7, -18.65, 1.9, 9.2, 0.25);
-  sign('THE PALM HOUSE', -33, 3.3, 44.35, 19, 0.85, 0, { background: '#c39772', color: '#fff0d0', fontSize: 63 });
+  const authoredLots = new Set([5, 6, 7, 12, 13, 16, 17]);
+  mainBuildings.forEach((b, i) => { if (!authoredLots.has(i)) building(...b, i, b[0] < 0 ? 1 : -1); });
   let index = mainBuildings.length;
   for (const z of [-210, -174, -139, -61, -28, 31, 65, 123, 159]) {
     building(111, z, 31, 25, Math.floor(range(4, 11)), index % 6, index++, -1);
@@ -366,60 +429,56 @@ export function createWorld(scene) {
     box(materials.teal, -86 + i * 4, 0.9, -34.2, 1.15, 0.12, 2.4);
   }
 
-  // Palm fronds have individually modeled tapered leaflets, not flat billboard foliage.
-  function createFrond(leaflets = 26) {
-    const positions = [], colors = [];
-    const addTriangle = (a, b, c, shade) => {
-      positions.push(...a, ...b, ...c);
-      for (let i = 0; i < 3; i++) colors.push(shade, shade * 1.1, shade * 0.87);
-    };
-    const path = t => [t * 5.3, Math.sin(t * Math.PI) * 1.15 - t * t * 1.65, 0];
-    for (let i = 0; i < leaflets; i++) {
-      const t = 0.06 + i * (0.91 / leaflets);
-      const base = path(t);
-      const end = path(t + 0.95 / leaflets);
-      const length = 1.02 * Math.pow(Math.sin(t * Math.PI), 0.7) + 0.1;
-      for (const side of [-1, 1]) {
-        const a = [base[0] - 0.035, base[1], 0];
-        const b = [base[0] + (leaflets < 20 ? 0.24 : 0.14), base[1] + 0.025, side * 0.08];
-        const c = [base[0] + 0.54 + t * 0.15, base[1] - 0.28 - t * 0.2, side * length];
-        addTriangle(a, b, c, 0.72 + (i % 4) * 0.08);
-      }
-      addTriangle([base[0], base[1] + 0.015, -0.035], [base[0], base[1] + 0.015, 0.035], [end[0], end[1] + 0.015, 0], 0.93);
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geometry.computeVertexNormals();
-    return geometry;
-  }
-  const frondGeometry = createFrond();
-  const distantFrondGeometry = createFrond(13);
+  // Broad curved fronds carry individually painted leaf silhouettes. Three
+  // irregular crown tiers produce canopy volume and readable cast shadows.
+  const palmAssets = createPalmAssets(canvasTexture, random);
+  const frondGeometry = palmAssets.near;
+  const distantFrondGeometry = palmAssets.far;
+  materials.leaves.map = palmAssets.map;
+  materials.leaves.color.set('#e8e9d8');
+  materials.leaves.alphaTest = 0;
+  materials.leaves.alphaToCoverage = false;
+  materials.leaves.roughness = .82;
+  materials.leaves.needsUpdate = true;
   function palm(x, z, height = 10, size = 1) {
-    const lean = range(-0.9, 0.9);
-    const leanZ = range(-0.5, 0.5);
-    const detailed = Math.abs(x) < 25 && z > -85 && z < 90;
+    const lean = range(-1.25, 1.25);
+    const leanZ = range(-.8, .8);
+    const detailed = Math.abs(x) < 45 && z > -85 && z < 90;
     const segments = detailed ? 11 : 7;
     for (let i = 0; i < segments; i++) {
       const a = i / segments, b = (i + 1) / segments;
       line(i % 3 === 0 ? materials.trunkLight : materials.trunk,
         [x + lean * a * a, a * height + 0.2, z + leanZ * a * a],
         [x + lean * b * b, b * height + 0.2, z + leanZ * b * b],
-        (0.23 - a * 0.085) * size, detailed ? trunkGeometry : distantTrunkGeometry);
+        (0.29 - a * 0.09) * size, detailed ? palmAssets.trunkNear : palmAssets.trunkFar);
       // The fine horizontal bands give the trunk its characteristic ring texture.
-      if (detailed && i < 9) cylinder(materials.trunkLight, x + lean * a * a, a * height + 0.25, z + leanZ * a * a, (0.235 - a * 0.085) * size, 0.04, false);
+      if (detailed && i < 9) cylinder(materials.trunkLight, x + lean * a * a, a * height + 0.25, z + leanZ * a * a, (0.295 - a * 0.09) * size, 0.04, false);
     }
     const crown = [x + lean, height + 0.2, z + leanZ];
-    instance(sphereGeometry, materials.trunk, crown, [0.3, 0.4, 0.3]);
-    const leaves = detailed ? 12 : 8;
+    instance(sphereGeometry, materials.trunk, [crown[0], crown[1] - .12, crown[2]], [.4 * size, .72 * size, .4 * size]);
+    const leaves = detailed ? 25 : 15;
+    const phase = random() * Math.PI * 2;
     for (let i = 0; i < leaves; i++) {
-      instance(detailed ? frondGeometry : distantFrondGeometry, materials.leaves, crown, [size * range(0.78, 1.12), size, size], [range(-0.12, 0.12), i * Math.PI * 2 / leaves + random() * 0.15, range(-0.12, 0.45)], true);
+      const tier = i % 3;
+      const growth = tier === 0 ? range(.3, .55) : tier === 1 ? range(-.12, .18) : range(-.45, -.19);
+      const length = (tier === 0 ? .8 : tier === 1 ? 1.05 : .92) * size * range(.85, 1.12);
+      instance(detailed ? frondGeometry : distantFrondGeometry, materials.leaves,
+        [crown[0], crown[1] + (tier === 0 ? .22 : tier === 1 ? 0 : -.25), crown[2]],
+        [length, size * range(.9, 1.1), size * range(.85, 1.1)],
+        [range(-.22, .22), phase + i * 2.39996 + range(-.1, .1), growth], true);
+    }
+    // Upright spears fill the crown; dry retained leaf bases vary the trunk top.
+    if (detailed) for (let i = 0; i < 4; i++) {
+      instance(frondGeometry, materials.leaves, crown, [size * .53, size * .75, size * .48], [0, phase + i * 1.6, .92 + i * .07]);
+      line(materials.trunk, [crown[0], crown[1] - .65, crown[2]],
+        [crown[0] + Math.cos(i * 1.6) * .53, crown[1] - 1.5, crown[2] + Math.sin(i * 1.6) * .53], .09, distantTrunkGeometry);
     }
     if (detailed) for (let i = 0; i < 3; i++) instance(sphereGeometry, materials.trunk, [crown[0] + range(-0.2, 0.2), crown[1] - 0.3, crown[2] + range(-0.2, 0.2)], [0.15, 0.18, 0.15]);
   }
   for (let z = -218; z < 190; z += 23) {
     if (nearCross(z, 19)) continue;
     for (const side of [-1, 1]) {
+      if (side === 1 && z > -133 && z < -119) continue;
       const x = side * 13.5;
       box(materials.dark, x, 0.24, z, 1.6, 0.06, 1.6, 0, false);
       box(materials.soil, x, 0.28, z, 1.3, 0.04, 1.3, 0, false);
@@ -430,13 +489,19 @@ export function createWorld(scene) {
     palm(-103, z, range(9, 13), range(0.9, 1.15));
     if (!nearCross(z, 16)) palm(93.2, z, range(8, 11), 0.8);
   }
-  for (const [x, z, height] of [[-13.3, 22.5, 10.2], [13.3, 20.5, 10.8], [-13.3, -16.5, 10.5]]) {
+  for (const [x, z, height] of [[-13.3, 22.5, 9.2], [13.3, 20.5, 10.2], [-13.3, -16.5, 9.5]]) {
     box(materials.dark, x, 0.24, z, 1.6, 0.06, 1.6, 0, false);
     box(materials.soil, x, 0.28, z, 1.3, 0.04, 1.3, 0, false);
     palm(x, z, height, 0.95);
   }
 
+  const districtAPI = { box, walkableBox, panel, cylinder, line, instance, materials, canvasTexture,
+    root, colliders, panelGeometry, random, range, sign, palm, shrub };
+  const district = addAuthoredDistrict(districtAPI);
+  const streetDetails = addStreetDetails(districtAPI);
+
   function streetLamp(x, z, inward) {
+    lampPositions.push(new THREE.Vector3(x+inward*2.3,7.9,z));
     cylinder(materials.blackMetal, x, 0.45, z, 0.22, 0.6);
     cylinder(materials.metal, x, 3.8, z, 0.075, 7.3);
     line(materials.metal, [x, 7.3, z], [x + inward * 0.8, 8.1, z], 0.06);
@@ -449,21 +514,56 @@ export function createWorld(scene) {
     streetLamp(11.9, z + 6, -1);
     streetLamp(91.3, z, -1);
   }
-  function trafficLight(x, z, side, direction, green) {
-    cylinder(materials.blackMetal, x, 3.6, z, 0.095, 7.0);
-    line(materials.blackMetal, [x, 6.7, z], [x + side * 6.7, 6.7, z], 0.085);
-    box(materials.dark, x + side * 5.8, 5.95, z, 0.6, 1.65, 0.36);
-    for (let i = 0; i < 3; i++) {
-      const lightMaterial = (green && i === 2) ? materials.greenLight : (!green && i === 0) ? materials.redLight : materials.blackMetal;
-      instance(sphereGeometry, lightMaterial, [x + side * 5.8, 6.48 - i * 0.49, z + direction * 0.21], [0.18, 0.18, 0.07], [0, 0, 0], false);
-      box(materials.dark, x + side * 5.8, 6.68 - i * 0.49, z + direction * 0.34, 0.47, 0.06, 0.36, 0, false);
+  // Two shared lens materials per travel axis keep every intersection in step
+  // with simulation.js. Only their uniforms change at the 12-second boundary.
+  const signalMaterials = {
+    z: { red: materials.redLight, green: materials.greenLight },
+    x: { red: materials.redLight.clone(), green: materials.greenLight.clone() },
+  };
+  for (const axis of ['z', 'x']) for (const color of ['red', 'green']) {
+    signalMaterials[axis][color].name = `${axis === 'z' ? 'North-south' : 'East-west'} ${color} signal`;
+  }
+  let greenVertical = null;
+  function updateTrafficSignals(time) {
+    const next = Math.floor(time / 12) % 2 === 0;
+    if (next === greenVertical) return;
+    greenVertical = next;
+    for (const axis of ['z', 'x']) {
+      const green = axis === 'z' ? next : !next;
+      const lenses = signalMaterials[axis];
+      lenses.red.color.set(green ? '#35130e' : '#ff573e');
+      lenses.red.emissiveIntensity = green ? 0 : 1.8;
+      lenses.green.color.set(green ? '#93efbd' : '#102c20');
+      lenses.green.emissiveIntensity = green ? 1.8 : 0;
     }
-    box(materials.dark, x, 2.0, z, 0.33, 0.43, 0.28);
+  }
+  updateTrafficSignals(0);
+  function trafficLight(x, z, side, direction, axis = 'z', pole = true) {
+    const horizontal = axis === 'x';
+    const headX = x + (horizontal ? 0 : side * 5.8);
+    const headZ = z + (horizontal ? side * 5.8 : 0);
+    const rotation = horizontal ? Math.PI / 2 : 0;
+    if (pole) cylinder(materials.blackMetal, x, 3.6, z, 0.095, 7.0);
+    line(materials.blackMetal, [x, 6.7, z], [x + (horizontal ? 0 : side * 6.7), 6.7, z + (horizontal ? side * 6.7 : 0)], 0.085);
+    box(materials.dark, headX, 5.95, headZ, 0.6, 1.65, 0.36, rotation);
+    for (let i = 0; i < 3; i++) {
+      const lightMaterial = i === 0 ? signalMaterials[axis].red : i === 2 ? signalMaterials[axis].green : materials.blackMetal;
+      instance(sphereGeometry, lightMaterial,
+        [headX + (horizontal ? direction * .21 : 0), 6.48 - i * .49, headZ + (horizontal ? 0 : direction * .21)],
+        [.18, .18, .07], [0, rotation, 0], false);
+      box(materials.dark, headX + (horizontal ? direction * .34 : 0), 6.68 - i * .49,
+        headZ + (horizontal ? 0 : direction * .34), .47, .06, .36, rotation, false);
+    }
+    if (pole) box(materials.dark, x, 2.0, z, 0.33, 0.43, 0.28);
   }
   for (const z of intersections) {
-    trafficLight(-12.2, z - 11.8, 1, 1, true);
-    trafficLight(12.2, z + 11.8, -1, -1, true);
-    trafficLight(68.5, z - 11.8, 1, 1, false);
+    for (const roadX of [0, 80]) {
+      trafficLight(roadX - 12.2, z - 11.8, 1, 1);
+      trafficLight(roadX + 12.2, z + 11.8, -1, -1);
+      // Crossing heads share each corner mast and face the opposing traffic.
+      trafficLight(roadX - 12.2, z - 11.8, 1, 1, 'x', false);
+      trafficLight(roadX + 12.2, z + 11.8, -1, -1, 'x', false);
+    }
     sign(z === 0 ? 'OCEAN DRIVE' : z < 0 ? 'PALM AVENUE' : 'MARINA WAY', -12.08, 5.8, z - 11.3, 3.0, 0.55, 0, { background: '#356e65', border: false, fontSize: 59 });
   }
 
@@ -489,24 +589,14 @@ export function createWorld(scene) {
     box(materials.red, 11.8, 0.8, z + 8, 0.55, 0.15, 0.15);
     for (const side of [-1, 1]) {
       const px = side * 15.7;
+      if(side===1&&z===23)continue; // The news kiosk occupies this planter bay.
       box(materials.concrete, px, 0.54, z - 8, 1.1, 0.7, 2.7);
       box(materials.soil, px, 0.91, z - 8, 0.9, 0.06, 2.5, 0, false);
-      for (let i = 0; i < 4; i++) instance(sphereGeometry, materials.shrub, [px, 1.06, z - 8.9 + i * 0.6], [0.51, 0.4, 0.55]);
+      for (let i = 0; i < 3; i++) shrub(px, 1.31 + i % 2 * .07, z - 8.8 + i * .8, 1.15, .94, 1.2);
     }
   }
-  // Café tables at the corner, with striped parasols and chairs.
-  for (const z of [-43, -49, -55]) {
-    const x = -14.7;
-    cylinder(materials.blackMetal, x, 0.8, z, 0.055, 1.1);
-    cylinder(materials.limestone, x, 1.38, z, 0.7, 0.09);
-    for (const dz of [-1, 1]) {
-      box(materials.trunkLight, x, 0.75, z + dz, 0.55, 0.08, 0.55);
-      box(materials.trunkLight, x, 1.12, z + dz * 1.2, 0.55, 0.7, 0.06);
-      for (const dx of [-0.22, 0.22]) box(materials.blackMetal, x + dx, 0.48, z + dz, 0.05, 0.52, 0.5);
-    }
-    cylinder(materials.trunkLight, x, 1.9, z, 0.035, 3.3);
-    instance(coneGeometry, materials.limestone, [x, 3.45, z], [1.8, 0.65, 1.8]);
-  }
+  const cityProps = createCityProps(root);
+  colliders.push(...cityProps.colliders);
 
   // Billboard is part of the city, with a real support structure and floodlights.
   const billboardTexture = canvasTexture(1024, 512, (ctx, w, h) => {
@@ -530,9 +620,10 @@ export function createWorld(scene) {
   }
 
   // Beach, boardwalk, lifeguard stations and breakwaters.
-  box(materials.pale, -109, 0.1, -20, 13, 0.2, 465, 0, false);
+  // The visible slab tops are the support planes for feet and contact shadows.
+  walkableBox(materials.pale, -109, 0.1, -20, 13, 0.2, 465, 0, false, 'boardwalk');
   for (let z = -245; z < 213; z += 2.8) box(materials.concrete, -109, 0.21, z, 12.7, 0.012, 0.025, 0, false);
-  box(materials.sand, -135, -0.08, -20, 40, 0.16, 465, 0, false);
+  walkableBox(materials.sand, -132.5, -0.08, -20, 35, 0.16, 465, 0, false, 'sand');
   for (let z = -205; z < 200; z += 25) {
     bench(-109, z, Math.PI / 2);
     cylinder(materials.white, -115, 0.7, z, 0.09, 1.2);
@@ -546,62 +637,67 @@ export function createWorld(scene) {
     sign('LIFEGUARD', -134, 2.07, z + 1.72, 2.8, 0.5, 0, { background: '#578e88', border: false, fontSize: 65 });
     for (let i = 0; i < 6; i++) box(materials.white, -134, 0.3 + i * 0.22, z + 2.6 - i * 0.23, 1.1, 0.12, 0.4);
   }
+  const parasolPlacements = [];
+  const parasolCanvas = ['#ffffff', '#d2a294', '#9fb5af'];
   for (let i = 0; i < 22; i++) {
-    const x = range(-144, -123), z = range(-210, 190);
-    box(i % 2 ? materials.teal : materials.blush, x, 0.08, z, 1.2, 0.035, 2.5, range(-0.3, 0.3), false);
-    if (i % 3 === 0) {
-      cylinder(materials.white, x + 1.1, 1.2, z, 0.025, 2.5);
-      instance(coneGeometry, i % 2 ? materials.white : materials.blush, [x + 1.1, 2.4, z], [1.5, 0.6, 1.5]);
-    }
+    const x = range(-144, -123), z = range(-210, 190), towelYaw = range(-0.3, 0.3);
+    box(i % 2 ? materials.teal : materials.blush, x, 0.005, z, 1.2, 0.01, 2.5, towelYaw, false);
+    if (i % 3 === 0) parasolPlacements.push({ x: x + 1.1, y: 0, z,
+      yaw: towelYaw + i * .37, canvasColor: parasolCanvas[(i / 3) % parasolCanvas.length] });
   }
-  const waterMaterial = new THREE.ShaderMaterial({
-    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { time: { value: 0 }, deepColor: { value: new THREE.Color('#426e79') }, shallowColor: { value: new THREE.Color('#89b6aa') } }]),
-    fog: true,
-    vertexShader: `varying vec3 vWorld; uniform float time;
-      #include <fog_pars_vertex>
-      void main(){ vec3 p=position; p.z += sin(p.x*.14+time*.6)*.08 + sin(p.y*.19+time*.42)*.06;
-        vec4 wp=modelMatrix*vec4(p,1.);vWorld=wp.xyz; vec4 mvPosition=viewMatrix*wp;gl_Position=projectionMatrix*mvPosition;
-        #include <fog_vertex>
-      }`,
-    fragmentShader: `varying vec3 vWorld; uniform float time; uniform vec3 deepColor; uniform vec3 shallowColor;
-      #include <fog_pars_fragment>
-      void main(){ float wave=sin(vWorld.x*.53+vWorld.z*.25+time*.8)*sin(vWorld.z*.65-time*.6);
-        float small=sin(vWorld.x*2.5+vWorld.z*1.7+time)*.5+.5;
-        float shore=smoothstep(-175.,-150.,vWorld.x);
-        vec3 c=mix(deepColor,shallowColor,shore*.8);
-        c+=wave*.025+pow(small,28.)*.08;
-        float foam=pow(max(0.,sin(vWorld.x*1.8+sin(vWorld.z*.25)-time*.7)),14.)*shore;
-        c=mix(c,vec3(.79,.83,.73),foam*.6);
-        float glow=pow(max(0.,sin(vWorld.z*.095+vWorld.x*.011)),22.);
-        c+=vec3(.12,.07,.025)*glow;
-        gl_FragColor=vec4(c,1.);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-        #include <fog_fragment>
-      }`,
-  });
-  const ocean = new THREE.Mesh(new THREE.PlaneGeometry(1800, 1600, 32, 24), waterMaterial);
-  ocean.rotation.x = -Math.PI / 2; ocean.position.set(-1050, -0.04, -80); root.add(ocean);
+  const beachParasols = createBeachParasols(root, parasolPlacements);
+  const ready = Promise.all([materialReady, beachReady, cityProps.ready, beachParasols.ready]);
+  const ocean = createOcean();
+  root.add(ocean.mesh);
 
   // Distant metropolitan silhouettes wrap the drivable district without walls.
+  // Conventional repeated interior atlas here gives each long strip a bank of
+  // windows while retaining the real sky's reflections on the glazing.
+  const skylineGlass = materials.glass.clone();
+  skylineGlass.map = materials.glass.map.clone();
+  skylineGlass.map.wrapS = THREE.RepeatWrapping;
+  skylineGlass.map.repeat.set(2, 1);
+  skylineGlass.map.needsUpdate = true;
+  skylineGlass.color.set('#b0bfbd');
   for (let i = 0; i < 46; i++) {
     const x = i < 22 ? range(-80, 190) : range(155, 290);
     const z = i < 22 ? range(-390, -268) : range(-235, 210);
-    const w = range(15, 31), d = range(16, 35), h = range(28, 95);
+    const w = range(15, 31), d = range(16, 35), h = i % 7 === 0 ? range(105, 145) : range(28, 85);
     const facade = i % 3 === 0 ? materials.blue : i % 3 === 1 ? materials.pale : materials.sage;
     box(facade, x, h / 2, z, w, h, d);
     box(materials.trim, x, h + 0.3, z, w + 0.4, 0.4, d + 0.4);
-    if (i % 3 === 0) box(facade, x, h + 4, z, w * 0.6, 8, d * 0.6);
+    if (i % 3 === 0) {
+      box(facade, x - w * .08, h + 5, z, w * .72, 10, d * .68);
+      box(materials.metal, x - w * .08, h + 10.2, z, w * .75, .4, d * .71);
+    }
+    if (i % 7 === 0) {
+      box(facade, x, h + 14, z, w * .48, 12, d * .45);
+      box(materials.glassDark, x, h + 21, z, w * .28, 3, d * .28);
+      cylinder(materials.metal, x, h + 27, z, .09, 12);
+    }
     for (let yy = 5; yy < h - 1; yy += 3.2) {
       for (const side of [-1, 1]) {
-        panel(materials.glass, x, yy, z + side * (d / 2 + 0.02), w - 1.6, 1.7, side < 0 ? Math.PI : 0);
-        panel(materials.glass, x + side * (w / 2 + 0.02), yy, z, d - 1.6, 1.7, side * Math.PI / 2);
+        panel(skylineGlass, x, yy, z + side * (d / 2 + 0.02), w - 1.6, 1.7, side < 0 ? Math.PI : 0);
+        panel(skylineGlass, x + side * (w / 2 + 0.02), yy, z, d - 1.6, 1.7, side * Math.PI / 2);
+      }
+    }
+  }
+  // A recognizable tapered downtown crown terminates the boulevard's sightline.
+  const towerX = -3, towerZ = -310;
+  for (const [y, height, radius] of [[42, 84, 15], [94, 20, 12.5], [111, 14, 9.5], [122, 8, 6.5]]) {
+    instance(bayGeometry, materials.blue, [towerX, y, towerZ], [radius, height, radius]);
+    instance(bayGeometry, materials.trim, [towerX, y + height / 2, towerZ], [radius + .2, .6, radius + .2]);
+    for (let yy = y - height / 2 + 2; yy < y + height / 2 - 1; yy += 3.3) {
+      for (let k = 0; k < 16; k++) {
+        const angle = k * Math.PI / 8;
+        panel(skylineGlass, towerX + Math.cos(angle) * (radius + .04), yy, towerZ + Math.sin(angle) * (radius + .04), radius * .35, 2.0, Math.PI / 2 - angle);
       }
     }
   }
 
-  // Keep dense facades in spatial cells for culling, but combine sparse props to
-  // avoid paying a separate draw call for a handful of objects in each cell.
+  // Per-instance visibility now culls individual facades and props. Opaque
+  // material batches can span the district without submitting off-screen
+  // geometry; preserve the existing transparent batches for depth sorting.
   const sharedGroups = new Map();
   for (const batch of batches.values()) {
     const key = `${batch.geometry.uuid}:${batch.material.uuid}:${batch.shadow}`;
@@ -611,7 +707,7 @@ export function createWorld(scene) {
   const renderBatches = [];
   for (const group of sharedGroups.values()) {
     const count = group.reduce((sum, batch) => sum + batch.matrices.length, 0);
-    if (count > 500) renderBatches.push(...group);
+    if (count > 500 && group[0].material.transparent) renderBatches.push(...group);
     else renderBatches.push({ ...group[0], matrices: group.flatMap(batch => batch.matrices), colors: group.flatMap(batch => batch.colors) });
   }
   for (const batch of renderBatches) {
@@ -625,10 +721,42 @@ export function createWorld(scene) {
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
     root.add(mesh);
+    instanceVisibility.add(mesh, { padding: batch.material === materials.leaves ? .16 : 0 });
   }
+  const buildingOcclusion = createBuildingOcclusion(solidBuildingBounds);
+  const occlusionWorldIdentity = new THREE.Matrix4();
   return {
-    root, colliders, roads,
+    root, colliders, roads, ready, lampPositions,
+    heightAt: ground.heightAt,
+    sampleGround: ground.sample,
+    updateInstanceVisibility(camera, options) {
+      root.updateWorldMatrix(true, false);
+      // Registered boxes are in the original district world frame. A moved or
+      // scaled district keeps frustum culling but skips these static occluders.
+      buildingOcclusion.update(camera, { enabled: root.matrixWorld.equals(occlusionWorldIdentity) });
+      instanceVisibility.update(camera, { ...options, occlusion: buildingOcclusion });
+      beachParasols.update(camera);
+    },
+    restoreInstances() { instanceVisibility.restore(); beachParasols.restore(); streetDetails.restoreWires(); },
+    getInstanceVisibility: () => ({ ...instanceVisibility.getStats(), occluders: buildingOcclusion.getStats(), beachParasols: beachParasols.getStats() }),
+    updateWires: streetDetails.updateWires,
+    getWireStats: streetDetails.getWireStats,
+    setSky: data => ocean.setSky(data),
+    landmarks: district.landmarks,
+    zones: district.zones,
+    locationAt(x, z) {
+      return district.zones.find(zone => x >= zone.minX && x <= zone.maxX && z >= zone.minZ && z <= zone.maxZ)?.name
+        || (x < -100 ? 'Pacific Oceanfront' : z < -95 ? 'Palm Avenue' : z > 95 ? 'Marina Way' : 'Ocean Drive');
+    },
+    setNight(value) {
+      ocean.setNight(value);
+      materials.lamp.emissiveIntensity=value?4.5:1.3;
+      materials.glassWarm.emissiveMap=value?materials.glassWarm.map:null;
+      materials.glassWarm.emissiveIntensity=value?.8:.035;
+      materials.glassWarm.needsUpdate=true;
+      illuminatedSigns.forEach(({material,intensity})=>material.emissiveIntensity=intensity*(value?3:1));
+    },
     bounds: { minX: -148, maxX: 143, minZ: -238, maxZ: 194 },
-    update(dt, time) { waterMaterial.uniforms.time.value = time; breeze.value = time; },
+    update(dt, time) { ocean.update(time); breeze.value = time; updateTrafficSignals(time); },
   };
 }
