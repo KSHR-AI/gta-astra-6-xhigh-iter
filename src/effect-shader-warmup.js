@@ -1,21 +1,16 @@
 import * as THREE from 'three';
 
-// These are the six shader states reachable in the existing game. Light
+// The district shares one light layout across both shadow modes. Light
 // intensities/positions are uniforms; clone their actual transforms without
 // changing gameplay time, real light visibility, or capturing another map.
 export function warmKnownEffectVariants({ renderer, camera, scene, materials, retainedMaterials,
-  sun, hemisphere, streetLights, headlights, dayEnvironment, nightEnvironment }) {
+  sun, hemisphere, streetLights, headlights, dayEnvironment }) {
   if (!sun?.isDirectionalLight || !hemisphere?.isHemisphereLight ||
       streetLights.length !== 4 || headlights.length !== 2 ||
       streetLights.some(light => !light.isPointLight) || headlights.some(light => !light.isSpotLight) ||
       !dayEnvironment?.isTexture) throw new Error('Unexpected shot-effect lighting setup');
-  const base = [sun, hemisphere];
-  const modes = [
-    { lights: base, environment: dayEnvironment },
-    { lights: [...base, ...streetLights], environment: nightEnvironment || dayEnvironment },
-    { lights: [...base, ...streetLights, ...headlights], environment: nightEnvironment || dayEnvironment },
-  ];
-  const variants = modes.flatMap(mode => [true, false].map(shadowEnabled => ({ ...mode, shadowEnabled })));
+  const lights = [sun, hemisphere, ...streetLights, ...headlights];
+  const variants = [true, false].map(shadowEnabled => ({ lights, environment: dayEnvironment, shadowEnabled }));
   return drawEffectVariants({ renderer, camera, scene, materials, retainedMaterials, variants });
 }
 

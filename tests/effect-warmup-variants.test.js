@@ -107,13 +107,13 @@ function sceneFixture(failAt = -1) {
     } };
 }
 
-test('all six modes share one target and actual material owners without mutating live lighting', () => {
+test('both shadow modes share one target and actual material owners without mutating live lighting', () => {
   const f = sceneFixture(); assert.equal(warmKnownEffectVariants(f), true);
-  assert.equal(f.captures.length, 6);
+  assert.equal(f.captures.length, 2);
   assert.deepEqual(f.captures.map(capture => [capture.count.point, capture.count.spot, capture.shadows]),
-    [[0, 0, true], [0, 0, false], [4, 0, true], [4, 0, false], [4, 2, true], [4, 2, false]]);
+    [[4, 2, true], [4, 2, false]]);
   assert.deepEqual(f.captures.map(capture => capture.environment),
-    [f.dayEnvironment, f.dayEnvironment, f.nightEnvironment, f.nightEnvironment, f.nightEnvironment, f.nightEnvironment]);
+    [f.dayEnvironment, f.dayEnvironment]);
   for (let i = 1; i < f.captures.length; i++) {
     assert.equal(f.captures[i].target, f.captures[0].target);
     f.captures[i].objects.forEach((object, j) => { assert.equal(object, f.captures[0].objects[j]);
@@ -123,6 +123,6 @@ test('all six modes share one target and actual material owners without mutating
 });
 
 test('a mid-batch draw failure restores quality, transforms, environment and retained ownership', () => {
-  const f = sceneFixture(4); assert.throws(() => warmKnownEffectVariants(f), /draw failed/);
-  assert.equal(f.captures.length, 4); f.assertRestored(); f.pool.dispose();
+  const f = sceneFixture(2); assert.throws(() => warmKnownEffectVariants(f), /draw failed/);
+  assert.equal(f.captures.length, 2); f.assertRestored(); f.pool.dispose();
 });

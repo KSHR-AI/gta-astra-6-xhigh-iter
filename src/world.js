@@ -856,9 +856,8 @@ export function createWorld(scene) {
       pierScreening.setNight(value);
       ocean.setNight(value);
       materials.lamp.emissiveIntensity=value?4.5:1.3;
-      materials.glassWarm.emissiveMap=value?materials.glassWarm.map:null;
+      materials.glassWarm.userData.warmWindowLight.value=value;
       materials.glassWarm.emissiveIntensity=value?.8:.035;
-      materials.glassWarm.needsUpdate=true;
       illuminatedSigns.forEach(({material,intensity})=>material.emissiveIntensity=intensity*(value?3:1));
     },
     bounds: { minX: -148, maxX: 143, minZ: -238, maxZ: 194 },

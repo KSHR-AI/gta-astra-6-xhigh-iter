@@ -237,7 +237,16 @@ export function applyCityMaterials(materials, canvasTexture, random) {
     material.roughness = roughness; material.envMapIntensity = 1.35;
     material.emissive.set(key === 'glassWarm' ? '#d0a068' : '#000000');
     material.emissiveIntensity = key === 'glassWarm' ? .035 : 0;
+    if (key === 'glassWarm') {
+      material.emissiveMap = rooms;
+      material.userData.warmWindowLight = { value: false };
+    }
     material.onBeforeCompile = shader => {
+      if (key === 'glassWarm') {
+        shader.uniforms.warmWindowLight = material.userData.warmWindowLight;
+        shader.fragmentShader = 'uniform bool warmWindowLight;\n' + shader.fragmentShader.replace(
+          '#include <emissivemap_fragment>', 'if (warmWindowLight) {\n#include <emissivemap_fragment>\n}');
+      }
       shader.vertexShader = 'varying vec3 vRoomView; varying float vRoomSeed;\n' + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', `
         #include <uv_vertex>

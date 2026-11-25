@@ -9,6 +9,7 @@ import { keyboardCode } from './input-prompts.js';
 import { createAudio } from './audio.js';
 import { createAtmosphere } from './atmosphere.js';
 import { createEnvironmentLighting } from './environment-lighting.js';
+import { createDistrictLighting } from './district-lighting.js';
 import { createRendering } from './rendering.js';
 import { createGamepadInput } from './gamepad.js';
 import { createPhotoMode } from './photo-mode.js';
@@ -88,8 +89,9 @@ const skidMarks=createSkidMarks(scene,world.sampleGround);
 const rendering=createRendering(renderer,scene,camera,softwareRenderer);
 // Only the nearest four real lamp fixtures illuminate the street. Reuse these
 // lights as the camera travels instead of evaluating dozens of lights per pixel.
-const streetLights=Array.from({length:4},()=>{const light=new THREE.PointLight(0xffc886,380,38,2);light.visible=false;scene.add(light);return light;});
-const headlights=Array.from({length:2},()=>{const light=new THREE.SpotLight(0xe0edff,170,65,.37,.55,1.4);light.visible=false;scene.add(light,light.target);return light;});
+const districtLighting=createDistrictLighting(renderer,scene);
+const streetLights=Array.from({length:4},()=>{const light=new THREE.PointLight(0xffc886,0,38,2);scene.add(light);return light;});
+const headlights=Array.from({length:2},()=>{const light=new THREE.SpotLight(0xe0edff,0,65,.37,.55,1.4);scene.add(light,light.target);return light;});
 
 const buildingBoxes=world.colliders.map(b=>new THREE.Box3(new THREE.Vector3(b.minX,b.minY??0,b.minZ),new THREE.Vector3(b.maxX,b.maxY??70,b.maxZ)));
 const cameraBoxes=buildingBoxes.map(box=>box.clone().expandByScalar(.2));
@@ -141,7 +143,7 @@ const localSelfShadow=createPhotoCharacterShadow({renderer,camera,scene,sun,getA
 const environmentLighting=createEnvironmentLighting({renderer,captureVehicleCube,apply:applyEnvironmentMaps});
 const effectShaderWarmup=createEffectShaderWarmup({renderer,materials:effectMaterials,
  prepare:retainedMaterials=>warmKnownEffectVariants({renderer,camera,scene,retainedMaterials,
-  sun,hemisphere,streetLights,headlights,dayEnvironment:effectDayEnvironment,nightEnvironment:vehicleNightEnvironment}),
+  sun,hemisphere,streetLights,headlights,dayEnvironment:effectDayEnvironment}),
  onError:error=>console.warn('Shot shader warmup failed; effects will prepare on first use.',error),
 });
 let lastEnvironmentBuild=0,environmentError=null;
@@ -215,7 +217,7 @@ function exitPhoto(){
 }
 
 function setTime(dark){
- night=dark;if(night)localSelfShadow.release('night'); atmosphere.setNight(night); rendering.setNight(night);world.setNight(night);streetLights.forEach(light=>light.visible=night);headlights.forEach(light=>light.visible=night); state.time=night?'22:16':'18:42';
+ night=dark;if(night)localSelfShadow.release('night'); atmosphere.setNight(night); rendering.setNight(night);world.setNight(night);streetLights.forEach(light=>light.intensity=night?380:0);headlights.forEach(light=>light.intensity=0);districtLighting.setLightCounts(night?4:0,0); state.time=night?'22:16':'18:42';
  sun.color.set(night?0x96baff:daylight.sun); sun.intensity=night?0.8:daylight.key;
  hemisphere.intensity=night?.8:daylight.fill; hemisphere.color.set(night?0x6c86b4:daylight.sky);
  hemisphere.groundColor.set(night?0x75624f:daylight.ground);
@@ -868,8 +870,10 @@ function updateNightLights(){
  const lamps=[...world.lampPositions].sort((a,b)=>a.distanceToSquared(camera.position)-b.distanceToSquared(camera.position));
  streetLights.forEach((light,i)=>light.position.copy(lamps[i]));
  const car=currentCar||vehicles.reduce((nearest,c)=>c.model.mesh.position.distanceToSquared(camera.position)<nearest.model.mesh.position.distanceToSquared(camera.position)?c:nearest,vehicles[0]);
+ const headlightsOn=car.model.mesh.position.distanceTo(camera.position)<45;
+ districtLighting.setLightCounts(4,headlightsOn?2:0);
  headlights.forEach((light,i)=>{
-  light.visible=car.model.mesh.position.distanceTo(camera.position)<45;
+  light.intensity=headlightsOn?170:0;
   const forward=new THREE.Vector3(Math.sin(car.heading),0,Math.cos(car.heading));
   const right=new THREE.Vector3(Math.cos(car.heading),0,-Math.sin(car.heading));
   light.position.copy(car.model.mesh.position).addScaledVector(forward,1.95).addScaledVector(right,i===0?-.66:.66);light.position.y=.68;
@@ -1128,6 +1132,7 @@ Object.defineProperty(window,'__GRAND_THEFT_ASTRA__',{value:{getState:()=>({...s
 // Publish complete replacement maps together; retain each material's authored
 // intensity instead of capturing the current night multiplier on a rebuild.
 function applyEnvironmentMaps({day,night:nightMap,vehicle}){
+ districtLighting.setMaps({day,night:nightMap,vehicle});
  atmosphere.setEnvironment(day,nightMap);effectDayEnvironment=day;vehicleDayEnvironment=vehicle;vehicleNightEnvironment=nightMap;
  for(const car of vehicles)car.model.mesh.traverse(object=>{
   const materials=Array.isArray(object.material)?object.material:[object.material];
@@ -1190,7 +1195,7 @@ async function boot(){
   // A lost context can recover on the next frame; a rebuild error needs refresh.
   const environmentFailure=environmentLighting.getInfo().error;
   if(environmentFailure)throw new Error(environmentFailure);
-  // Prepare all six reachable effect variants behind the existing loading screen.
+  // Prepare both shadow variants behind the existing loading screen.
   // A lost context retries at the recovery gate; ordinary warmup errors fall back.
   if(environmentLighting.getInfo().ready)effectShaderWarmup.update(environmentLighting.revision);
   state.ready=true;ui.setReady(true);
