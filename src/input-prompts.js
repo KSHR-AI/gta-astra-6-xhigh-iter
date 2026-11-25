@@ -1,3 +1,15 @@
+// Prefer physical keys for movement on international layouts. Some browsers
+// and accessibility tools send only the logical key.
+export function keyboardCode(event) {
+  if (event.code && event.code !== 'Unidentified') return event.code;
+  const key = event.key || '';
+  if (/^[a-z]$/i.test(key)) return 'Key' + key.toUpperCase();
+  if (/^[0-9]$/.test(key)) return 'Digit' + key;
+  if (key === 'Shift') return event.location === 2 ? 'ShiftRight' : 'ShiftLeft';
+  if (key === ' ' || key === 'Spacebar') return 'Space';
+  return key === 'Unidentified' ? '' : key;
+}
+
 // Keep interaction codes stable while adapting the hints to the last input used.
 export function createInputPrompts(root) {
   const coarsePointer = window.matchMedia('(pointer: coarse)');

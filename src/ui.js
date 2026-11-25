@@ -1,4 +1,4 @@
-import { createInputPrompts, controllerMenuInput } from './input-prompts.js';
+import { createInputPrompts, controllerMenuInput, keyboardCode } from './input-prompts.js';
 import { createLastLightHud, lastLightPanel, showDeliveryReceipt } from './last-light-hud.js';
 const icons = {
   logo: '<svg viewBox="0 0 34 34" fill="none" aria-hidden="true"><path d="M17 2 20 13 31 17 20 20 17 32 14 20 3 17 14 13 17 2Z" fill="currentColor"/><path d="m25 6 2 2M7 26l2 2M6 7l2 2m18 17 2 2" stroke="currentColor" stroke-width="1"/></svg>',
@@ -264,12 +264,13 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
   }));
   root.addEventListener('keydown', (event) => {
     if (!photoMode) return;
-    const rangeNavigation = event.target.matches('input[type="range"]') && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Space'].includes(event.code);
-    const buttonActivation = event.target.closest('button') && ['Space', 'Enter'].includes(event.code);
-    if (event.code === 'Tab' || rangeNavigation || buttonActivation) event.stopPropagation();
+    const code = keyboardCode(event);
+    const rangeNavigation = event.target.matches('input[type="range"]') && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Space'].includes(code);
+    const buttonActivation = event.target.closest('button') && ['Space', 'Enter'].includes(code);
+    if (code === 'Tab' || rangeNavigation || buttonActivation) event.stopPropagation();
   });
   document.addEventListener('keydown', (event) => {
-    if (event.code !== 'Tab' || !(paused || mapOpen || photoMode)) return;
+    if (keyboardCode(event) !== 'Tab' || !(paused || mapOpen || photoMode)) return;
     const scope = photoMode ? elements['photo-mode'] : mapOpen ? elements['map-overlay'] : elements['pause-overlay'];
     const focusable = [...scope.querySelectorAll('button:not(:disabled), input:not(:disabled), summary, [tabindex="0"]')].filter(usableFocus);
     const game = document.querySelector('#game');
@@ -367,11 +368,11 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
   };
   for (const event of ['pointerup', 'pointercancel', 'lostpointercapture', 'blur']) aimButton.addEventListener(event, releaseAim);
   aimButton.addEventListener('keydown', event => {
-    if (!['Space', 'Enter'].includes(event.code)) return;
+    if (!['Space', 'Enter'].includes(keyboardCode(event))) return;
     event.preventDefault(); event.stopPropagation(); beginAim();
   });
   aimButton.addEventListener('keyup', event => {
-    if (!['Space', 'Enter'].includes(event.code)) return;
+    if (!['Space', 'Enter'].includes(keyboardCode(event))) return;
     event.preventDefault(); event.stopPropagation(); releaseAim();
   });
   // Keep pointer input on menus from becoming a shot or a camera drag.

@@ -5,6 +5,7 @@ import { cityMapCenter, cityMapScale, mapClickPosition, mapRoute, nearestMapRoad
 import { createCar, loadVehicleAssets } from './vehicles.js';
 import { loadCharacterAssets, createCharacter } from './characters.js';
 import { createUI } from './ui.js';
+import { keyboardCode } from './input-prompts.js';
 import { createAudio } from './audio.js';
 import { createAtmosphere } from './atmosphere.js';
 import { createEnvironmentLighting } from './environment-lighting.js';
@@ -99,7 +100,7 @@ let photo,photoWasPaused=false,photoShadowState=[];
 let ui,player,currentCar=null,mission=0,night=false,weapon=false,aiming=false,reloading=false,simulation,job,interaction=null,contactActor;
 let dialogueQueue=[],dialogueUntil=0,damageFlash=0;
 let workshopFraction=0, maraAtWorkshop=false, conversationUntil=0;
-let watchingScreen=false;
+let cameraCue=null;
 const doorHandleTarget=new THREE.Vector3();
 let vehicleDayEnvironment=null,vehicleNightEnvironment=null,effectDayEnvironment=null;
 let cameraRoll=0,playerCameraVisibility;
@@ -436,7 +437,7 @@ function orientDriver(actor,c,weight=1,uprightHeading=c.heading){
 }
 function groundActor(actor){const p=actor.mesh.position;p.y=world.heightAt(p.x,p.z);}
 function setActorShadow(actor,visible){const shadow=actor.mesh.getObjectByName('contact-shadow');if(shadow){shadow.visible=visible;if(visible&&!actor.contactShadow){const p=actor.mesh.position;shadow.position.y=world.heightAt(p.x,p.z)-p.y+.003;}}}
-function watchingFilm(){return watchingScreen&&conversationUntil>elapsed;}
+function watchingFilm(){return cameraCue==='screening'&&conversationUntil>elapsed;}
 function contextAction(){
  if(interaction||job?.inspectionRemaining>0)return;
  const p=player.mesh.position,land=world.landmarks||{};
@@ -458,6 +459,7 @@ function contextAction(){
   return {kind:'replay',title:'LAST LIGHT AT THE PALOMA',name:'Replay the delivery · practice run'};
  if(!ms.nightShiftActive&&!ms.radioActive&&currentCar&&(ms.mission===5||ms.mission===0&&currentCar.circuitLoaner)&&!ms.circuitActive&&near(CIRCUIT_START,8)&&Math.abs(currentCar.speed)<1.5&&currentCar.health>0)return{kind:'circuit',title:'PACIFIC CIRCUIT',name:ms.circuitBest?'Race again · beat your best':'Race the Pacific Circuit · up to $750'};
  if(!ms.radioActive&&!ms.circuitActive&&!ms.nightShiftActive&&!currentCar&&atMara&&ms.mission!==0){
+  if(ms.mission===1&&cameraCue==='briefing'&&elapsed<conversationUntil)return null;
   if(ms.mission<4)return{kind:'contact',title:'LAST LIGHT AT THE PALOMA',name:'Ask Mara about the delivery'};
   return{kind:'contact',title:'MARA · SUPPLIES',name:state.reserve<192?'Pistol ammunition · $150':'Talk to Mara'};
  }
@@ -483,19 +485,19 @@ function interact(){
  }
  if(result.accepted||result.replayAccepted){
   if(result.replayAccepted){placeAurora(null);placeMara(false);heroCar.isJobCar=true;}
-  contactActor.performGesture?.('briefing');watchingScreen=false;conversationUntil=elapsed+2.8;
+  contactActor.performGesture?.('briefing');cameraCue='briefing';conversationUntil=elapsed+4.4;
   if(currentCar===heroCar)job.onVehicleTaken(heroCar);
  }
  if(result.replaceJobCar)placeAurora(job.getState().jobCarCheckpoint);
  if(result.ammo)state.reserve=Math.min(192,state.reserve+result.ammo);
  if(result.repair){currentCar.health=100;currentCar.model.setDamage?.(100);}
  if(result.rest){state.health=100;state.stamina=100;state.reserve=Math.max(96,state.reserve);sound.notify();}
- if(result.delivered){currentCar.isJobCar=false;state.health=Math.max(75,state.health);contactActor.performGesture?.('handoff');watchingScreen=false;conversationUntil=elapsed+3.3;sound.handoff?.();}
+ if(result.delivered){currentCar.isJobCar=false;state.health=Math.max(75,state.health);contactActor.performGesture?.('handoff');cameraCue='handoff';conversationUntil=elapsed+3.3;sound.handoff?.();}
  if(result.screeningStarted){
   world.restartPierScreening();
   if(!night)ui.selectTime('night');
   sound.startProjection(PIER_SCREEN_CENTER);
-  watchingScreen=true;conversationUntil=elapsed+18;
+  cameraCue='screening';conversationUntil=elapsed+18;
  }
  if(!result.screeningStarted)sound.interact?.();
 }
@@ -816,10 +818,12 @@ function updateCamera(dt){
    keys.has('ArrowUp')||keys.has('ArrowDown')||keys.has('ArrowLeft')||keys.has('ArrowRight');
   if(moving||aiming||interaction||state.paused||state.mapOpen)conversationUntil=0;
   else{
-   const p=watchingScreen?PIER_SCREEN_CENTER:contactActor.mesh.position;
+   // Follow Mara's gesture to the car she is describing across the street.
+   const showCar=cameraCue==='briefing'&&!currentCar&&elapsed>conversationUntil-3.55;
+   const p = watchingFilm() ? PIER_SCREEN_CENTER : showCar ? heroCar.model.mesh.position : contactActor.mesh.position;
    const heading=Math.atan2(base.x-p.x,base.z-p.z);
    yaw+=angleDiff(yaw,heading)*(1-Math.exp(-3.5*dt));
-   const viewPitch=watchingScreen?(currentCar?-.24:-.19):.045;
+   const viewPitch = watchingFilm() ? (currentCar ? -.24 : -.19) : showCar ? .055 : .045;
    pitch=damp(pitch,viewPitch,3,dt);lookTimer=elapsed;
   }
  }
@@ -1065,14 +1069,16 @@ function drawMap(target,full=false){
 }
 
 window.addEventListener('keydown',e=>{
+ const code=keyboardCode(e);
+ if(!code)return;
  const control=e.target.closest?.('button,input,select,textarea,[contenteditable]');
- if(control&&['Space','Enter','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End'].includes(e.code))return;
- if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
- const photoMovement=photo.active&&['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','ShiftLeft','ShiftRight'].includes(e.code);
- if((e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)&&!photoMovement&&!['Escape','KeyP','KeyH'].includes(e.code))return;
- if(!keys.has(e.code))action(e.code);keys.add(e.code);
+ if(control&&['Space','Enter','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End'].includes(code))return;
+ if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(code))e.preventDefault();
+ const photoMovement=photo.active&&['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','ShiftLeft','ShiftRight'].includes(code);
+ if((e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)&&!photoMovement&&!['Escape','KeyP','KeyH'].includes(code))return;
+ if(!keys.has(code))action(code);keys.add(code);
 });
-window.addEventListener('keyup',e=>keys.delete(e.code));
+window.addEventListener('keyup',e=>keys.delete(keyboardCode(e)));
 window.addEventListener('focus',()=>{controllerFocused=true;});
 window.addEventListener('blur',()=>{controllerFocused=false;controller.reset();keys.clear();mouseDown=false;aiming=false;if(state.started&&!photo.active)pause(true);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){controller.reset();if(state.started&&!photo.active)pause(true);}});
