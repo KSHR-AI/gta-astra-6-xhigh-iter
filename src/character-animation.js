@@ -392,8 +392,8 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
 
     // Warp the authored ankle trajectory, retaining its alternating contact and
     // swing timing. Shorten low-speed steps and reduce the soldier's exaggerated
-    // clearance. Rotate knee, ankle and toe direction together for side steps;
-    // rotating only the thigh left the original shin/foot fighting its parent.
+    // clearance. Turn the ankle path into lateral travel, then align the knee
+    // to the constrained leg and the shallower turn used by the shoe.
     if (movingWeight > 0.001 && seatedWeight < 0.001 && airWeight < 0.05 && !interaction) {
       const sideWeight = Math.abs(Math.sin(legYaw));
       const horizontalScale = strideScale * THREE.MathUtils.lerp(1, 0.68, sideWeight);
@@ -416,8 +416,17 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
         const plant = footPlants.find((candidate) => candidate.side === side);
         const floor = plant.height + plant.floor;
         legFoot.y = floor + Math.max(0, legFoot.y - floor) * clearanceScale;
+        // During lateral travel, the source forward-walking knee cannot turn
+        // farther sideways than the shoe and then fold against its stance limit.
+        // Use a pole relative to the actual leg, following the same sole heading.
+        direction.set(sign * .10, 0, .32).applyAxisAngle(UP, legYaw * .45);
+        direction.addScaledVector(legHip, .5).addScaledVector(legFoot, .5);
+        legKnee.lerp(direction, smooth(sideWeight, .25, .85));
         pose.reach(`${side}UpLeg`, `${side}Leg`, `${side}Foot`, legFoot, legKnee, movingWeight);
         pose.point(`${side}Foot`, `${side}ToeBase`, footDirection, movingWeight);
+        // Reduce the forward clip's nearly vertical shoes during a sidestep,
+        // retaining most authored roll and the existing ankle/contact targets.
+        orientSole(plant, movingWeight * smooth(sideWeight, .25, .85) * .4, legYaw * .45);
       }
     }
 
@@ -514,6 +523,10 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
         plant.target.lerp(plant.raw, 1 - contactWeight);
         pose.position(`${plant.side}Leg`, legKnee);
         direction.set(sign * 0.12, hipY - 0.38, plant.target.z + 0.35);
+        const lateralContact = smooth(Math.abs(Math.sin(legYaw)), .25, .85);
+        temp.set(sign * .10, 0, .32).applyAxisAngle(UP, legYaw * .45);
+        temp.addScaledVector(plant.hip, .5).addScaledVector(plant.target, .5);
+        direction.lerp(temp, lateralContact);
         legKnee.lerp(direction, contactWeight);
         pose.reach(`${plant.side}UpLeg`, `${plant.side}Leg`, `${plant.side}Foot`, plant.target, legKnee);
         orientSole(plant, contactWeight, legYaw * .45);
