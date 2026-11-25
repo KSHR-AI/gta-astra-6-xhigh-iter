@@ -1,3 +1,4 @@
+import { addPalomaArrival } from './paloma-arrival.js';
 import { addCalypsoFacade } from './calypso-facade.js';
 import * as THREE from 'three';
 
@@ -5,6 +6,7 @@ import * as THREE from 'three';
 // material batches. The lamps use baked emissive faces without extra lights.
 export function addLastLightFrontage(api) {
   addCalypsoFacade(api);
+  addPalomaArrival(api);
   const {box,walkableBox,cylinder,line,panel,materials:m,sign}=api;
   const floor=walkableBox ?? box;
   // Palm-green porte-cochère: layer the stepped roof, ribbed cream soffit,
@@ -14,12 +16,22 @@ export function addLastLightFrontage(api) {
   for (const z of [15.85,24.35]) {
     cylinder(m.teal,-14.86,1.93,z,.09,3.45);
     cylinder(m.terracotta,-14.86,.45,z,.2,.52);
+    cylinder(m.metal,-14.86,.735,z,.155,.055);
+    cylinder(m.metal,-14.86,3.48,z,.135,.19);
+    box(m.teal,-14.86,3.57,z,.37,.08,.37);
   }
-  for(let z=16.25;z<24.4;z+=.65) box(m.terracotta,-16.62,3.571,z,3.78,.045,.11);
+  // Individual cedar boards run between the darker cross-battens. The old
+  // office overhang sits below the street canopy, so the liner fits its reveal.
+  for(let i=0;i<10;i++) {
+    box(i%3===0?m.trunk:m.trunkLight,-18.49+i*.399,3.362,20.1,.383,.045,8.86);
+  }
+  for(let z=16.25;z<24.4;z+=.65) box(m.terracotta,-16.68,3.327,z,3.98,.038,.064);
   for(const z of [17.25,22.85]) {
-    cylinder(m.blackMetal,-16.3,3.39,z,.036,.37);
-    cylinder(m.teal,-16.3,3.18,z,.27,.14);
-    cylinder(m.lamp,-16.3,3.096,z,.215,.035,false);
+    cylinder(m.metal,-16.3,3.303,z,.12,.055);
+    cylinder(m.blackMetal,-16.3,3.235,z,.036,.133);
+    cylinder(m.teal,-16.3,3.142,z,.27,.13);
+    cylinder(m.metal,-16.3,3.083,z,.282,.032);
+    cylinder(m.lamp,-16.3,3.056,z,.244,.035,false);
   }
   sign('P A L O M A',-14.65,3.89,20.1,6.52,.39,Math.PI/2,{background:'#225651',color:'#ffe6a8',fontSize:103,border:false,glow:.25});
 
