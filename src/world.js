@@ -1,3 +1,4 @@
+import { createWorkshopInterior } from './workshop-interior.js';
 import { createNightShiftFreight } from './night-shift-freight.js';
 import { createWorkshopShutter } from './workshop-shutter.js';
 import * as THREE from 'three';
@@ -582,6 +583,7 @@ export function createWorld(scene) {
   const pierScreening = createPierScreening(districtAPI);
   const district = addAuthoredDistrict(districtAPI);
   const workshopShutter = createWorkshopShutter(root);
+  const updateWorkshopInterior = createWorkshopInterior(root, canvasTexture, colliders, lampPositions);
   let freight;
   const frontageReady = addVespucciFrontage(districtAPI);
   const streetDetails = addStreetDetails(districtAPI);
@@ -822,6 +824,7 @@ export function createWorld(scene) {
     heightAt: ground.heightAt,
     sampleGround: ground.sample,
     updateInstanceVisibility(camera, options) {
+      updateWorkshopInterior(camera);
       root.updateWorldMatrix(true, false);
       // Registered boxes are in the original district world frame. A moved or
       // scaled district keeps frustum culling but skips these static occluders.

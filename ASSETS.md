@@ -225,3 +225,5 @@ The Solana Coastal Citrus refrigerated trailer, return cage, produce pallets and
 Night Shift’s linen bundles, projection cases, glass racks, trolleys, and detachable luggage carrier are original procedural meshes in `src/night-shift-freight.js`. Their project-authored labels share one locally drawn 512 × 512 atlas.
 
 The four coastal travelogue stills in `public/art/world/pier-travelogue.webp` were generated specifically for the pier drive-in with OpenAI ImageGen. `src/pier-screening.js` provides their projection, camera moves and optical dissolves.
+
+Astra Auto Works’ service furniture, tools, brake display, alignment diagram and parts shelving are original procedural artwork in `src/workshop-interior.js`. The period roadster sign at `public/art/world/astra-workshop.webp` is an original AI-generated illustration for the game. It loads on approach to the workshop. The interior reuses the district’s four-light night budget.
