@@ -1,3 +1,5 @@
+import { createNightShiftFreight } from './night-shift-freight.js';
+import { createWorkshopShutter } from './workshop-shutter.js';
 import * as THREE from 'three';
 import { applyCityMaterials } from './world-materials.js';
 import { addAuthoredDistrict } from './world-district.js';
@@ -5,6 +7,7 @@ import { addStreetDetails } from './world-streets.js';
 import { createPalmAssets } from './world-palms.js';
 import { createShrubBuilder } from './world-shrubs.js';
 import { addVespucciFrontage } from './vespucci-frontage.js';
+import { createPierScreening } from './pier-screening.js';
 import { createPacificWheel } from './pacific-wheel.js';
 import { createOcean } from './world-ocean.js';
 import { createCityProps } from './world-props.js';
@@ -148,6 +151,7 @@ export function createWorld(scene) {
   const roads = [
     { x: 0, z: -20, width: 22, length: 440, axis: 'z' },
     { x: 80, z: -20, width: 20, length: 440, axis: 'z' },
+    { x: 55, z: -45, width: 8.6, length: 90, axis: 'z', name: 'Sunline Service Lane' },
     ...[-90, 0, 90].map(z => ({ x: 37, z, width: 20, length: 290, axis: 'x' })),
   ];
   // Pave the district in disjoint strips. A full concrete plate underneath
@@ -203,16 +207,18 @@ export function createWorld(scene) {
       if (Math.abs(x) < 14 || Math.abs(x - 80) < 13) continue;
       for (const offset of [-0.15, 0.15]) box(materials.yellow, x, 0.047, z + offset, 5, 0.014, 0.09, 0, false);
     }
-    for (const xCenter of [0, 80]) {
-      for (let x = -9; x <= 9; x += 1.7) for (const side of [-1, 1]) box(materials.paint, xCenter + x, 0.05, z + side * 13, 0.8, 0.014, 3.3, 0, false);
-      for (let zz = -8; zz <= 8; zz += 1.6) for (const side of [-1, 1]) box(materials.paint, xCenter + side * 14.6, 0.05, z + zz, 3.3, 0.014, 0.75, 0, false);
-      for (const side of [-1, 1]) box(materials.paint, xCenter + side * 5.4, 0.051, z + side * 16, 9.2, 0.014, 0.23, 0, false);
-    }
     for (const side of [-1, 1]) {
       walkableBox(materials.sidewalk, -55, 0.1, z + side * 13, 88, 0.24, 5.5, 0, false, 'sidewalk');
-      walkableBox(materials.sidewalk, 40, 0.1, z + side * 13, 48, 0.24, 5.5, 0, false, 'sidewalk');
+      // Leave a flush apron at both mouths of Sunline Service Lane.
+      const serviceCut = (z === 0 && side === -1) || (z === -90 && side === 1);
+      const easternPavement = serviceCut ? [[16,49.3],[60.7,64]] : [[16,64]];
+      for (const [left,right] of easternPavement) {
+        const mid = (left+right)/2;
+        walkableBox(materials.sidewalk, mid, .1, z+side*13, right-left, .24, 5.5, 0, false, 'sidewalk');
+        walkableBox(materials.curb, mid, .18, z+side*10.2, right-left, .3, .23, 0, false, 'curb');
+      }
       walkableBox(materials.curb, -55, 0.18, z + side * 10.2, 88, 0.3, 0.23, 0, false, 'curb');
-      walkableBox(materials.curb, 40, 0.18, z + side * 10.2, 48, 0.3, 0.23, 0, false, 'curb');
+
     }
   }
   // Painted turn arrows and manhole covers add scale at eye level.
@@ -302,6 +308,11 @@ export function createWorld(scene) {
     return mesh;
   }
 
+  function registerSolidBox(x, z, width, depth, bottom, top) {
+    solidBuildingBounds.push(new THREE.Box3(
+      new THREE.Vector3(x - width / 2, bottom, z - depth / 2),
+      new THREE.Vector3(x + width / 2, top, z + depth / 2)));
+  }
   function building(x, z, width, depth, floors, style, index, front = 1) {
     const floorHeight = 3.2;
     const height = 4.2 + floors * floorHeight;
@@ -309,16 +320,22 @@ export function createWorld(scene) {
     const palette = [materials.white, materials.brick, materials.blush, materials.limestone, materials.pale, materials.sage];
     const facade = palette[style % palette.length];
     const accent = style % 3 === 0 ? materials.teal : style % 3 === 1 ? materials.terracotta : materials.dark;
-    box(facade, x, height / 2 + 0.2, z, width, height, depth);
-    // Exact opaque body bounds, distinct from inflated gameplay collision boxes.
-    // Hollow authored interiors are deliberately not registered as occluders.
-    solidBuildingBounds.push(new THREE.Box3(
-      new THREE.Vector3(x - width / 2, .2, z - depth / 2),
-      new THREE.Vector3(x + width / 2, height + .2, z + depth / 2),
-    ));
-    colliders.push({ minX: x - width / 2 - 0.2, maxX: x + width / 2 + 0.2, minY: 0, maxY: height + 3, minZ: z - depth / 2 - 0.2, maxZ: z + depth / 2 + 0.2 });
-    // Separate retail plinth, cornices, roof coping and recessed dark frontage.
-    box(accent, x, 2.0, z, width + 0.15, 3.7, depth + 0.15);
+    const calypso = index === 15;
+    function mass(cx, cz, w, d, bottom, top, material, groundSolid) {
+      box(material,cx,(bottom+top)/2,cz,w,top-bottom,d);
+      registerSolidBox(cx, cz, w, d, bottom, top);
+      if(groundSolid) colliders.push({minX:cx-w/2-.2,maxX:cx+w/2+.2,minY:0,maxY:height+3,minZ:cz-d/2-.2,maxZ:cz+d/2+.2});
+    }
+    if (calypso) {
+      // An open six-metre display bay has real side returns, a ceiling and a
+      // back wall. Ground actors and facade occlusion share the same opening.
+      mass(x,z,width,depth,3.8,height+.2,facade,false);
+      mass(x,z-2.5,width,depth-5,.02,3.8,accent,true);
+      for(const cx of [22.75,41.25]) mass(cx,-21.5,11.5,5,.02,3.8,accent,true);
+    } else {
+      mass(x,z,width,depth,.2,height+.2,facade,true);
+      box(accent, x, 2.0, z, width + 0.15, 3.7, depth + 0.15);
+    }
     box(materials.trim, x, 4.1, z, width + 0.8, 0.3, depth + 0.8);
     box(materials.trim, x, height + 0.15, z, width + 0.85, 0.3, depth + 0.85);
     box(materials.concrete, x, height + 0.32, z, width - 0.6, 0.15, depth - 0.6);
@@ -342,6 +359,7 @@ export function createWorld(scene) {
       }
       for (let i = 0; i < Math.floor(width / 3.5); i++) {
         const xx = x - width / 2 + 2.1 + i * ((width - 4.2) / Math.max(1, Math.floor(width / 3.5) - 1));
+        if (calypso && side > 0 && Math.abs(xx - 32) < 4.7) continue;
         panel(materials.glassDark, xx, 1.92, z + side * (depth / 2 + 0.09), 2.8, 2.8, side < 0 ? Math.PI : 0);
         box(materials.trim, xx - 1.45, 1.95, z + side * (depth / 2 + 0.17), 0.2, 3.5, 0.3);
         panel(materials.metal, xx, 1.9, z + side * (depth / 2 + 0.19), 0.055, 2.8, side < 0 ? Math.PI : 0);
@@ -559,9 +577,12 @@ export function createWorld(scene) {
     palm(x, z, height, 0.95);
   }
 
-  const districtAPI = { box, walkableBox, panel, cylinder, line, instance, materials, canvasTexture,
+  const districtAPI = { box, walkableBox, registerSolidBox, panel, cylinder, line, instance, materials, canvasTexture,
     root, colliders, panelGeometry, random, range, sign, palm, shrub };
+  const pierScreening = createPierScreening(districtAPI);
   const district = addAuthoredDistrict(districtAPI);
+  const workshopShutter = createWorkshopShutter(root);
+  let freight;
   const frontageReady = addVespucciFrontage(districtAPI);
   const streetDetails = addStreetDetails(districtAPI);
 
@@ -660,7 +681,7 @@ export function createWorld(scene) {
       for (let i = 0; i < 3; i++) shrub(px, 1.31 + i % 2 * .07, z - 8.8 + i * .8, 1.15, .94, 1.2);
     }
   }
-  const cityProps = createCityProps(root);
+  const cityProps = createCityProps(root, instanceVisibility.add);
   colliders.push(...cityProps.colliders);
 
   // Billboard is part of the city, with a real support structure and floodlights.
@@ -814,12 +835,22 @@ export function createWorld(scene) {
     getWireStats: streetDetails.getWireStats,
     setSky: data => ocean.setSky(data),
     landmarks: district.landmarks,
+    setFreightStatus(manifest) {
+      if (!freight && !manifest) return;
+      freight ??= createNightShiftFreight({ root, canvasTexture, ground, colliders });
+      freight.update(manifest);
+    },
+    updateWorkshop: workshopShutter.update,
+    get workshopOpen() { return workshopShutter.open; },
     zones: district.zones,
     locationAt(x, z) {
       return district.zones.find(zone => x >= zone.minX && x <= zone.maxX && z >= zone.minZ && z <= zone.maxZ)?.name
         || (x < -100 ? 'Pacific Oceanfront' : z < -95 ? 'Palm Avenue' : z > 95 ? 'Marina Way' : 'Ocean Drive');
     },
+    setPierScreening: pierScreening.setUnlocked,
+    restartPierScreening: pierScreening.restart,
     setNight(value) {
+      pierScreening.setNight(value);
       ocean.setNight(value);
       materials.lamp.emissiveIntensity=value?4.5:1.3;
       materials.glassWarm.emissiveMap=value?materials.glassWarm.map:null;
@@ -828,6 +859,6 @@ export function createWorld(scene) {
       illuminatedSigns.forEach(({material,intensity})=>material.emissiveIntensity=intensity*(value?3:1));
     },
     bounds: { minX: -148, maxX: 143, minZ: -238, maxZ: 194 },
-    update(dt, time) { ocean.update(time); pacificWheel.update(time); breeze.value = time; updateTrafficSignals(time); },
+    update(dt, time) { pierScreening.update(time); ocean.update(time); pacificWheel.update(time); breeze.value = time; updateTrafficSignals(time); },
   };
 }

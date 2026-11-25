@@ -1,5 +1,5 @@
 // Vale's commission uses the two contrasting soundscapes around the Paloma.
-export const recorderDesk = { x: -16, z: 20, label: 'Room Tone' };
+export const recorderDesk = { x: -16, z: 23.1, label: 'Room Tone' };
 const courtyard = { x: -28, z: 37, label: 'Pool courtyard', fee: 350, from: 3, until: 8, take: 'Poolside' };
 const boulevard = { x: -13.5, z: -40, label: 'Boulevard traffic', fee: 650, from: 4, until: 6, take: 'Rush hour' };
 const sites = { courtyard, boulevard };

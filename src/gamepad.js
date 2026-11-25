@@ -1,5 +1,5 @@
 const neutral = Object.freeze({ moveX: 0, moveY: 0, lookX: 0, lookY: 0, throttle: 0, sprint: false, handbrake: false });
-const buttonActions = [[9, 'menu'], [8, 'map'], [3, 'context'], [0, 'jump']];
+const buttonActions = [[9, 'menu'], [8, 'map'], [3, 'context'], [0, 'jump'], [1, 'back'], [12, 'up'], [13, 'down'], [14, 'left'], [15, 'right']];
 
 function stick(x = 0, y = 0) {
   const length = Math.hypot(x, y);
@@ -16,11 +16,11 @@ export function createGamepadInput() {
   let index, previous = 0, waitForRelease = false;
   return {
     reset() { previous = 0; waitForRelease = true; },
-    poll(pads, onPress) {
+    poll(pads, onPress, onMode) {
       const available = Array.from(pads || []).filter(pad => pad?.connected && pad.mapping === 'standard');
       const pad = available.find(candidate => candidate.index === index) || available[0];
       if (!pad) {
-        if (index !== undefined) waitForRelease = true;
+        if (index !== undefined) { waitForRelease = true; onMode?.('fallback'); }
         index = undefined; previous = 0;
         return neutral;
       }
@@ -36,6 +36,7 @@ export function createGamepadInput() {
         waitForRelease = !!(mask || moveX || moveY || lookX || lookY || gas || brake || sprint);
         return neutral;
       }
+      if (mask || moveX || moveY || lookX || lookY || gas || brake || sprint) onMode?.('gamepad');
       for (const [button, action] of buttonActions) if ((mask & ~previous) & (1 << button)) onPress(action);
       previous = mask;
       return { moveX, moveY, lookX, lookY, throttle: gas - brake, sprint, handbrake };

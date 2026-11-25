@@ -71,6 +71,13 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   const previousHeading = { value: mesh.rotation.y };
   let gaitPhase = phaseOffset;
   let motionSpeed = 0;
+  let gesture = null, gestureTime = 0;
+  let inspectionWeight = 0, inspectionSweep = 0;
+  const lampTarget = new THREE.Vector3();
+  const lampWrist = new THREE.Vector3();
+  const lampTip = new THREE.Vector3();
+  let stopStance = null, wasWalking = false;
+  let stopHeading = 0, stopWeight = 0;
   let movementAngle = 0;
   let legYaw = 0;
   let gaitDirection = 1;
@@ -186,13 +193,14 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       speed = 0, armed = weaponVisible, aiming = false, shooting = false, shotId, dead = false,
       seated = false, steering = 0, jumping = false, verticalVelocity = 0,
       reloading = false, reloadProgress, aimPitch = 0, aimYaw = 0, aimTarget = null, lookTarget = null,
-      interactionProgress = 0, interactionPhase = '', hit = false,
+      interactionProgress = 0, interactionPhase = '', hit = false, doorHandleTarget = null,
+      ambientGesture = null, gestureProgress = 0, inspectionTarget = null, inspectionProgress = 0,
     } = options;
     const step = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.25);
     const input = [speed, armed, weaponVisible, aiming, shooting, shotId, dead, seated, steering,
       jumping, verticalVelocity, reloading, reloadProgress, aimPitch, aimYaw,
       aimTarget?.x, aimTarget?.y, aimTarget?.z, lookTarget?.x, lookTarget?.y, lookTarget?.z,
-      interactionProgress, interactionPhase, hit];
+      interactionProgress, interactionPhase, hit, doorHandleTarget?.x, doorHandleTarget?.y, doorHandleTarget?.z, ambientGesture, gestureProgress, gesture, inspectionTarget?.x, inspectionTarget?.y, inspectionTarget?.z, inspectionProgress];
     mesh.updateWorldMatrix(true, false);
     // Mixer.update(0) may leave unchanged source tracks unwritten. Reapplying
     // procedural blends would then blend the previous solved pose again, so a
@@ -270,6 +278,17 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     previousHeading.value = mesh.rotation.y;
     turnLean = THREE.MathUtils.damp(turnLean, clamp(headingDelta / Math.max(step, 0.016), -3, 3), 9, step);
 
+    if (gesture) {
+      gestureTime += step;
+      if (gestureTime >= 2.4 || speed > .5 || seated || dead || interaction) gesture = null;
+    }
+    const checking = inspectionTarget?.isVector3 && !carrying && !interaction && !seated && !dead && !airborne;
+    if (checking) {
+      lampTarget.copy(inspectionTarget);
+      inspectionSweep = .055*Math.sin(Math.PI*2*smooth(inspectionProgress,.25,.90));
+    }
+    inspectionWeight = THREE.MathUtils.damp(inspectionWeight,checking ? 1 : 0,checking ? 7 : 13,step);
+    if (carrying || interaction || seated || dead || airborne || inspectionWeight < .001) inspectionWeight = 0;
     const targetSpeed = seated || interaction || dead ? 0 : Math.abs(speed);
     motionSpeed = THREE.MathUtils.damp(motionSpeed, targetSpeed, 12, step);
     locomotionWeight = THREE.MathUtils.damp(locomotionWeight, smooth(motionSpeed, 0.06, 0.95), targetSpeed > 0.1 ? 10 : 14, step);
@@ -311,7 +330,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     const reloadT = clamp(reloading ? reloadProgress ?? reloadElapsed / 1.45 : 1, 0, 1);
     currentReloadProgress = reloadT;
     pendingPoseTime += step;
-    pendingPose = { interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
+    pendingPose = { ambientGesture, gestureProgress, doorHandleTarget: doorHandleTarget?.isVector3 ? doorHandleTarget.clone() : null, interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
       movingWeight, aiming, shooting, dead, seated, steering, verticalVelocity,
       reloading, reloadT, aimPitch, aimYaw, aimTarget: aimTarget?.isVector3 ? aimTarget.clone() : null,
       lookTarget: lookTarget?.isVector3 && lookTarget.toArray().every(Number.isFinite) ? lookTarget.clone() : null, interactionPhase };
@@ -320,7 +339,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
 
   function flushPose() {
     if (!pendingPose) return false;
-    const { interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
+    const { ambientGesture, gestureProgress, doorHandleTarget, interaction, canUseWeapon, carrying, progress, seatedWeight, airborne,
       movingWeight, aiming, shooting, dead, seated, steering, verticalVelocity,
       reloading, reloadT, aimPitch, aimYaw, aimTarget, lookTarget, interactionPhase } = pendingPose;
     const step = pendingPoseTime;
@@ -368,7 +387,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       mesh.getWorldPosition(groundPoint);
       for (const plant of footPlants) plant.floor = Number.isFinite(plant.worldFloor) ? plant.worldFloor - groundPoint.y : 0;
     }
-    const bodyLean = landing * 0.20 + hitReaction * 0.26 + airWeight * 0.08 + movingWeight * runningWeight * 0.07 + aimWeight * 0.035 - recoil * 0.2;
+    const bodyLean = inspectionWeight*.45 + landing * 0.20 + hitReaction * 0.26 + airWeight * 0.08 + movingWeight * runningWeight * 0.07 + aimWeight * 0.035 - recoil * 0.2;
     point('Spine', 'Spine1', -weightShift * idleLife, 1, bodyLean - seatedWeight * 0.13 + breathing * idleLife * 0.012, Math.max(neutralWeight * 0.55, airWeight, landing, hitReaction));
     point('Spine2', 'Neck', -turnLean * (1 - seatedWeight) * 0.025 + weightShift * idleLife * 0.6, 1, bodyLean * 0.25 + breathing * idleLife * 0.009, Math.max(neutralWeight * 0.4, hitReaction));
 
@@ -596,9 +615,70 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       }
     }
 
+    // Preserve the final staggered stance of a walking stop until the root
+    // leaves it. A turn, lift, or fresh stride immediately owns the feet again.
+    if (carrying || airborne || interaction || seated || dead || Math.abs(turnLean) > .3) {
+      stopStance = null; wasWalking = false;
+    } else if (motionSpeed > .6) {
+      wasWalking = true; stopStance = null;
+    } else if (wasWalking && movingWeight < .45) {
+      stopStance = {};
+      for (const side of ['Left','Right']) {
+        const foot = pose.position(side + 'Foot', new THREE.Vector3());
+        const sign = side === 'Left' ? 1 : -1;
+        foot.x = sign * clamp(sign * foot.x, .09, .115);
+        const neutralZ = .06 - sign*.025;
+        foot.z = clamp(foot.z, neutralZ-.025, neutralZ+.025);
+        stopStance[side] = mesh.localToWorld(foot);
+      }
+      stopHeading = mesh.rotation.y; stopWeight = 0;
+      wasWalking = false;
+    }
+    if (stopStance && Math.abs(mesh.rotation.y - stopHeading) > .09) stopStance = null;
+    if (stopStance) stopWeight = THREE.MathUtils.damp(stopWeight,1,9,step);
+    if (stopStance) for (const plant of footPlants) {
+      const sign = plant.side === 'Left' ? 1 : -1;
+      const foot = mesh.worldToLocal(temp.copy(stopStance[plant.side]));
+      if (Math.abs(foot.z) > .23 || Math.abs(foot.x) > .20) { stopStance = null; break; }
+      reachFoot(plant.side, foot.x, plant.height + plant.floor, foot.z, sign*.11,.55,.28, relaxed*stopWeight);
+      orientSole(plant, relaxed*stopWeight);
+    }
+
+    if (!dead && !seated && !interaction && !carrying) {
+      const kind = gesture || ambientGesture;
+      const t = gesture ? gestureTime / 2.4 : clamp(gestureProgress,0,1);
+      const weight = smooth(t,0,.22) * (1-smooth(t,.68,1));
+      if (weight > .001 && kind) {
+        // Start from the rig's relaxed sleeve twist. Aiming a wrist from the
+        // rifle clip's rolled forearm can collapse a linear-skinned elbow.
+        for (const side of (kind === 'horn' ? ['Left'] : ['Left','Right'])) for (const segment of ['Arm','ForeArm','Hand']) {
+          const name=side+segment;
+          if (bones[name] && restPose[name]) bones[name].quaternion.slerp(restPose[name],weight);
+        }
+      }
+      if (kind === 'briefing') {
+        // Draw the hand out along the street, then hold the point.
+        reachArm('Right', -.19-.19*smooth(t,.16,.50), hipY+.32, .33, -.38,hipY+.11,.13,weight);
+        reachArm('Left', .15, hipY+.15,.20,.28,hipY-.01,.07,weight*.65);
+      } else if (kind === 'handoff') {
+        reachArm('Left',.20,hipY-.20,.09,.32,hipY+.09,.03,weight);
+        reachArm('Right', -.05,hipY+.21,.45,-.31,hipY+.07,.18,weight);
+      } else if (kind === 'shutter') {
+        const lift=smooth(t,.19,.72);
+        for(const [side,sign] of [['Right',-1],['Left',1]])
+          reachArm(side,sign*.20,hipY+.20+lift*.57,.31,sign*.38,hipY+.09+lift*.36,.17,weight);
+      } else if (kind === 'horn') {
+        reachArm('Left',.15,hipY+.51,.16,.38,hipY+.27,.12,weight);
+      }
+    }
+
     if (interaction && seatedWeight < 0.9) {
       const reachWeight = Math.sin(Math.PI * clamp(interactionPhase === 'enter' ? progress / 0.7 : (1 - progress) / 0.7, 0, 1));
-      reachArm('Left', 0.40, hipY + 0.20, 0.27, 0.44, hipY + 0.02, 0.08, reachWeight);
+      if (doorHandleTarget && !dead) {
+        const local = mesh.worldToLocal(hand.copy(doorHandleTarget));
+        const side = local.x >= 0 ? 'Left' : 'Right';
+        reachArm(side,local.x,local.y,local.z,side==='Left'?.42:-.42,hipY+.08,.18,reachWeight);
+      } else reachArm('Left', 0.40, hipY + 0.20, 0.27, 0.44, hipY + 0.02, 0.08, reachWeight);
       point('Spine', 'Spine1', 0.1, 1, 0.25, Math.sin(progress * Math.PI) * 0.8);
     }
 
@@ -662,6 +742,9 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
           lookPitch = THREE.MathUtils.lerp(lookPitch, clamp(Math.atan2(attentionDirection.y, Math.hypot(attentionDirection.x, attentionDirection.z)), -.24, .24), attentionWeight);
         }
       }
+      lookPitch -= inspectionWeight*.48;
+      if (gesture === 'handoff') lookPitch -= .12*Math.sin(Math.PI*smooth(gestureTime,.28,1.38));
+      if (gesture === 'briefing') lookYaw -= .20*Math.sin(Math.PI*smooth(gestureTime,.34,1.85));
       lookEuler.set(-clamp(lookPitch, -0.82, 0.82), lookYaw, 0);
       wantedLook.setFromEuler(lookEuler);
       headLook.slerp(wantedLook, headInitialized ? 1 - Math.exp(-12 * step) : 1);
@@ -756,7 +839,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
       // posture before gait/contact detection would change touchdown timing.
       // The final leg solve extends toward these same targets, preserving both
       // soles; terrain penetration never feeds into the averaged source hips.
-      const postureLift = neutralPelvisLift * standingInfluence * (1 - turnWeight * .3);
+      const postureLift = neutralPelvisLift * standingInfluence * (1 - turnWeight * .3) - inspectionWeight*.37;
       let lowerPelvis = 0;
       for (const plant of footPlants) {
         const soleHeight = sampleSoleHeight(plant.probes.length ? plant.probes : soleProbes, plant.bounds);
@@ -807,7 +890,22 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
     aim.hipY = pose.position('Hips', pelvis).y;
     presentedAim = aim;
     presentWeapon(aim, step);
+    if (inspectionWeight > 0) {
+      const target=mesh.worldToLocal(lampWrist.copy(lampTarget));
+      target.x+=inspectionSweep;
+      // Rest the free hand against the thigh while the right fingers trace
+      // the lens. Solve again after the sole/pelvis correction on a slope.
+      reachArm('Left',.17,aim.hipY-.11,.22,.31,aim.hipY+.10,.08,inspectionWeight);
+      reachArm('Right',target.x,target.y,target.z-.055,-.32,aim.hipY+.08,.13,inspectionWeight);
+      if (bones.RightHandIndex2) {
+        pose.position('RightHandIndex2',lampTip);
+        pose.position('RightHand',hand);
+        lampTip.sub(hand);
+        reachArm('Right',target.x-lampTip.x,target.y-lampTip.y,target.z-lampTip.z,-.32,aim.hipY+.08,.13,inspectionWeight);
+      }
+    }
     mesh.userData.animationState = dead ? 'down' : interaction ? interactionPhase : seated ? 'driving' : reloading ? 'reloading' : airborne ? 'airborne' : landing > 0.08 ? 'landing' : hitReaction > 0.05 ? 'hit' : aiming || shooting ? 'aiming' : motionSpeed > 3.7 ? 'running' : motionSpeed > 0.15 ? 'walking' : carrying ? 'low-ready' : 'idle';
+    if (inspectionWeight>.35) mesh.userData.animationState='inspecting';
     contactSurfaces.revision++;
     contactSurfaces.rootMatrixWorld.copy(mesh.matrixWorld);
     contactSurfaces.state = mesh.userData.animationState;
@@ -994,7 +1092,7 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
   function update(dt, options = {}) { advance(dt, options, false); flushPose(); }
   function resetGrounding() {
     lastAdvanceInput = null;
-    surfaceOffset = 0;
+    surfaceOffset = 0; inspectionWeight=0; stopStance = null; wasWalking = false;
     turnSteps.reset(); turnFeet = null; turnWeight = 0; turnPelvisYaw = 0; turnBlend = 0;
     mesh.getWorldPosition(previousPosition);
     for (const plant of footPlants) {
@@ -1005,6 +1103,10 @@ export function createHumanoidAnimator({ mesh, visual, bones, actions, mixer, we
 
   return {
     update, advance, flushPose, resetGrounding, getAimState, applyShot,
+    performGesture(kind) {
+      if (kind !== 'briefing' && kind !== 'handoff') return;
+      gesture = kind; gestureTime = 0; lastAdvanceInput = null;
+    },
     getAttentionInfo: () => ({ mode: attentionMode, localQuaternion: bones.Head?.quaternion.toArray() ?? null }),
     getEvaluationStats: () => ({ advances: advanceCount, poses: poseCount, pending: Boolean(pendingPose), pendingTime: pendingPoseTime }),
     seatOffset,

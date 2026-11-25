@@ -1,3 +1,5 @@
+import { createInputPrompts, controllerMenuInput } from './input-prompts.js';
+import { createLastLightHud, lastLightPanel, showDeliveryReceipt } from './last-light-hud.js';
 const icons = {
   logo: '<svg viewBox="0 0 34 34" fill="none" aria-hidden="true"><path d="M17 2 20 13 31 17 20 20 17 32 14 20 3 17 14 13 17 2Z" fill="currentColor"/><path d="m25 6 2 2M7 26l2 2M6 7l2 2m18 17 2 2" stroke="currentColor" stroke-width="1"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -37,31 +39,33 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
     <main class="welcome" id="welcome-screen">
       <div class="welcome-eyebrow"><span></span> LOS PACIFICOS &nbsp;/&nbsp; STORY MODE</div>
       <h1 class="title-lockup" aria-label="Grand Theft Astra"><span class="title-prelude">GRAND THEFT</span><span class="title-astra">ASTRA</span></h1>
-      <div class="welcome-heading"><span class="story-label">CHAPTER ONE</span>The Coastal Job</div>
-      <p class="welcome-copy">Meet Mara. Find the car. Lose the heat.</p>
+      <div class="welcome-heading"><span class="story-label">CHAPTER ONE</span>Last Light at the Paloma</div>
+      <p class="welcome-copy">Take the wheel of Mara’s convertible. Bring it home clean.</p>
       <div class="welcome-menu"><button class="enter-button" id="start-button" type="button" disabled><span id="start-label">Preparing the city</span><span class="button-arrow">${icons.arrow}</span></button><button class="welcome-settings" id="welcome-settings" type="button"><span>Settings &amp; controls</span><span class="button-arrow">${icons.settings}</span></button></div>
       <div class="start-subtitle"><span class="status-dot"></span><span id="ready-label">PREPARING YOUR SESSION</span><span class="subtitle-line"></span><span id="save-label">SINGLE PLAYER</span></div>
     </main>
     <aside class="welcome-world" aria-label="Location"><span class="world-line"></span><span>CALIFORNIA COAST</span><b>Los Pacificos</b></aside>
     <div class="play-hud" id="play-hud">
 
+      ${lastLightPanel}
       <aside id="field-recorder" class="field-recorder" aria-label="Recording tape" hidden><span>● REC</span><strong id="field-cue">ROLLING</strong><div class="tape-track"><i></i><b></b></div></aside>
       <output id="circuit-signal" class="circuit-signal" aria-label="Race start" hidden></output>
       <aside class="wanted-panel" id="police-panel" aria-label="Police status"><div class="wanted-stars" id="wanted-stars">${Array.from({ length: 5 }, (_, i) => `<span data-star="${i}">${icons.star}</span>`).join('')}</div><span id="wanted-caption">ALL CLEAR</span><span class="police-instruction" id="police-instruction"></span><div class="police-search" id="police-search" hidden><div class="police-search-track" role="progressbar" aria-label="Escape progress" aria-valuemin="0" aria-valuemax="100" id="search-progress"><span id="search-progress-fill"></span></div><span>LOSING THE HEAT</span></div></aside>
       <div class="crosshair" id="crosshair" aria-hidden="true"><span class="reticle-ticks"><i></i><i></i><i></i><i></i></span><span class="reticle-dot"></span><svg class="reticle-hit" viewBox="0 0 32 32"><path d="m6 6 6 6m8 8 6 6M26 6l-6 6M12 20l-6 6"/></svg><svg class="reticle-blocked" viewBox="0 0 28 28"><circle cx="14" cy="14" r="8"/><path d="m8.3 19.7 11.4-11.4"/></svg><svg class="reticle-reload" viewBox="0 0 40 40"><circle class="reload-ring-track" cx="20" cy="20" r="16"/><circle class="reload-ring-fill" id="reload-ring" cx="20" cy="20" r="16" pathLength="100"/></svg><span class="reticle-message" id="reticle-message"></span></div>
       <aside class="minimap-panel"><button class="objective-line" id="objective-open" type="button" aria-label="View mission details on the map"><span class="objective-line-dot"></span><span id="objective-short">Meet Mara</span><span id="objective-short-distance"></span></button><div class="minimap-topline"><span class="district-name" id="location-name">VESPUCCI BOULEVARD</span><button class="map-button" id="map-button" type="button" aria-label="Open city map"><kbd>M</kbd>${icons.map}</button></div><button class="minimap-frame" id="minimap-open" type="button" aria-label="Open city map"><canvas id="minimap" width="440" height="300"></canvas><span class="minimap-north">N</span><span class="minimap-scale">100 m <i></i></span></button><div class="vitals"><div class="vital health">${icons.health}<div class="vital-track"><span id="health-fill"></span></div><span id="health-value">100</span></div><div class="vital stamina">${icons.stamina}<div class="vital-track"><span id="stamina-fill"></span></div></div></aside>
       <button class="interaction-prompt" id="interaction-prompt" type="button" hidden><kbd id="interaction-key">E</kbd><span class="interaction-copy"><span id="interaction-title">ENTER VEHICLE</span><strong id="interaction-name">Take it for a spin</strong></span><span class="interaction-icon" id="interaction-icon">${icons.arrow}</span></button>
-      <aside class="equipment-panel"><div id="weapon-panel"><span class="equipment-label" id="weapon-name">9MM PISTOL</span><div class="weapon-row"><span class="weapon-silhouette" id="weapon-silhouette">${icons.weapon}</span><span class="ammo-count" id="ammo-value">12</span><span class="ammo-divider" id="ammo-divider">/</span><span class="ammo-reserve" id="reserve-value">96</span></div><div class="weapon-status" id="weapon-status" hidden><span id="weapon-status-label"></span><span id="reload-percent"></span></div><div class="reload-track" id="reload-track" hidden role="progressbar" aria-label="Reload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="reload-fill"></span></div><div class="equipment-hint" id="weapon-hints"><span><kbd>R</kbd> RELOAD</span><span><kbd>LMB</kbd> FIRE</span></div></div><div class="speedometer" id="speed-panel" hidden><span class="equipment-label">ON THE STREETS</span><div class="speed-row"><span id="speed-value">000</span><div><b>KM/H</b><span id="gear-value">N</span></div></div><div class="vehicle-telemetry"><div class="rpm-label"><span>ENGINE</span><span id="rpm-value">— RPM</span></div><div class="speed-track"><span id="speed-fill"></span></div><div class="vehicle-condition" id="vehicle-condition"><span>CONDITION</span><div class="condition-track"><span id="vehicle-health-fill"></span></div><strong id="vehicle-health-value">100%</strong></div></div><div class="equipment-hint"><span><kbd>SPACE</kbd> HANDBRAKE</span><span><kbd>E</kbd> EXIT</span></div></div></aside>
-      <div class="game-bottom-hint"><button id="controls-button" type="button"><kbd>ESC</kbd> MENU &amp; CONTROLS</button><span><kbd>P</kbd> PHOTO MODE</span></div><div class="dialogue-panel" id="dialogue-panel" hidden role="status" aria-live="polite"><span class="dialogue-speaker" id="dialogue-speaker"></span><p id="dialogue-text"></p></div><div class="mission-complete" id="mission-complete" role="status" aria-live="polite" hidden><span class="complete-symbol">${icons.logo}</span><div><span class="complete-eyebrow">JOB COMPLETE</span><h2 id="complete-title"></h2><p id="complete-reward"></p></div></div>
+      <aside class="equipment-panel"><div id="weapon-panel"><span class="equipment-label" id="weapon-name">9MM PISTOL</span><div class="weapon-row"><span class="weapon-silhouette" id="weapon-silhouette">${icons.weapon}</span><span class="ammo-count" id="ammo-value">12</span><span class="ammo-divider" id="ammo-divider">/</span><span class="ammo-reserve" id="reserve-value">96</span></div><div class="weapon-status" id="weapon-status" hidden><span id="weapon-status-label"></span><span id="reload-percent"></span></div><div class="reload-track" id="reload-track" hidden role="progressbar" aria-label="Reload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="reload-fill"></span></div><div class="equipment-hint" id="weapon-hints"><span><kbd>R</kbd> RELOAD</span><span><kbd>LMB</kbd> FIRE</span></div></div><div class="speedometer" id="speed-panel" hidden><span class="equipment-label">ON THE STREETS</span><div class="speed-row"><span id="speed-value">000</span><div><b>KM/H</b><span id="gear-value">N</span></div></div><button type="button" id="vehicle-exit" class="vehicle-exit" hidden><kbd id="vehicle-exit-key">F</kbd> Exit vehicle</button><div class="vehicle-telemetry"><div class="rpm-label"><span>ENGINE</span><span id="rpm-value">— RPM</span></div><div class="speed-track"><span id="speed-fill"></span></div><div class="vehicle-condition" id="vehicle-condition"><span>CONDITION</span><div class="condition-track"><span id="vehicle-health-fill"></span></div><strong id="vehicle-health-value">100%</strong></div></div><div class="equipment-hint"><span><kbd>SPACE</kbd> HANDBRAKE</span><span><kbd>E</kbd> EXIT</span></div></div></aside>
+      <div class="game-bottom-hint"><button id="controls-button" type="button"><kbd>ESC</kbd> MENU &amp; CONTROLS</button><span><kbd>P</kbd> PHOTO MODE</span></div><div class="dialogue-panel" id="dialogue-panel" hidden role="status" aria-live="polite"><span class="dialogue-speaker" id="dialogue-speaker"></span><p id="dialogue-text"></p></div><div class="mission-complete" id="mission-complete" role="status" aria-live="polite" hidden><span class="complete-symbol">${icons.logo}</span><div><span class="complete-eyebrow">JOB COMPLETE</span><h2 id="complete-title"></h2><dl id="delivery-receipt" hidden></dl><p id="complete-reward"></p></div></div>
       <div class="toast" id="game-toast" role="status" aria-live="polite"><span class="toast-icon">${icons.pin}</span><div><strong id="toast-title"></strong><p id="toast-detail"></p></div></div>
       <div class="mobile-controls"><div class="mobile-dpad"><button class="touch-key up" data-code="KeyW" aria-label="Move forward">${icons.chevron}</button><button class="touch-key left" data-code="KeyA" aria-label="Move left">${icons.chevron}</button><button class="touch-key down" data-code="KeyS" aria-label="Move backward">${icons.chevron}</button><button class="touch-key right" data-code="KeyD" aria-label="Move right">${icons.chevron}</button></div><div class="mobile-actions">
         <button class="touch-key drive-only drive-brake" type="button" data-code="KeyS" aria-label="Brake or reverse">BRAKE</button>
         <button class="touch-key drive-only drive-gas" type="button" data-code="KeyW" aria-label="Accelerate">GAS</button>
+        <button class="touch-key drive-only drive-exit" type="button" data-code="KeyF" aria-label="Exit vehicle">EXIT</button>
         <button class="touch-key drive-only drive-horn" type="button" data-code="KeyH" aria-label="Sound horn">HORN</button>
         <button class="touch-key" data-code="ShiftLeft" aria-label="Sprint">RUN</button><button class="touch-key" data-code="Space" aria-label="Jump or handbrake">JUMP</button><button class="touch-key touch-interact" data-code="KeyE" id="mobile-interact" aria-label="Interact or enter vehicle">USE</button><button class="touch-key touch-aim" id="mobile-aim" type="button" aria-label="Hold to aim" aria-pressed="false">${icons.target}<span>AIM</span></button><button class="touch-key touch-fire" data-code="Mouse0" aria-label="Fire weapon">${icons.weapon}<span>FIRE</span></button><button class="touch-key touch-utility" data-code="KeyR" aria-label="Reload weapon">RELOAD</button><button class="touch-key touch-utility" data-code="Digit1" aria-label="Equip or holster weapon">EQUIP</button></div></div>
     </div>
-    <div class="modal-backdrop" id="pause-overlay" hidden><section class="pause-menu" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="modal-topline"><span class="small-eyebrow" id="pause-eyebrow">YOUR EXPERIENCE</span><button class="icon-button" id="close-pause" type="button" aria-label="Close pause menu">${icons.close}</button></div><h2 id="pause-title">Settings<span>.</span></h2><p class="pause-subtitle" id="pause-subtitle">Set the tone for your time in Los Pacificos.</p><div class="pause-mission"><aside class="objective-card"><div class="objective-icon">${icons.arrow}</div><div class="objective-content"><div class="objective-eyebrow"><span id="mission-chapter">THE COASTAL JOB</span><span id="objective-distance">EXPLORE</span></div><h2 id="objective-title">A fresh start</h2><p id="objective-description">Find a ride. Make the city yours.</p><div class="mission-progress" id="mission-progress" hidden role="progressbar" aria-label="Mission progress" aria-valuemin="0" aria-valuemax="100"><span id="mission-progress-fill"></span></div></div></aside></div><div class="pause-session-meta"><span id="session-wallet">$1,250</span><span id="session-clock">18:42</span><span id="session-location">LOS PACIFICOS</span></div><button class="enter-button resume-button" id="resume-button" type="button"><span id="resume-label">Back to main menu</span>${icons.arrow}</button><button class="photo-entry" id="photo-mode-button" type="button" hidden><span class="photo-entry-icon">${icons.camera}</span><span><strong>Photo mode</strong><small>Collect three postcards around Los Pacificos.</small></span><kbd>P</kbd></button><div class="settings-list"><div class="setting-row"><span>${icons.sound}Sound</span><button class="setting-toggle is-on" id="sound-button" type="button" aria-pressed="true"><span class="setting-value">On</span><i></i></button></div><div class="setting-row"><span>${icons.settings}Graphics</span><div class="segmented" aria-label="Graphics quality"><button type="button" data-quality="high" class="is-selected" aria-pressed="true">Cinematic</button><button type="button" data-quality="performance" aria-pressed="false">Performance</button></div></div><div class="setting-row"><span>${icons.sun}Time of day</span><div class="segmented" aria-label="Time of day"><button type="button" data-time="golden" class="is-selected" aria-pressed="true">Golden hour</button><button type="button" data-time="night" aria-pressed="false">Night</button></div></div></div><details class="controls-details"><summary>Controls<span>VIEW ALL ${icons.chevron}</span></summary><div class="controls-grid"><span>Move / drive</span><kbd>W A S D</kbd><span>Look around</span><kbd>MOUSE / DRAG</kbd><span>Sprint</span><kbd>SHIFT</kbd><span>Jump / handbrake</span><kbd>SPACE</kbd><span>Interact / enter / exit</span><kbd>E</kbd><span>Equip weapon</span><kbd>1</kbd><span>Fire / hold to aim</span><kbd>LMB / RMB</kbd><span>Horn</span><kbd>H</kbd><span>Reload</span><kbd>R</kbd><span>City map / pause</span><kbd>M / ESC</kbd><span>Photo mode</span><kbd>P</kbd><span>Controller move / look</span><kbd>L / R STICK</kbd><span>Sprint / jump or handbrake</span><kbd>L3 / A</kbd><span>Interact / enter / exit</span><kbd>Y</kbd><span>Gas / brake or reverse</span><kbd>RT / LT</kbd><span>Map / pause</span><kbd>VIEW / MENU</kbd></div></details><button class="restart-button" id="retry-checkpoint" type="button">Retry checkpoint<span>↻</span></button><button class="restart-button" id="restart-button" type="button">Start a fresh session<span>↗</span></button><div class="session-summary" id="session-summary" hidden><span id="session-save">PROGRESS SAVED</span><span id="session-jobs">0 JOBS COMPLETED</span></div><div class="pause-footer">GRAND THEFT ASTRA <span>LOS PACIFICOS AWAITS</span></div></section></div>
-    <div class="modal-backdrop map-backdrop" id="map-overlay" hidden><section class="city-map-dialog" role="dialog" aria-modal="true" aria-labelledby="city-map-title"><div class="city-map-heading"><div><span class="small-eyebrow">KNOW YOUR NEIGHBORHOOD</span><h2 id="city-map-title">Los Pacificos<span>.</span></h2></div><button class="icon-button" id="close-map" type="button" aria-label="Close city map">${icons.close}</button></div><div class="map-mission"><span class="small-eyebrow">CURRENT OBJECTIVE</span><h3 id="map-objective-title">Meet Mara</h3><p id="map-objective-description">Meet your contact in the corner office.</p></div><div class="city-map-surface"><canvas id="city-map" width="1000" height="800" tabindex="0" aria-label="Street waypoint selector" aria-describedby="waypoint-help"></canvas><span class="map-compass">N <i></i></span></div><div class="map-legend"><span><i class="legend-player"></i> You</span><span><i class="legend-car"></i> Vehicles</span><span><i class="legend-objective"></i> Objective</span><span><i class="legend-waypoint"></i> Waypoint</span></div><div class="waypoint-tools"><div><span id="waypoint-status" role="status">Choose a street</span><p id="waypoint-help">Tap a street, or focus the map and use arrow keys and Enter.</p></div><button id="clear-waypoint" type="button" disabled>Clear waypoint</button></div></section></div>
+    <div class="modal-backdrop" id="pause-overlay" hidden><section class="pause-menu" role="dialog" aria-modal="true" aria-labelledby="pause-title"><div class="modal-topline"><span class="small-eyebrow" id="pause-eyebrow">YOUR EXPERIENCE</span><button class="icon-button" id="close-pause" type="button" aria-label="Close pause menu">${icons.close}</button></div><h2 id="pause-title">Settings<span>.</span></h2><p class="pause-subtitle" id="pause-subtitle">Set the tone for your time in Los Pacificos.</p><div class="pause-mission"><aside class="objective-card"><div class="objective-icon">${icons.arrow}</div><div class="objective-content"><div class="objective-eyebrow"><span id="mission-chapter">LAST LIGHT AT THE PALOMA</span><span id="objective-distance">EXPLORE</span></div><h2 id="objective-title">A fresh start</h2><p id="objective-description">Find a ride. Make the city yours.</p><div class="mission-progress" id="mission-progress" hidden role="progressbar" aria-label="Mission progress" aria-valuemin="0" aria-valuemax="100"><span id="mission-progress-fill"></span></div></div></aside></div><div class="pause-session-meta"><span id="session-wallet">$1,250</span><span id="session-clock">18:42</span><span id="session-location">LOS PACIFICOS</span></div><button class="enter-button resume-button" id="resume-button" type="button"><span id="resume-label">Back to main menu</span>${icons.arrow}</button><button class="photo-entry" id="photo-mode-button" type="button" hidden><span class="photo-entry-icon">${icons.camera}</span><span><strong>Photo mode</strong><small>Collect three postcards around Los Pacificos.</small></span><kbd>P</kbd></button><div class="settings-list"><div class="setting-row"><span>${icons.sound}Sound</span><button class="setting-toggle is-on" id="sound-button" type="button" aria-pressed="true"><span class="setting-value">On</span><i></i></button></div><div class="setting-row"><span>${icons.settings}Graphics</span><div class="segmented" aria-label="Graphics quality"><button type="button" data-quality="high" class="is-selected" aria-pressed="true">Cinematic</button><button type="button" data-quality="performance" aria-pressed="false">Performance</button></div></div><div class="setting-row"><span>${icons.sun}Time of day</span><div class="segmented" aria-label="Time of day"><button type="button" data-time="golden" class="is-selected" aria-pressed="true">Golden hour</button><button type="button" data-time="night" aria-pressed="false">Night</button></div></div></div><details class="controls-details"><summary>Controls<span>VIEW ALL ${icons.chevron}</span></summary><div class="controls-grid"><span>Move / drive</span><kbd>W A S D</kbd><span>Look around</span><kbd>MOUSE / DRAG</kbd><span>Sprint</span><kbd>SHIFT</kbd><span>Jump / handbrake</span><kbd>SPACE</kbd><span>Interact / enter / exit</span><kbd>E</kbd><span>Equip weapon</span><kbd>1</kbd><span>Fire / hold to aim</span><kbd>LMB / RMB</kbd><span>Horn</span><kbd>H</kbd><span>Reload</span><kbd>R</kbd><span>City map / pause</span><kbd>M / ESC</kbd><span>Photo mode</span><kbd>P</kbd><span>Controller move / look</span><kbd>L / R STICK</kbd><span>Sprint / jump or handbrake</span><kbd>L3 / A</kbd><span>Interact / enter / exit</span><kbd>Y</kbd><span>Gas / brake or reverse</span><kbd>RT / LT</kbd><span>Map / pause</span><kbd>VIEW / MENU</kbd><span>Menu navigation / select / back</span><kbd>D-PAD / A / B</kbd><span>Exit vehicle during an activity</span><kbd>F / B</kbd></div></details><button class="restart-button" id="retry-checkpoint" type="button">Retry checkpoint<span>↻</span></button><button class="restart-button" id="restart-button" type="button">Start a fresh session<span>↗</span></button><div class="session-summary" id="session-summary" hidden><span id="session-save">PROGRESS SAVED</span><span id="session-jobs">0 JOBS COMPLETED</span></div><div class="pause-footer">GRAND THEFT ASTRA <span>LOS PACIFICOS AWAITS</span></div></section></div>
+    <div class="modal-backdrop map-backdrop" id="map-overlay" hidden><section class="city-map-dialog" role="dialog" aria-modal="true" aria-labelledby="city-map-title"><div class="city-map-heading"><div><span class="small-eyebrow">KNOW YOUR NEIGHBORHOOD</span><h2 id="city-map-title">Los Pacificos<span>.</span></h2></div><button class="icon-button" id="close-map" type="button" aria-label="Close city map">${icons.close}</button></div><div class="map-mission"><span class="small-eyebrow">CURRENT OBJECTIVE</span><h3 id="map-objective-title">Meet Mara</h3><p id="map-objective-description">Talk to Mara under the Paloma awning.</p></div><div class="city-map-surface"><canvas id="city-map" width="1000" height="800" tabindex="0" aria-label="Street waypoint selector" aria-describedby="waypoint-help"></canvas><span class="map-compass">N <i></i></span></div><div class="district-destinations" id="district-destinations" role="group" aria-label="Mark a destination"></div><div class="map-legend"><span><i class="legend-player"></i> You</span><span><i class="legend-car"></i> Vehicles</span><span><i class="legend-objective"></i> Objective</span><span><i class="legend-waypoint"></i> Waypoint</span></div><div class="waypoint-tools"><div><span id="waypoint-status" role="status">Choose a street</span><p id="waypoint-help">Tap a street, or focus the map and use arrow keys and Enter.</p></div><button id="clear-waypoint" type="button" disabled>Clear waypoint</button></div></section></div>
     <section class="photo-mode" id="photo-mode" aria-label="Photo mode" hidden>
       <div class="photo-chrome" id="photo-chrome">
         <header class="photo-header">
@@ -95,6 +99,7 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
   const find = (id) => root.querySelector(`#${id}`);
   const elements = Object.fromEntries(['field-recorder', 'field-cue', 'circuit-signal', 'welcome-screen', 'start-button', 'start-label', 'ready-label', 'world-time', 'money-value', 'objective-title', 'objective-description', 'objective-distance', 'wanted-caption', 'location-name', 'health-fill', 'health-value', 'stamina-fill', 'weapon-name', 'weapon-panel', 'weapon-silhouette', 'weapon-hints', 'ammo-divider', 'ammo-value', 'reserve-value', 'speed-panel', 'speed-value', 'speed-fill', 'gear-value', 'interaction-prompt', 'interaction-title', 'interaction-name', 'crosshair', 'pause-overlay', 'pause-title', 'pause-eyebrow', 'pause-subtitle', 'resume-label', 'map-overlay', 'sound-button', 'game-toast', 'toast-title', 'toast-detail', 'save-label', 'mission-chapter', 'mission-progress', 'mission-progress-fill', 'police-panel', 'police-instruction', 'police-search', 'search-progress', 'search-progress-fill', 'interaction-key', 'interaction-icon', 'mobile-interact', 'rpm-value', 'vehicle-condition', 'vehicle-health-fill', 'vehicle-health-value', 'dialogue-panel', 'dialogue-speaker', 'dialogue-text', 'mission-complete', 'complete-title', 'complete-reward', 'session-summary', 'session-save', 'session-jobs', 'photo-mode-button', 'photo-mode', 'photo-chrome', 'photo-reveal', 'photo-status', 'photo-location', 'photo-fov-value', 'photo-focus-value', 'photo-aperture-value', 'photo-roll-value', 'photo-exposure-value', 'weapon-status', 'weapon-status-label', 'reload-percent', 'reload-track', 'reload-fill', 'reload-ring', 'reticle-message', 'mobile-aim', 'objective-short', 'objective-short-distance', 'map-objective-title', 'map-objective-description', 'session-wallet', 'session-clock', 'session-location'].map((id) => [id, find(id)]));
   let started = false;
+  const updateLastLight = createLastLightHud(root);
   let paused = false;
   let photoMode = false;
   let photoReturnFocus;
@@ -118,6 +123,7 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
     if (/^[0-9]$/.test(value)) return `Digit${value}`;
     return value.toUpperCase() === 'SPACE' ? 'Space' : 'KeyE';
   };
+  const prompts = createInputPrompts(root);
   const keyLabel = (key) => String(key || 'E').replace(/^Key/, '').replace(/^Digit/, '').toUpperCase();
   const savedTime = (value) => {
     const date = new Date(value);
@@ -283,6 +289,7 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
   });
   updatePhoto(photoSettings);
   const toggleMap = (value) => { showMap(value ?? !mapOpen); call('onMap', mapOpen); };
+  find('vehicle-exit').addEventListener('click', () => { call('onMobile', 'KeyF', true); call('onMobile', 'KeyF', false); });
   find('start-button').addEventListener('click', start);
   find('pause-button').addEventListener('click', pause);
   find('controls-button').addEventListener('click', pause);
@@ -323,10 +330,16 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
   }
   for (const button of qualityButtons) button.addEventListener('click', () => selectQuality(button.dataset.quality));
   selectQuality(initialQuality);
-  root.querySelectorAll('[data-time]').forEach((button) => button.addEventListener('click', () => {
-    root.querySelectorAll('[data-time]').forEach((el) => { el.classList.toggle('is-selected', el === button); el.setAttribute('aria-pressed', String(el === button)); });
-    call('onTime', button.dataset.time);
-  }));
+  const timeButtons = root.querySelectorAll('[data-time]');
+  function selectTime(time) {
+    for (const button of timeButtons) {
+      const selected = button.dataset.time === time;
+      button.classList.toggle('is-selected', selected);
+      button.setAttribute('aria-pressed', String(selected));
+    }
+    call('onTime', time);
+  }
+  for (const button of timeButtons) button.addEventListener('click', () => selectTime(button.dataset.time));
   root.querySelectorAll('[data-code]').forEach((button) => {
     button.addEventListener('pointerdown', (event) => { event.preventDefault(); event.stopPropagation(); button.setPointerCapture(event.pointerId); button.classList.add('is-held'); button.heldCode = button.dataset.code; call('onMobile', button.heldCode, true); });
     const release = (event) => { event.preventDefault(); event.stopPropagation(); button.classList.remove('is-held'); if (button.heldCode) call('onMobile', button.heldCode, false, event.type === 'pointercancel'); button.heldCode = null; };
@@ -422,12 +435,13 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
     if (s.stamina !== undefined) { elements['stamina-fill'].style.width = `${clamp(s.stamina)}%`; root.classList.toggle('stamina-used', Number(s.stamina) < 99); }
     if (s.location) { text('location-name', s.location.toUpperCase()); text('session-location', s.location.toUpperCase()); }
     if (s.savedAt !== undefined) {
-      if (ready) text('start-label', s.savedAt ? 'Continue your story' : 'Begin The Coastal Job');
+      if (ready) text('start-label', s.savedAt ? 'Continue your story' : 'Begin Last Light');
       text('save-label', s.savedAt ? savedTime(s.savedAt) : 'SINGLE PLAYER');
       text('session-save', s.savedAt ? savedTime(s.savedAt) : 'NO SAVE YET');
     }
     elements['session-summary'].hidden = !s.savedAt && !s.completedJobs;
     if (s.completedJobs !== undefined) text('session-jobs', `${Math.max(0, Number(s.completedJobs) || 0)} ${Number(s.completedJobs) === 1 ? 'JOB' : 'JOBS'} COMPLETED`);
+    updateLastLight(s);
     const recorder = elements['field-recorder'];
     recorder.hidden = s.radioPhase !== 'recording';
     if (!recorder.hidden) {
@@ -439,7 +453,7 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
     elements['circuit-signal'].hidden = !s.circuitSignal;
     elements['circuit-signal'].classList.toggle('is-go', s.circuitSignal === 'GO');
     if (s.missionStage !== undefined) {
-      const chapter = typeof s.missionStage === 'number' ? `CHAPTER ${String(Math.max(0, s.missionStage)).padStart(2, '0')}` : String(s.missionStage || 'THE COASTAL JOB');
+      const chapter = typeof s.missionStage === 'number' ? `CHAPTER ${String(Math.max(0, s.missionStage)).padStart(2, '0')}` : String(s.missionStage || 'LAST LIGHT AT THE PALOMA');
       text('mission-chapter', chapter.toUpperCase());
     }
     if (s.missionProgress !== undefined) {
@@ -500,10 +514,13 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
     root.classList.toggle('has-interaction', interactionVisible);
     root.classList.toggle('routine-exit', Boolean(s.inCar && /^(Exit vehicle|Slow down to exit)$/i.test(s.interactionName || '')));
     interactionCode = inputCode(s.interactionKey || 'E');
-    text('interaction-key', keyLabel(s.interactionKey));
+    prompts.setContext(keyLabel(s.interactionKey));
     text('interaction-title', s.interactionTitle || 'ENTER VEHICLE');
     text('interaction-name', s.interactionName || (typeof s.nearCar === 'string' ? s.nearCar : s.nearCar?.name) || 'Take it for a spin');
-    elements['mobile-interact'].dataset.code = interactionVisible ? interactionCode : 'KeyE';
+    const secondaryExit = Boolean(s.inCar && interactionVisible && !/^(exit vehicle|slow down to exit)$/i.test(s.interactionName || ''));
+    find('vehicle-exit').hidden = !secondaryExit;
+    root.classList.toggle('needs-exit-control', secondaryExit);
+    elements['mobile-interact'].dataset.code = s.inCar && !secondaryExit ? 'KeyF' : interactionVisible ? interactionCode : 'KeyE';
     text('mobile-interact', s.inCar && (!interactionVisible || /^(Exit vehicle|Slow down to exit)$/i.test(s.interactionName || '')) ? 'EXIT' : 'USE');
     elements['mobile-interact'].setAttribute('aria-label', interactionVisible ? [s.interactionTitle, s.interactionName].filter(Boolean).join(': ') || 'Interact' : s.inCar ? 'Exit vehicle' : 'Interact or enter vehicle');
     const subtitle = typeof s.subtitle === 'string' ? s.subtitle.trim() : '';
@@ -520,29 +537,41 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
     if (key === lastToastKey && now - lastToastAt < 3500) return;
     lastToastKey = key; lastToastAt = now;
     clearTimeout(toastTimer);
+    elements['game-toast'].classList.toggle('story-intro', String(title).toUpperCase() === 'LAST LIGHT AT THE PALOMA');
     text('toast-title', title);
     text('toast-detail', detail);
     elements['toast-detail'].hidden = !detail;
     elements['game-toast'].classList.add('is-visible');
-    toastTimer = setTimeout(() => elements['game-toast'].classList.remove('is-visible'), detail.length > 75 ? 4200 : 3000);
+    toastTimer = setTimeout(() => elements['game-toast'].classList.remove('is-visible'), elements['game-toast'].classList.contains('story-intro') ? 5200 : detail.length > 75 ? 4200 : 3000);
   };
-  const missionComplete = ({ title = 'The Coastal Job', reward, replayHint } = {}) => {
+  const missionComplete = (info = {}) => {
+    const {title = 'Last Light at the Paloma', reward, replayHint} = info;
+    const receipt = find('delivery-receipt');
+    showDeliveryReceipt(receipt, info);
+    elements['mission-complete'].classList.toggle('delivery-paid', !receipt.hidden);
     clearTimeout(completeTimer);
     clearTimeout(toastTimer); elements['game-toast'].classList.remove('is-visible');
     text('complete-title', title);
     const numericReward = Number(reward);
-    text('complete-reward', Number.isFinite(numericReward) && reward !== undefined ? `+$${moneyFormat.format(numericReward)} RECEIVED${replayHint ? ' · ' + replayHint : ''}` : reward || 'JOB SUCCESSFULLY COMPLETED');
+    text('complete-reward', info.replay ? 'PRACTICE DELIVERY COMPLETE' : Number.isFinite(numericReward) && reward !== undefined ? `+$${moneyFormat.format(numericReward)} RECEIVED${replayHint ? ' · ' + replayHint : ''}` : reward || 'JOB SUCCESSFULLY COMPLETED');
     elements['mission-complete'].hidden = false;
     root.classList.add('has-completion');
-    completeTimer = setTimeout(() => { elements['mission-complete'].hidden = true; root.classList.remove('has-completion'); }, 4500);
+    completeTimer = setTimeout(() => { elements['mission-complete'].hidden = true; root.classList.remove('has-completion'); }, receipt.hidden ? 4500 : 8000);
   };
   const setReady = (value) => {
     ready = Boolean(value);
     elements['start-button'].disabled = !ready;
-    text('start-label', ready ? (lastState.savedAt ? 'Continue your story' : 'Begin The Coastal Job') : 'Preparing the city');
+    text('start-label', ready ? (lastState.savedAt ? 'Continue your story' : 'Begin Last Light') : 'Preparing the city');
     text('ready-label', ready ? 'READY TO PLAY' : 'PREPARING YOUR SESSION');
     root.classList.toggle('is-ready', Boolean(ready));
   };
   syncFocusScope();
-  return { start, update, updateCombat, toast, missionComplete, setPaused, setReady, showMap, setPhotoMode, updatePhoto, photoStatus, postcardCaption: value => { find('photo-postcards').textContent = value; }, root, get photoMode() { return photoMode; }, get started() { return started; }, get paused() { return paused; }, get mapOpen() { return mapOpen; } };
+  function handleControllerMenu(button) {
+    if (photoMode) return controllerMenuInput(button, elements['photo-mode'], () => call('onPhotoExit'), find('photo-capture'));
+    if (mapOpen) return controllerMenuInput(button, elements['map-overlay'], () => toggleMap(false));
+    if (paused) return controllerMenuInput(button, elements['pause-overlay'], resume, find('resume-button'));
+    if (!started) return controllerMenuInput(button, elements['welcome-screen'], null, find('start-button'));
+    return false;
+  }
+  return { selectTime, setInputMode: prompts.setMode, handleControllerMenu, start, update, updateCombat, toast, missionComplete, setPaused, setReady, showMap, setPhotoMode, updatePhoto, photoStatus, postcardCaption: value => { find('photo-postcards').textContent = value; }, root, get photoMode() { return photoMode; }, get started() { return started; }, get paused() { return paused; }, get mapOpen() { return mapOpen; } };
 }

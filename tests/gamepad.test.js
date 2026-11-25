@@ -38,3 +38,20 @@ test('actions fire once per press and input returns to neutral on disconnect or 
   assert.deepEqual(actions, ['menu', 'jump', 'context', 'map']);
   device.mapping = ''; assert.equal(poll().throttle, 0);
 });
+
+test('menu buttons report edges and reconnect waits for neutral input before changing hints', () => {
+  const device = makePad(), controller = createGamepadInput(), actions = [], modes = [];
+  const poll = (pads = [device]) => controller.poll(pads, value => actions.push(value), mode => modes.push(mode));
+  poll();
+  assert.deepEqual(modes, []);
+  device.buttons[13].pressed = true; poll(); poll();
+  device.buttons[13].pressed = false; poll();
+  device.buttons[1].pressed = true; poll();
+  assert.deepEqual(actions, ['down', 'back']);
+  poll([]); poll();
+  assert.equal(modes.at(-1), 'fallback');
+  device.buttons[1].pressed = false; poll();
+  device.axes[0] = .6; poll();
+  assert.equal(modes.at(-1), 'gamepad');
+  assert.deepEqual(actions, ['down', 'back']);
+});

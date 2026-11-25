@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { PERSON_RADIUS, insideVehicle, crossesVehicle, vehicleDetour, vehicleEscape, vehiclePenetration, shouldYieldToVehicle, pedestrianSpeedLimit } from './street-navigation.js';
+import { dinerPace, dinerRoute, mechanicActivity, shopperActivity } from './ambient-streets.js';
+import { PERSON_RADIUS, insideVehicle, crossesVehicle, vehicleDetour, vehicleEscape, vehiclePenetration, shouldYieldToVehicle, pedestrianSpeedLimit, parkedCarPass } from './street-navigation.js';
 import { getPoliceAimPoint, POLICE_FIRE, tracePoliceShot } from './police-combat.js';
 
 const clamp = THREE.MathUtils.clamp;
@@ -49,11 +50,24 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
     advanceActor(actor, dt, options);
   }
 
+  function soundHorn(car, time) {
+    const source = car.model.mesh.position;
+    for (const p of pedestrians) {
+      const pos = p.actor.mesh.position;
+      if (p.down || p.fleeUntil > time || p.reportingUntil > time || p.hornCooldown > time
+        || distance(source, pos) > 21 || !hasSight(source, pos, world.colliders)) continue;
+      p.hornFocus = new THREE.Vector3(source.x, source.y + 1.1, source.z);
+      p.hornUntil = time + 1.45;
+      p.hornCooldown = time + 4;
+    }
+  }
+
   function reportCrime({ position, level = 1, kind = 'theft', now = 0, force = false }) {
-    const seenByPatrol = !police.stolen && !police.occupied && distance(police.model.mesh.position, position) < 62 && hasSight(police.model.mesh.position, position, world.colliders);
+    const seenByPatrol = police.health > 0 && !police.stolen && !police.occupied && distance(police.model.mesh.position, position) < 62 && hasSight(police.model.mesh.position, position, world.colliders);
     const witness = pedestrians.find(p => !p.down && distance(p.actor.mesh.position, position) < (kind === 'gunshot' ? 65 : 32) && (kind === 'gunshot' || hasSight(p.actor.mesh.position, position, world.colliders)));
     for (const p of pedestrians) {
-      if (!p.down && distance(p.actor.mesh.position, position) < (kind === 'gunshot' ? 70 : 21)) {
+      if (!p.down && distance(p.actor.mesh.position, position) < (kind === 'gunshot' ? 70 : 21)
+        && (kind === 'gunshot' || hasSight(p.actor.mesh.position, position, world.colliders))) {
         p.fleeUntil = now + 6 + Math.random() * 3;
         p.fleeFrom = position.clone();
       }
@@ -116,20 +130,36 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
         const loop = car.innerLoop ? innerTrafficLoop : outerTrafficLoop;
         let [tx, tz] = loop[car.routeIndex % loop.length];
         if (Math.hypot(tx - p.x, tz - p.z) < 8) { car.routeIndex = (car.routeIndex + 1) % loop.length; [tx, tz] = loop[car.routeIndex]; }
+        if (car.parkedPass && (p[car.parkedPass.axis] - car.parkedPass.end) * car.parkedPass.direction >= 0) car.parkedPass = null;
+        if (!car.parkedPass && time >= (car.nextPassCheck || 0)) {
+          car.parkedPass = parkedCarPass(car, vehicles, currentCar, tx, tz);
+          car.nextPassCheck = time + .5;
+        }
+        if (car.parkedPass) {
+          const pass = car.parkedPass;
+          const ahead = (pass.obstacle - p[pass.axis]) * pass.direction;
+          if (ahead < 4.5 || Math.abs(p[pass.side] - pass.lane) < 1.15) pass.aligned = true;
+          const along = pass.aligned ? pass.end + pass.direction : pass.obstacle - 4 * pass.direction;
+          if (pass.axis === 'z') { tx = pass.lane; tz = along; }
+          else { tx = along; tz = pass.lane; }
+        }
         const direction = Math.atan2(tx - p.x, tz - p.z);
         const angle = turn(car.heading, direction);
         const headingBefore = car.heading;
         car.heading += clamp(angle, -dt * 1.45, dt * 1.45);
         car.steer = clamp(angle, -.45, .45);
-        let desired = Math.abs(angle) > .3 ? 4 : 8.2;
-        car.trafficDecision = 'cruising';
+        let desired = Math.abs(angle) > .3 ? (car.parkedPass ? 3 : 4) : 8.2;
+        car.trafficDecision = car.parkedPass ? 'passing-parked-car' : 'cruising';
         const forward = new THREE.Vector3(Math.sin(car.heading), 0, Math.cos(car.heading));
         for (const other of vehicles) {
           if (other === car) continue;
           delta.copy(other.model.mesh.position).sub(p);
           const ahead = delta.dot(forward), lateral = Math.abs(delta.x * forward.z - delta.z * forward.x);
-          if (ahead > 0 && ahead < 11 && lateral < 2.5) {
-            const following = Math.max(0, (ahead - 5) * 1.8);
+          if (ahead > 0 && ahead < 5 + Math.max(7, car.speed * 1.65) && lateral < 2.5) {
+            // Match a slower leader before reaching its bumper. A crossing or
+            // oncoming vehicle contributes only its velocity along our lane.
+            const leaderSpeed = Math.max(0, other.speed * Math.cos(other.heading - car.heading));
+            const following = Math.max(0, Math.min((ahead - 4.9) * 1.6, leaderSpeed + (ahead - 5 - car.speed * .85)));
             if (following < desired) { desired = following; car.trafficDecision = 'following'; }
           }
         }
@@ -139,16 +169,20 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
         desired = Math.min(desired, walkingLimit);
         const vertical = Math.abs(forward.z) > .7;
         const greenVertical = Math.floor(time / 12) % 2 === 0;
+        let signalLimit = Infinity;
         if (vertical !== greenVertical) {
-          const approaching = vertical
-            ? crossroads.some(z => (z - p.z) * forward.z > 10 && (z - p.z) * forward.z < 18)
-            : [0, 80].some(x => (x - p.x) * forward.x > 12 && (x - p.x) * forward.x < 20);
-          if (approaching) { desired = 0; car.trafficDecision = 'signal'; }
+          const junctions = vertical ? crossroads : [0, 80];
+          for (const crossing of junctions) {
+            const approach = vertical ? (crossing - p.z) * Math.sign(forward.z) : (crossing - p.x) * Math.sign(forward.x);
+            // Once the centre has passed the stop line, clear the junction.
+            // Otherwise keep the nose behind the line and the zebra free.
+            if (approach >= 16 && approach < 32) signalLimit = Math.min(signalLimit, Math.sqrt(9 * Math.max(0, approach - 18.9)));
+          }
         }
+        if (signalLimit < desired) { desired = signalLimit; car.trafficDecision = 'signal'; }
         car.desiredSpeed = desired;
         car.speed = THREE.MathUtils.damp(car.speed, desired, 3, dt);
-        // This bound prevents damped braking from creeping beyond the safe stop.
-        car.speed = Math.min(car.speed, walkingLimit);
+        car.speed = Math.min(car.speed, walkingLimit, signalLimit);
         const prev = p.clone();
         moveBody(p, forward.x * car.speed * dt, forward.z * car.speed * dt, 1.05);
         const blockedByPerson = people.some(person => insideVehicle(person.position, car));
@@ -164,14 +198,23 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
     }
   }
 
-  function updatePedestrians(dt, time, playerPosition) {
+  function updatePedestrians(frameDt, time, playerPosition) {
     for (let i = 0; i < pedestrians.length; i++) {
       const p = pedestrians[i], pos = p.actor.mesh.position;
+      const nearby = distance(pos, playerPosition) < 95;
+      p.actor.mesh.visible = nearby;
+      let dt = frameDt;
+      if (p.ambientInitialized && !nearby && !p.down && !(p.fleeUntil > time || p.hornUntil > time || p.reportingUntil > time)
+        && !vehicles.some(car => Math.abs(car.speed) > .5 && distance(pos, car.model.mesh.position) < 22)) {
+        p.ambientElapsed = (p.ambientElapsed || 0) + dt;
+        if (p.ambientElapsed < .2) continue;
+        dt = p.ambientElapsed;
+      }
+      p.ambientElapsed = 0; p.ambientInitialized = true;
       const previous = { x: pos.x, z: pos.z };
       p.velocity = { x: 0, z: 0 };
       p.streetBehavior = 'idle';
       p.yieldReason = null;
-      p.actor.mesh.visible = distance(pos, playerPosition) < 95;
       if (p.down) {
         p.streetBehavior = 'down';
         p.detour = null;
@@ -180,17 +223,36 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
         continue;
       }
       if (p.evictedUntil > time) { p.detour = null; advanceGroundedActor(p.actor, dt, { speed: 0 }); continue; }
-      let speed = 1.1, dx = 0, dz = 0;
+      let speed = 1.1, dx = 0, dz = 0, focus = null, gesture = null, gestureProgress = 0;
       const fleeing = p.fleeUntil > time;
+      const hearingHorn = p.hornUntil > time;
+      const inRoad = (hearingHorn || p.reportingUntil > time) && (Math.abs(pos.x) < 11 || Math.abs(pos.x - 80) < 10 || crossroads.some(z => Math.abs(z - pos.z) < 10));
       if (fleeing !== p.wasFleeing) p.detour = null;
       p.wasFleeing = fleeing;
-      if (fleeing) {
+      if (p.reportingUntil > time && p.reportingUntil - time < 2.4 && p.fleeFrom && !inRoad) {
+        // The witness gets clear first, then looks back while reporting from the pavement.
+        speed = 0; focus = p.fleeFrom; p.streetBehavior = 'reporting'; p.detour = null;
+      } else if (fleeing) {
         const from = p.fleeFrom || playerPosition;
         delta.copy(pos).sub(from); delta.y = 0;
         if (delta.lengthSq() < .1) delta.set(i % 2 ? 1 : -1, 0, 1);
         delta.normalize(); dx = delta.x; dz = delta.z; speed = 4.8;
-      } else if (p.reportingUntil > time || (Math.floor(time / 9 + i * 2.7) % 7 === 0)) speed = 0;
+      } else if (hearingHorn && !inRoad) {
+        speed = 0; focus = p.hornFocus; gesture = 'horn'; gestureProgress = 1 - (p.hornUntil - time) / 1.45;
+        p.streetBehavior = 'reacting-to-horn'; p.detour = null;
+      } else if (p.ambientRole === 'calypso-shopper' || p.ambientRole === 'mechanic') {
+        const work = p.ambientRole === 'mechanic'
+          ? mechanicActivity(p, world.workshopOpen || 0, playerPosition)
+          : shopperActivity(p, time);
+        const remaining = distance(pos, work.destination);
+        p.route ||= [work.destination]; p.route[0] = work.destination; p.waypoint = 0;
+        speed = remaining < .25 ? 0 : Math.min(1.4, remaining / Math.max(dt, .001));
+        if (speed) { dx = (work.destination.x - pos.x) / remaining; dz = (work.destination.z - pos.z) / remaining; }
+        else { focus = work.focus; gesture = work.gesture; gestureProgress = work.progress; }
+        p.streetBehavior = work.behavior;
+      } else if (p.reportingUntil > time || (p.ambientRole !== 'diner-customer' && !hearingHorn && Math.floor(time / 9 + i * 2.7) % 7 === 0)) speed = 0;
       else {
+        if (!p.route && p.ambientRole === 'diner-customer') { p.route = dinerRoute(); p.waypoint = 0; }
         if (!p.route) {
           const x = p.home.x < 0 ? -14 : p.home.x < 40 ? 14 : p.home.x < 80 ? 66 : 94;
           const z = clamp(p.home.z, -160, 145);
@@ -203,7 +265,13 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
           p.detour = null;
           delta.copy(p.route[p.waypoint]).sub(pos); delta.y = 0;
         }
+        if (p.ambientRole === 'diner-customer') speed = dinerPace(p, time);
         delta.normalize(); dx = delta.x; dz = delta.z;
+      }
+      if (hearingHorn && inRoad && !fleeing && speed > 0) {
+        speed = Math.max(speed, 2.45); focus = p.hornFocus;
+        if (p.streetBehavior !== 'crossing') p.streetBehavior = 'reacting-to-horn';
+        gesture = 'horn'; gestureProgress = 1 - (p.hornUntil - time) / 1.45;
       }
       if (speed > 0) {
         const overlap = vehicles.find(car => insideVehicle(pos, car));
@@ -248,7 +316,7 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
           return hit;
         }
         const hit = step(dx * speed * dt, dz * speed * dt);
-        if (hit && !fleeing && !p.detour?.length && !waiting) {
+        if (hit && !fleeing && !p.ambientRole && !p.detour?.length && !waiting) {
           p.waypoint = (p.waypoint + 1) % p.route.length;
           p.nextDetourCheck = 0;
         }
@@ -266,7 +334,12 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
       p.velocity.z = (pos.z - previous.z) / Math.max(dt, .001);
       const actualSpeed = Math.hypot(p.velocity.x, p.velocity.z);
       if (actualSpeed < .01 && (p.streetBehavior === 'walking' || p.streetBehavior === 'avoiding')) { p.streetBehavior = 'waiting'; p.yieldReason = 'blocked-path'; }
-      advanceGroundedActor(p.actor, dt, { speed: actualSpeed, dead: false });
+      if (focus && actualSpeed < .15) {
+        const yaw = Math.atan2(focus.x - pos.x, focus.z - pos.z);
+        p.actor.mesh.rotation.y += turn(p.actor.mesh.rotation.y, yaw) * Math.min(1, dt * 5);
+      }
+      advanceGroundedActor(p.actor, dt, { speed: actualSpeed, dead: false, lookTarget: focus,
+        ambientGesture: gesture, gestureProgress });
     }
   }
 
@@ -299,7 +372,7 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
         onToast?.('HEAT LOST', 'You slipped the search.');
       }
     }
-    const deploy = currentCar !== police && !police.stolen && heat.wanted > 0 && police.health > 0 && patrolDistance < 26 && (!currentCar || Math.abs(currentCar.speed) < 4);
+    const deploy = seesPlayer && currentCar !== police && !police.stolen && heat.wanted > 0 && police.health > 0 && patrolDistance < 26 && (!currentCar || Math.abs(currentCar.speed) < 4);
     if (police !== currentCar && !police.stolen && police.health > 0) {
       if (heat.wanted > 0 && heat.lastKnown && !deploy) {
         const speed = heat.policeState === 'searching' ? (distance(patrolPosition, heat.lastKnown) > 8 ? 7 : 0) : Math.min(19, 10 + heat.wanted * 2);
@@ -352,11 +425,21 @@ export function createCitySimulation({ vehicles, pedestrians, police, officers =
     Object.assign(heat, { wanted: 0, policeState: 'clear', searchProgress: 0, reportProgress: 0, lastKnown: null });
     pendingLevel = 0; reportAt = 0; lastSeen = engagementStarted = -100; nextShot = 0;
     officers.forEach(actor => { groundActor(actor); actor.mesh.visible = false; actor.mesh.userData.downUntil = 0; });
-    pedestrians.forEach(p => { groundActor(p.actor); p.route = null; p.reportingUntil = 0; p.evictedUntil = 0; p.detour = null; p.nextDetourCheck = 0; p.velocity = { x: 0, z: 0 }; p.streetBehavior = 'idle'; p.yieldReason = null; });
-    vehicles.forEach(car => { car.yieldingToPedestrian = false; car.desiredSpeed = 0; car.trafficDecision = 'idle'; });
+    for (const p of pedestrians) {
+      groundActor(p.actor);
+      Object.assign(p, {
+        route: null, reportingUntil: 0, evictedUntil: 0, detour: null, nextDetourCheck: 0,
+        velocity: { x: 0, z: 0 }, streetBehavior: 'idle', yieldReason: null,
+        hornUntil: 0, hornCooldown: 0, hornFocus: null, ambientElapsed: 0, ambientInitialized: false,
+        browseUntil: 0, displayIndex: 0, lastShutterOpen: 0, shutterClosing: false, fleeUntil: 0, fleeFrom: null, wasFleeing: false,
+      });
+    }
+    for (const car of vehicles) {
+      Object.assign(car, { yieldingToPedestrian: false, desiredSpeed: 0, parkedPass: null, nextPassCheck: 0, trafficDecision: 'idle' });
+    }
   }
-  return { reportCrime, update, reset, getState: () => ({ ...heat }), getDiagnostics: () => ({
-    pedestrians: pedestrians.map((p, id) => ({ id, position: p.actor.mesh.position.toArray(), actualSpeed: Math.hypot(p.velocity?.x || 0, p.velocity?.z || 0), behavior: p.streetBehavior || 'idle', yieldReason: p.yieldReason, detourPoints: p.detour?.length || 0, routeTarget: p.route?.[p.waypoint]?.toArray() })),
+  return { reportCrime, soundHorn, update, reset, getState: () => ({ ...heat }), getDiagnostics: () => ({
+    pedestrians: pedestrians.map((p, id) => ({ id, role: p.ambientRole, position: p.actor.mesh.position.toArray(), actualSpeed: Math.hypot(p.velocity?.x || 0, p.velocity?.z || 0), behavior: p.streetBehavior || 'idle', yieldReason: p.yieldReason, detourPoints: p.detour?.length || 0, routeTarget: p.route?.[p.waypoint]?.toArray() })),
     traffic: vehicles.filter(car => car.traffic).map(car => ({ id: vehicles.indexOf(car), position: car.model.mesh.position.toArray(), heading: car.heading, speed: car.speed, desiredSpeed: car.desiredSpeed || 0, yielding: !!car.yieldingToPedestrian, decision: car.trafficDecision || 'idle' })),
   }) };
 }

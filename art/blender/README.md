@@ -101,7 +101,7 @@ blender --background --factory-startup --threads 4 --python art/blender/vehicle_
 blender --background --factory-startup --threads 4 --python art/blender/vehicle_astra_aurora.py -- --render-only
 ```
 
-The saved `vehicle_astra_aurora.blend` retains the full 80,800-triangle editable source. Export optimizes small trim and planar areas to produce `public/models/AstraAurora.glb` (39,438 triangles) and `AstraAurora-lod.glb` (12,758 triangles). Each export has 47 material batches, including independently moving parts. Mesh validation runs after simplification. The source renders use the full source mesh; the browser must also be checked because it uses the optimized exports and different lighting.
+The saved `vehicle_astra_aurora.blend` retains the full 80,800-triangle editable source. Export optimizes small trim and planar areas to produce `public/models/AstraAurora.glb` (39,439 triangles) and `AstraAurora-lod.glb` (12,758 triangles). Each export has 47 material batches, including independently moving parts. Mesh validation runs after simplification. The source renders use the full source mesh; the browser must also be checked because it uses the optimized exports and different lighting.
 
 The `AstraAurora` root uses +Z forward and Y up in glTF. Keep these game-space attachment points and names when editing:
 

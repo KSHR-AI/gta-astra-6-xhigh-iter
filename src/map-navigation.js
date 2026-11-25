@@ -10,21 +10,46 @@ export function nearestMapRoad(roads, point) {
   return best;
 }
 
-// The district is an orthogonal grid. Two parallel streets connect through
-// any crossing street, so only those crossings need a distance comparison.
+// A crossing exists only where both finite road centre lines reach it.
+function crossing(a, b) {
+  if (a.axis === b.axis) return null;
+  const point = { [a.axis]: b[a.axis], [b.axis]: a[b.axis] };
+  return [a,b].every(r => Math.abs(point[r.axis] - r[r.axis]) <= r.length / 2) ? point : null;
+}
+
 export function mapRoute(roads, start, goal) {
   const from = nearestMapRoad(roads, start), to = nearestMapRoad(roads, goal);
-  const path = [start, from.snap];
-  if (from.road.axis !== to.road.axis) {
-    path.push({ [from.road.axis]: to.snap[from.road.axis], [to.road.axis]: from.snap[to.road.axis] });
-  } else if (from.road !== to.road) {
-    const axis = from.road.axis;
-    const crossings = roads.filter(road => road.axis !== axis);
-    const cost = road => Math.abs(from.snap[axis] - road[axis]) + Math.abs(to.snap[axis] - road[axis]);
-    const crossing = crossings.reduce((best, road) => cost(road) < cost(best) ? road : best);
-    path.push({ ...from.snap, [axis]: crossing[axis] }, { ...to.snap, [axis]: crossing[axis] });
+  if (!from || !to) return [start];
+  if (from.road === to.road) return [start, from.snap, to.snap, goal];
+
+  const nodes = [{ point: from.snap, roads: [from.road] }, { point: to.snap, roads: [to.road] }];
+  for (let i = 0; i < roads.length; i++) {
+    for (let j = i + 1; j < roads.length; j++) {
+      const point = crossing(roads[i], roads[j]);
+      if (point) nodes.push({ point, roads: [roads[i], roads[j]] });
+    }
   }
-  return [...path, to.snap, goal];
+  const costs = nodes.map(() => Infinity), previous = [], settled = new Set();
+  costs[0] = 0;
+  while (true) {
+    let current = -1;
+    for (let i = 0; i < nodes.length; i++) {
+      if (!settled.has(i) && costs[i] < (current < 0 ? Infinity : costs[current])) current = i;
+    }
+    if (current < 0) return [start, from.snap];
+    if (current === 1) break;
+    settled.add(current);
+    const node = nodes[current];
+    for (let i = 0; i < nodes.length; i++) {
+      if (settled.has(i) || !nodes[i].roads.some(road => node.roads.includes(road))) continue;
+      const next = nodes[i].point;
+      const cost = costs[current] + Math.hypot(next.x - node.point.x, next.z - node.point.z);
+      if (cost < costs[i]) { costs[i] = cost; previous[i] = current; }
+    }
+  }
+  const path = [];
+  for (let i = 1; i !== undefined; i = previous[i]) path.push(nodes[i].point);
+  return [start, ...path.reverse(), goal];
 }
 
 // The first and last short segments snap the route to the road centre. Only

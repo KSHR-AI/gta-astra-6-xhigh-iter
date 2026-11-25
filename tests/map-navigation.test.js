@@ -36,3 +36,53 @@ test('map taps preserve street coordinates for wide and tall letterboxed canvase
     assert.ok(Math.abs(click.x - 80) < 1e-10 && Math.abs(click.z - 90) < 1e-10);
   }
 });
+
+test('Sunline routes use its two real intersections for trips to and from the south crossing', () => {
+  const lane = { x:55, z:-45, axis:'z', length:90 };
+  const network = [...roads, lane];
+  const start = { x:55, z:-25 }, goal = { x:67, z:90 };
+  const expected = [start, start, {x:55,z:0}, {x:80,z:0}, {x:80,z:90}, goal, goal];
+  assert.deepEqual(mapRoute(network,start,goal),expected);
+  assert.deepEqual(mapRoute(network,goal,start),[...expected].reverse());
+  assert.deepEqual(mapRoute(network,start,{x:52,z:-90}).slice(2,3),[{x:55,z:-90}]);
+});
+
+test('every pair of grid pins has a route whose interior legs stay on paved centre lines', () => {
+  const network = [...roads, { x:55, z:-45, axis:'z', length:90 }];
+  const pins = [];
+  for (const x of [-132,3,43,54,70,85,140,194]) {
+    for (const z of [-230,-126,-89,-35,1,58,90,180]) pins.push({x,z});
+  }
+  function contains(road, point) {
+    const across = road.axis === 'x' ? 'z' : 'x';
+    return road[across] === point[across] && Math.abs(road[road.axis] - point[road.axis]) <= road.length / 2;
+  }
+  for (const from of pins) for (const to of pins) {
+    const route = mapRoute(network,from,to);
+    assert.equal(route.at(-1),to);
+    for (let i = 2; i < route.length - 1; i++) {
+      assert.ok(network.some(road => contains(road,route[i-1]) && contains(road,route[i])));
+    }
+  }
+});
+
+test('both fork cues and map lines follow the two drivable departures', async () => {
+  const { Group, Mesh, MeshBasicMaterial } = await import('three');
+  const { createLastLightForkCues, drawLastLightFork, showLastLightFork } = await import('../src/last-light-map.js');
+  const template = new Mesh(undefined,new MeshBasicMaterial());
+  template.visible = false;
+  const cues = createLastLightForkCues(template,() => 0);
+  new Group().add(...cues);
+  assert.deepEqual(cues.map(c => [Math.round(c.position.x),Math.round(c.position.z),c.material.color.getHexString()]),
+    [[3,-8,'ffc56d'],[11,0,'84dfd1']]);
+  assert.equal(showLastLightFork('fork'),true);
+  assert.equal(showLastLightFork('drive'),false);
+  const paths = [];
+  const ctx = {
+    save() {}, restore() {}, stroke() {}, beginPath() { paths.push([]); },
+    moveTo(x,z) { paths.at(-1).push([x,z]); }, lineTo(x,z) { paths.at(-1).push([x,z]); },
+  };
+  drawLastLightFork(ctx,x => x,z => z,true);
+  assert.deepEqual(paths[1],[[3,0],[55,0],[55,-90],[4,-90]]);
+  assert.deepEqual(paths[0].at(-1),paths[1].at(-1));
+});

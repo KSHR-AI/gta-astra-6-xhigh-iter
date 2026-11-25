@@ -24,6 +24,39 @@ export function applyCityMaterials(materials, canvasTexture, random) {
     sets[name] = { map: load(`${source}-color`, true), normalMap: load(`${source}-normal`), roughnessMap: load(`${source}-rough`) };
   }
 
+  // A metre-scaled coverage mask lets mipmaps filter the zebra bars and stop
+  // lines into the actual road surface at grazing angles.
+  const crossingMask = canvasTexture(512, 512, (ctx, width) => {
+    const span = 36;
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, width, width);
+    ctx.scale(width / span, width / span);
+    ctx.translate(span / 2, span / 2);
+    const stripe = (x, z, w, d) => ctx.fillRect(x - w / 2, z - d / 2, w, d);
+    ctx.fillStyle = 'white';
+    for (const side of [-1, 1]) {
+      for (let x = -9; x <= 9; x += 1.7) stripe(x, side * 13, .8, 3.3);
+      for (let z = -8; z <= 8; z += 1.6) stripe(side * 14.6, z, 3.3, .75);
+      stripe(side * 5.4, side * 16, 9.2, .23);
+    }
+    // Abrasion follows the two wheel paths within each traffic lane.
+    for (const lane of [-7.85, -2.65, 2.65, 7.85]) {
+      for (const wheel of [lane - .82, lane + .82]) {
+        const wear = ctx.createLinearGradient(wheel - .48, 0, wheel + .48, 0);
+        wear.addColorStop(0, 'transparent');
+        wear.addColorStop(.5, 'rgba(0,0,0,.52)');
+        wear.addColorStop(1, 'transparent');
+        ctx.fillStyle = wear;
+        ctx.fillRect(wheel - .48, -17, .96, 34);
+        ctx.save(); ctx.rotate(Math.PI / 2);
+        ctx.fillRect(wheel - .48, -17, .96, 34); ctx.restore();
+      }
+    }
+  });
+  crossingMask.colorSpace = THREE.NoColorSpace;
+  crossingMask.flipY = false;
+  crossingMask.anisotropy = 8;
+
   function worldMapping(material, meters, weather = false, road = false, pavement = false) {
     material.onBeforeCompile = shader => {
       shader.vertexShader = 'varying vec3 vCitySurface;\n' + shader.vertexShader;
@@ -79,6 +112,23 @@ export function applyCityMaterials(materials, canvasTexture, random) {
           float shoulder = smoothstep(8.5, 10.65, cityAcross) * cityJunction;
           diffuseColor.rgb += vec3(.019, .014, .008) * shoulder;
         `);
+        if (material === materials.asphalt) {
+          shader.uniforms.crossingMask = { value: crossingMask };
+          shader.fragmentShader = 'uniform sampler2D crossingMask;\n' + shader.fragmentShader;
+          shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `
+            #include <color_fragment>
+            vec2 junction = vec2(vCitySurface.x - (vCitySurface.x < 40. ? 0. : 80.),
+              vCitySurface.z - 90. * clamp(floor(vCitySurface.z / 90. + .5), -1., 1.));
+            vec2 crossingUv = junction / 36. + .5;
+            vec2 crossingDx = dFdx(vCitySurface.xz) / 36., crossingDy = dFdy(vCitySurface.xz) / 36.;
+            if (max(abs(junction.x), abs(junction.y)) < 18.) {
+              float paint = textureGrad(crossingMask, crossingUv, crossingDx, crossingDy).r;
+              float aggregate = smoothstep(.060, .110, diffuseColor.r);
+              vec3 pigment = vec3(.61, .59, .49) * (.57 + .47 * aggregate);
+              diffuseColor.rgb = mix(diffuseColor.rgb, pigment, paint * (.63 + .32 * cityWeather(vCitySurface.xz * 1.75)));
+            }
+          `);
+        }
         shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>', `
           #include <roughnessmap_fragment>
           roughnessFactor *= 1. - .055 * cityWheelWear;
@@ -110,7 +160,7 @@ export function applyCityMaterials(materials, canvasTexture, random) {
         diffuseColor.rgb *= .87 + .19 * cityWeather(vCitySurface.xz*.13);
       `);
     };
-    material.customProgramCacheKey = () => `city-world-${meters}-${weather}-${road}-${pavement}`;
+    material.customProgramCacheKey = () => `city-world-${meters}-${weather}-${road}-${pavement}-${material === materials.asphalt}`;
     material.needsUpdate = true;
   }
   for (const key of ['limestone', 'white', 'pale', 'blush', 'peach', 'sage']) {

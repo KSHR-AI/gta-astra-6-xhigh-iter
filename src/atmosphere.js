@@ -86,7 +86,7 @@ export function createAtmosphere(scene) {
   function applyMode() {
     if (dayTexture) scene.background = night ? nightTexture : dayTexture;
     scene.backgroundIntensity = night ? 1 : 0.65;
-    scene.environmentIntensity = night ? .55 : .85;
+    scene.environmentIntensity = night ? .55 : .57;
     if (dayEnvironment) scene.environment = night ? (nightEnvironment || dayEnvironment) : dayEnvironment;
     // A caller providing only the day PMREM still gets subdued reflections.
     if (night && !nightEnvironment) scene.environmentIntensity = 0.035;

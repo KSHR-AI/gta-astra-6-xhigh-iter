@@ -4,9 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#151b1b" />
-    <meta name="description" content="Grand Theft Astra — an original open-world driving and action sandbox. Play The Coastal Job in Los Pacificos: meet your contact, find a ride, escape the police, and build your reputation in a cinematic 3D coastal city." />
-    <title>Grand Theft Astra — The Coastal Job</title>
-    <link rel="preload" as="image" href="%BASE_URL%art/coastal-job.webp" />
+    <meta name="description" content="Grand Theft Astra — an original open-world driving and action sandbox. Play Last Light at the Paloma in Los Pacificos: pick up Mara’s convertible, choose your route, and earn a clean delivery bonus in a cinematic 3D coastal city." />
+    <title>Grand Theft Astra — Last Light at the Paloma</title>
+    <link rel="preload" as="image" href="%BASE_URL%art/last-light-paloma.webp" />
+    <link rel="preload" as="fetch" crossorigin fetchpriority="low" href="%BASE_URL%textures/sky/qwantani_sunset_puresky_2k.hdr" />
+    <link rel="preload" as="fetch" crossorigin fetchpriority="low" href="%BASE_URL%models/CivilianMaleNatural.glb" />
+    <link rel="preload" as="fetch" crossorigin fetchpriority="low" href="%BASE_URL%models/CivilianFemaleNatural.glb" />
     <style>
       html, body { margin: 0; background: #111c23; }
       #boot-splash { position: fixed; inset: 0; z-index: 9; display: grid; align-content: end;
@@ -17,13 +20,17 @@
         background: linear-gradient(0deg, #0a1822ed, transparent 60%); }
       #boot-splash strong { font-size: clamp(24px, 4vw, 52px); line-height: 1; letter-spacing: -.05em; }
       #boot-splash span { margin-top: 12px; color: #ffc49c; font-size: 13px; letter-spacing: .03em; }
+      @media (max-width:620px) {
+        #boot-splash img { height:57%; object-position:right top; }
+        #boot-splash::before { background:linear-gradient(180deg,transparent 28%,#152028 58%); }
+      }
     </style>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body>
     <main id="app"><canvas id="game" aria-label="Grand Theft Astra 3D city game"></canvas>
       <div id="boot-splash" role="status">
-        <img src="%BASE_URL%art/coastal-job.webp" fetchpriority="high" alt="" />
+        <img src="%BASE_URL%art/last-light-paloma.webp" fetchpriority="high" alt="" />
         <strong>Grand Theft Astra</strong><span>Loading Los Pacificos…</span>
       </div>
     </main>

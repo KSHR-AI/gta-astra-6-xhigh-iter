@@ -135,16 +135,16 @@ export function addStreetDetails(api) {
     plaque(7, x, 1.84, z + 0.132, 0.28, 0.07);
   }
 
-  // Utility work hugs the north curb, leaving both central traffic lanes open.
-  box(m.patch || m.asphalt, 52, 0.045, -8.4, 11.4, 0.014, 2.4, 0, false);
-  box(m.soil, 52, 0.055, -8.6, 6.8, 0.012, 0.62, 0, false);
-  for (const x of [49.2, 51.1, 53]) box(m.metal, x, 0.072, -8.6, 1.6, 0.022, 0.78, 0.015, false);
-  for (const [x, z] of [[45.7, -7.1], [49, -7.1], [54, -7.1], [57.6, -7.1]]) {
+  // Utility work hugs the north curb, west of the service entrance, leaving its full turning apron clear.
+  box(m.patch || m.asphalt, 39, 0.045, -8.4, 11.4, 0.014, 2.4, 0, false);
+  box(m.soil, 39, 0.055, -8.6, 6.8, 0.012, 0.62, 0, false);
+  for (const x of [36.2, 38.1, 40]) box(m.metal, x, 0.072, -8.6, 1.6, 0.022, 0.78, 0.015, false);
+  for (const [x, z] of [[32.7, -7.1], [36, -7.1], [41, -7.1], [44.6, -7.1]]) {
     box(m.dark, x, 0.1, z, 0.38, 0.08, 0.38);
     instance(cone, orange, [x, 0.42, z], [0.15, 0.57, 0.15]);
     instance(cone, m.paint, [x, 0.46, z], [0.113, 0.12, 0.113]);
   }
-  for (const x of [46.1, 57.2]) {
+  for (const x of [33.1, 44.2]) {
     for (const dz of [-0.45, 0.45]) {
       line(m.pale, [x - 0.6, 0.12, -9.6 + dz], [x - 0.6, 1.05, -9.6], 0.045, thinCylinder);
       line(m.pale, [x + 0.6, 0.12, -9.6 + dz], [x + 0.6, 1.05, -9.6], 0.045, thinCylinder);
@@ -153,9 +153,9 @@ export function addStreetDetails(api) {
     for (let offset = -0.65; offset <= 0.65; offset += 0.42) box(orange, x + offset, 0.9, -9.552, 0.19, 0.31, 0.013, 0, false);
     solid(x, -9.6, 1.7, 1.0, 1.05);
   }
-  box(m.metal, 55.8, 1.13, -11.7, 1.9, 0.65, 0.07);
-  for (const x of [55.1, 56.5]) cylinder(m.metal, x, 0.6, -11.7, 0.035, 1.1);
-  plaque(6, 55.8, 1.13, -11.65, 1.8, 0.58);
+  box(m.metal, 42.8, 1.13, -11.7, 1.9, 0.65, 0.07);
+  for (const x of [42.1, 43.5]) cylinder(m.metal, x, 0.6, -11.7, 0.035, 1.1);
+  plaque(6, 42.8, 1.13, -11.65, 1.8, 0.58);
 
   // A few windblown scraps collect at existing bins, not uniformly over roads.
   for (const z of [-150.9, -62.9, 25.1, 113.1]) {

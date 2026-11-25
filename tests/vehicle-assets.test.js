@@ -112,10 +112,10 @@ test('the authored pelvis anchor follows suspension while entry remains clear of
   assert.ok(car.getDriverSeat().distanceTo(initial.clone().applyMatrix4(body.matrix)) < 1e-6);
 });
 
-test('paint, glass, lamps and damage remain isolated between Aurora instances and repair restores geometry', async () => {
+for (const type of ['sport', 'sedan']) test(`${type} paint, glass, lamps and damage remain isolated and repair restores geometry`, async () => {
   const { createCar } = await factory();
-  const damaged = createCar({ type: 'sport', color: 0xdd4422 });
-  const pristine = createCar({ type: 'sport', color: 0x2266dd });
+  const damaged = createCar({ type, color: 0xdd4422 });
+  const pristine = createCar({ type, color: 0x2266dd });
   const painted = collect(damaged.mesh, object => object.isMesh && object.material.name === 'body');
   const otherPaint = collect(pristine.mesh, object => object.isMesh && object.material.name === 'body');
   const windows = collect(damaged.mesh, object => object.isMesh && object.material.name === 'glass');
@@ -176,5 +176,38 @@ test('unavailable or malformed Aurora falls back to a usable procedural vehicle'
     const orientation = new THREE.Quaternion();
     assert.equal(car.getDriverOrientation(orientation), orientation); close(orientation.length(), 1);
     assert.equal(api.createCar({ type: 'sedan' }).mesh.userData.originalSedan, true);
+  }
+});
+
+test('exterior handles follow articulated doors and transformed vehicle roots', async () => {
+  const { createCar } = await factory();
+  for (const type of ['sport', 'sedan']) {
+    const car = createCar({ type });
+    car.mesh.position.set(6, .1, -12); car.mesh.rotation.y = .7;
+    const door = car.mesh.getObjectByName('driver_door');
+    const handle = door.getObjectByName('driver_handle');
+    assert.ok(handle, type);
+    const closed = car.getDoorHandleWorld();
+    car.setDynamics({ roll: .05, pitch: -.03 }); car.setDoor(true); car.update(.25);
+    const open = car.getDoorHandleWorld(new THREE.Vector3());
+    assert.ok(open.distanceTo(closed) > .6);
+    close(open.distanceTo(handle.getWorldPosition(new THREE.Vector3())), 0);
+  }
+});
+
+test('Meridian steering wheel and center stop lamp respond across both LODs', async () => {
+  const { createCar } = await factory();
+  const car = createCar({ type: 'sedan' });
+  const lod = car.mesh.children.find(child => child.isLOD);
+  car.setLights(true); car.setDynamics({ brake: 0 }); car.update(.1, 12, .22);
+  for (const { object } of lod.levels) {
+    assert.ok(object.getObjectByName('steering_wheel').rotation.z > .1);
+    const lens = collect(object, o => o.material?.name === 'center_stop')[0].material;
+    assert.equal(lens.emissiveIntensity, 0);
+  }
+  car.setDynamics({ brake: 1 }); car.update(.1, 9, -.15);
+  for (const { object } of lod.levels) {
+    assert.ok(object.getObjectByName('steering_wheel').rotation.z < 0);
+    assert.ok(collect(object, o => o.material?.name === 'center_stop')[0].material.emissiveIntensity > 2);
   }
 });

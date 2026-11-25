@@ -11,5 +11,5 @@
     "build:pages": "vite build --base=/gta-astra-6-xhigh-iter/"
   },
   "dependencies": { "three": "0.180.0" },
-  "devDependencies": { "vite": "7.1.9" }
+  "devDependencies": { "pngjs": "7.0.0", "vite": "7.1.9" }
 }

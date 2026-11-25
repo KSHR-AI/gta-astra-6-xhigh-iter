@@ -4,7 +4,7 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 
 ## Current slice
 
-- Coastal district with an introductory contact, vehicle theft, police response, delivery and checkpoint persistence.
+- Last Light at the Paloma with a rear-lamp inspection, a boulevard or loading-lane drive, an itemized handoff, and persistent route records. Night Shift adds two-stop freight, visible cargo, condition-based pay and an earned pier screening.
 - Third-person walking, sprinting, aiming, semi-automatic pistol, reload, driving and photo mode.
 - Editable Blender props and vehicles, authored replacement human heads, credited external source assets.
 - Keyboard/mouse, two-thumb touch driving, standard gamepad exploration and driving, and personal map waypoints.
@@ -13,16 +13,24 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 - Animated Pacific Wheel and pier, surface-dependent vehicle grip, directional surf, and software-renderer quality selection.
 - Public WebGL build distributed through GitHub Pages.
 
+## What the playtests established
+
+- Two native keyboard runs reached the workshop on opposite routes. A separate Android emulator run delivered the Aurora at 100% and earned the full $2,000. A clean practice delivery paid $0 and retained the prior wallet.
+- The main delivery is short. The evening continues with an optional two-stop freight job and a drive-in screening. The planned 12–15 minutes is a first-time-player pacing target. Automated driving and software-renderer wall time do not measure that experience.
+- Equal inputs at 60 km/h produced 28.5° of turn-in for the Aurora and 17.9° for the Meridian over 0.75 seconds. Independent straight-line braking tests measured 9.79 m and 12.29 m respectively.
+- Compact character delivery transferred 14.52 MiB before movement in the controlled 25 Mbps test, down from 30.94 MiB. Higher-resolution character maps streamed afterward. The three-run median before the final preload adjustment was 11.71 seconds.
+- iPhone simulator Safari and Android emulator Chrome exercised real browser input paths. Physical phone feel, reference-GPU frame times and ratings from first-time human players are open.
+
 ## Release gates still open
 
 1. **Performance:** consistent frame pacing on a documented hardware/browser matrix. Current cloud browser uses llvmpipe software graphics and runs the full city at only a few frames per second. Isolated engine benchmarks do not establish game performance. Profile the complete scene and preserve close-up quality when optimizing.
 2. **Characters:** production clothing, facial expressions and lip-sync, close actor self-shadows, convincing turns and stops, terrain-aware feet, vehicle interactions and hit reactions. Bounded gaze and head attention add responsiveness, but the procedural layers and imported base bodies remain visibly limited.
 3. **Combat and driving:** extended playtests for cover, camera collision, aim feedback, police fairness, vehicle collision and recovery. Current simple collision volumes and arcade driving need further work.
-4. **World and narrative:** the district has a short story, a side commission and two roaming activities. A larger campaign still needs more authored missions, interiors and pedestrian interactions.
+4. **World and narrative:** the district has a delivery story, a freight continuation, a field-recording commission, a circuit and a photo album. A larger campaign still needs more authored missions, interiors and pedestrian interactions.
 5. **Assets:** maintain editable sources, reproducible exports and documented licenses. Keep the game distribution separate from historical benchmark fixtures; audit all third-party characters, animations, textures and audio before considering distribution.
 6. **Quality:** longer play sessions, recovery/save migration, accessibility, input rebinding and physical-device checks. Browser automation supports testing but does not replace human playtesting or subjective listening.
 
-## Current turning, trigger timing and garment repair pass
+## Previous turning, trigger timing and garment repair pass
 
 - Limit the raised player's body turn to 360 degrees per second while keeping camera intent immediate. Alternate lifted feet around the supporting shoe, using calibrated footprint clearance, a small pelvis counter-turn and the existing terrain solve. Each knee follows a bounded blend toward its own shoe heading, with the bend pole based on the actual hip and ankle. Moving characters blend out this layer; seated, airborne, downed and NPC poses retain their existing behavior. Browser review accepts the knee alignment as an improvement, but tight reversal silhouettes, tucked lateral steps and stopping/backward-motion artifacts remain. Extreme low-cadence female turns can still nearly straighten a leg; these changes do not establish full anatomical limits or mesh collision freedom.
 - Preserve the original 380 ms shot request lifetime while evaluating the actual aim pose at its inclusive expiry before advancing beyond it. Readiness still requires the raised weapon, unclamped yaw, reachable target and existing three-degree tolerance. Each press remains one shot; cancellation clears pending input.

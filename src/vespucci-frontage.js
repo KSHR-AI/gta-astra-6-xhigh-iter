@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { addDestinationPrints } from './destination-prints.js';
 import { assetUrl } from './asset-url.js';
 
 // Street-facing signs, shop displays and canopies around the Ocean Drive crossing.
@@ -150,5 +151,5 @@ export function addVespucciFrontage({ box, line, cylinder, panel, instance, mate
   }
   cylinder(m.teal,bx-2.31,6.3,bz,.11,5.6);
   for(const side of [-1,1]) panel(motelFace,bx,7,bz+side*.04,2.33,6.08,side<0?Math.PI:0);
-  return ready;
+  return Promise.all([ready, addDestinationPrints({ box, instance, panelGeometry, materials: m })]);
 }

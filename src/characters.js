@@ -1,4 +1,5 @@
-import { applyHeroWorkshirt } from './hero-workshirt.js';
+import { registerCharacterTextures } from './character-texture-stream.js';
+import { applyHeroWorkshirt, fitMaraHeadscarf, fitMaraApron, applyMaraSleeves, fitMaraSleeve } from './hero-workshirt.js';
 import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -238,18 +239,22 @@ export function makeSoleProbes(model) {
 export async function loadCharacterAssets() {
   if (!loadingPromise) {
     const loader = new GLTFLoader();
-    const naturalOrLegacy = (natural, legacy) => loader.loadAsync(natural)
-      .then(async (asset) => {
+    const naturalOrLegacy = (natural, legacy) => {
+      const lod = fetch(natural.replace('.glb', '.lod.json'))
+        .then(response => response.ok ? response.json() : null)
+        .catch(() => null);
+      return loader.loadAsync(natural).then(async asset => {
         asset.naturalHuman = true;
-        try {
-          const response = await fetch(natural.replace('.glb', '.lod.json'));
-          if (response.ok) registerCharacterLODs(asset, await response.json());
-        } catch { /* The original quality model remains fully usable offline. */ }
+        registerCharacterTextures(asset, natural);
+        const levels = await lod;
+        if (levels) {
+          try { registerCharacterLODs(asset, levels); }
+          catch { /* Full-detail geometry remains usable with an invalid sidecar. */ }
+        }
         return asset;
-      })
-      .catch(() => loader.loadAsync(legacy));
+      }).catch(() => loader.loadAsync(legacy));
+    };
     loadingPromise = Promise.allSettled([
-      loader.loadAsync(assetUrl('models/Soldier.glb')),
       Promise.all([
         naturalOrLegacy(assetUrl('models/CivilianFemaleNatural.glb'), assetUrl('models/Michelle.glb')),
         loadLocomotion(assetUrl('models/pedestrian-motion.json')),
@@ -259,8 +264,7 @@ export async function loadCharacterAssets() {
         loadLocomotion(assetUrl('models/civilian-male-motion.json')),
       ]),
       loader.loadAsync(assetUrl('models/character_sidearm.glb')),
-    ]).then(async ([main, pedestrian, male, sidearm]) => {
-        if (main.status === 'fulfilled') characterAsset = main.value;
+    ]).then(async ([pedestrian, male, sidearm]) => {
         if (pedestrian.status === 'fulfilled') {
           pedestrianAsset = pedestrian.value[0];
           pedestrianAsset.animations = pedestrian.value[1];
@@ -277,7 +281,7 @@ export async function loadCharacterAssets() {
           civilianMaleAsset.animations = male.value[1];
         }
         if (sidearm.status === 'fulfilled') sidearmAsset = sidearm.value;
-        if (!civilianMaleAsset && !pedestrianAsset && !characterAsset) throw main.reason;
+        if (!civilianMaleAsset && !pedestrianAsset) characterAsset = await loader.loadAsync(assetUrl('models/Soldier.glb'));
         return { loaded: true, animations: (civilianMaleAsset ?? pedestrianAsset ?? characterAsset).animations.map((clip) => clip.name), variants: civilianMaleAsset && pedestrianAsset ? 12 : pedestrianAsset ? 6 : 1, crowdOptimized: Boolean(crowdAsset), civilianMale: Boolean(civilianMaleAsset) };
       })
       .catch((error) => {
@@ -386,12 +390,13 @@ function createHitVolumeReader(mesh, model, bones) {
  * Grounded 1.8 m character. The root's +Z axis is forward.
  * Each clone has its own skeleton, materials, mixer, and animation state.
  */
-export function createCharacter({ npc = false, color, police = false, groundHeightAt } = {}) {
+export function createCharacter({ npc = false, color, police = false, role, groundHeightAt } = {}) {
   if (!characterAsset && !pedestrianAsset && !civilianMaleAsset) return createFallbackCharacter({ npc, color, police });
 
   const mesh = new THREE.Group();
   const variant = npc ? pedestrianCount++ : 0;
-  const male = Boolean(civilianMaleAsset && (!npc || police || !pedestrianAsset || variant % 2 === 0));
+  const isMara = role === 'mara';
+  const male = Boolean(civilianMaleAsset && (!isMara || !pedestrianAsset) && (!npc || police || !pedestrianAsset || variant % 2 === 0));
   const civilian = male || Boolean(pedestrianAsset);
   const asset = male ? civilianMaleAsset : civilian ? (npc && crowdAsset ? crowdAsset : pedestrianAsset) : characterAsset;
   // Loaded source scenes are immutable; measure their authored neutral stature
@@ -406,10 +411,11 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
   const skinTones = [[1, 1, 1], [0.90, 0.82, 0.72], [0.67, 0.48, 0.34], [0.43, 0.28, 0.19], [0.84, 0.73, 0.57], [0.96, 0.91, 0.85]];
   const hairTones = [[1.0, 0.66, 0.39], [0.44, 0.43, 0.42], [1.4, 0.64, 0.29], [1.8, 1.7, 1.55]];
   const skinTint = new THREE.Color(...skinTones[npc ? Math.floor(variant / 2) % skinTones.length : 0]);
-  const hairTint = new THREE.Color(...hairTones[npc ? Math.floor(variant / 2) % hairTones.length : 0]);
+  const hairTint = new THREE.Color(...hairTones[isMara ? 1 : npc ? Math.floor(variant / 2) % hairTones.length : 0]);
   const wardrobeColors = [0x6d6757, 0x375c66, 0x824b49, 0x46594b, 0x74627a, 0x858074];
+  if (isMara) color = 0xa54639;
   color ??= npc ? wardrobeColors[Math.floor(variant / 2) % wardrobeColors.length] : 0x256c69;
-  mesh.name = police ? 'Police officer' : npc ? 'Pedestrian' : 'Astra';
+  mesh.name = isMara ? 'Mara' : police ? 'Police officer' : npc ? 'Pedestrian' : 'Astra';
   mesh.userData.characterAsset = natural ? `MakeHuman CC0 ${male ? 'male' : 'female'} / ${male ? 'CivilianMaleNatural.glb' : 'CivilianFemaleNatural.glb'}` : male ? 'EmoPreben Bald Man / CivilianMale.glb' : civilian ? (npc && crowdAsset ? 'Mixamo Michelle / Michelle-crowd.glb' : 'Mixamo Michelle / Michelle.glb') : 'Mixamo Vanguard / Soldier.glb';
   const visual = new THREE.Group();
   mesh.add(visual);
@@ -435,6 +441,7 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
     const recolor = (original) => {
       const material = prepareCharacterMaterial(original, { civilian, male, natural, skinTint, hairTint, npc, color, police });
       if (!npc && !police && male && natural && original.userData.clothingAuthored) applyHeroWorkshirt(material);
+      if (isMara && !male && natural && original.userData.clothingAuthored) applyMaraSleeves(material);
       materials.push(material);
       return material;
     };
@@ -460,6 +467,13 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
   visual.scale.setScalar(height / scaleReference.referenceHeight);
   model.position.y += scaleReference.offsetY;
   mesh.updateMatrixWorld(true);
+  const scarf = isMara && natural && bones.Head ? fitMaraHeadscarf(model, bones.Head) : null;
+  const apron = isMara && natural && bones.Hips ? fitMaraApron(bones.Hips, height) : null;
+  const sleeves = [];
+  if (isMara && natural && !male) for (const side of ['Right','Left']) {
+    if (bones[side+'Arm'] && bones[side+'ForeArm'] && bones[side+'Hand'])
+      sleeves.push(...fitMaraSleeve(bones[side+'Arm'],bones[side+'ForeArm'],bones[side+'Hand'],height));
+  }
   const soleProbes = makeSoleProbes(model);
   if (police && bones.Head) {
     const cap = new THREE.Group();
@@ -505,13 +519,25 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
   const lod = createCharacterLOD(model, mesh, { enabled: npc });
   const face = createCharacterFace(model, mesh, { seed: npc ? variant + 2 : 1 });
   const renderBounds = createCharacterBounds(model, mesh, { height });
+  function turnTowardVisitor(dt, options) {
+    const target = options?.lookTarget;
+    if (!isMara || !target || dt <= 0 || options.speed > .1) return;
+    const dx = target.x - mesh.position.x, dz = target.z - mesh.position.z;
+    if (Math.hypot(dx,dz) < .2) return;
+    const delta = Math.atan2(dx,dz) - mesh.rotation.y;
+    const turn = Math.atan2(Math.sin(delta),Math.cos(delta));
+    // Eyes lead small shifts. Turn the body when the visitor moves to a side.
+    const outsideGaze = Math.sign(turn)*Math.max(0,Math.abs(turn)-.22);
+    mesh.rotation.y += THREE.MathUtils.clamp(outsideGaze*(1-Math.exp(-4*dt)),-1.8*dt,1.8*dt);
+  }
   const getHitVolumes = createHitVolumeReader(mesh, model, bones);
   return {
     mesh, mixer, weapon, muzzle,
     updateLOD(camera) { animator.flushPose(); const level = lod.update(camera); face.update(camera, level); renderBounds.update(); return level; },
     getLODInfo() { return { ...lod.getInfo(), culling: renderBounds.getInfo() }; },
-    update(dt, options) { animator.update(dt, options); face.advance(dt, options); },
-    advance(dt, options) { animator.advance(dt, options); face.advance(dt, options); },
+    update(dt, options) { turnTowardVisitor(dt, options); animator.update(dt, options); face.advance(dt, options); },
+    advance(dt, options) { turnTowardVisitor(dt, options); animator.advance(dt, options); face.advance(dt, options); },
+    performGesture: animator.performGesture,
     flushPose: animator.flushPose,
     resetGrounding: animator.resetGrounding,
     getEvaluationStats: animator.getEvaluationStats,
@@ -536,7 +562,15 @@ export function createCharacter({ npc = false, color, police = false, groundHeig
       animator.flushPose(); weapon.updateWorldMatrix(true, false);
       return target.set(0, 0, 1).transformDirection(weapon.matrixWorld);
     },
-    dispose() { mixer.stopAllAction(); materials.forEach((material) => material.dispose()); },
+    dispose() { mixer.stopAllAction();
+      const accessoryMaterials = new Set();
+      for (const item of [scarf,apron,...sleeves]) item?.traverse(part => {
+        if (!part.isMesh) return;
+        part.geometry.dispose();
+        accessoryMaterials.add(part.material);
+      });
+      accessoryMaterials.forEach(material => material.dispose());
+      materials.forEach((material) => material.dispose()); },
   };
 }
 

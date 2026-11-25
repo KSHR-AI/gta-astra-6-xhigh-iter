@@ -28,7 +28,7 @@ const LOCAL_COLLIDERS = {
   ],
 };
 
-export function createCityProps(parent) {
+export function createCityProps(parent, registerInstances) {
   const root = new THREE.Group();
   root.name = 'Blender-authored Los Pacificos streetscape';
   parent.add(root);
@@ -80,6 +80,7 @@ export function createCityProps(parent) {
         instanced.instanceMatrix.needsUpdate = true;
         instanced.computeBoundingBox(); instanced.computeBoundingSphere();
         root.add(instanced);
+        registerInstances?.(instanced);
         stats.drawCalls++;
         stats.triangles += (part.geometry.index?.count ?? part.geometry.attributes.position.count) / 3 * placements.length;
       });

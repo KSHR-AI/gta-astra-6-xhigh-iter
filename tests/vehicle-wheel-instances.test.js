@@ -30,8 +30,8 @@ function closeMatrices(actual, expected) {
 
 for (const [name, options, nearCalls, farCalls, batches, triangles] of [
   ['Aurora', { type: 'sport' }, 47, 35, 12, 12758],
-  ['Meridian', { type: 'sedan' }, 38, 28, 10, 11806],
-  ['patrol', { type: 'sedan', police: true }, 43, 33, 10, 12902],
+  ['Meridian', { type: 'sedan' }, 41, 31, 10, 12015],
+  ['patrol', { type: 'sedan', police: true }, 46, 36, 10, 13111],
 ]) {
   test(`${name}: far batching preserves every original vertex, normal, material and rendered triangle`, () => {
     const car = createCar(options), lod = project(car), far = lod.levels[1].object, near = lod.levels[0].object;
@@ -55,6 +55,12 @@ for (const [name, options, nearCalls, farCalls, batches, triangles] of [
       }
     }
     assert.equal(car.getDetailInfo().wheelDrawsSaved, batches);
+    // Compare the projected batches to the original exported wheel meshes.
+    for (const batch of instances) {
+      batch.visible = false;
+      for (const source of batch.userData.wheelSources) far.getObjectByName(source).visible = true;
+    }
+    assert.deepEqual(renderStats(far), { calls: farCalls + batches, triangles });
   });
 }
 

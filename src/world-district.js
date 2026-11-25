@@ -1,4 +1,6 @@
+import { addLastLightFrontage } from './last-light-frontage.js';
 import * as THREE from 'three';
+import { addServiceLaneDressing } from './service-lane-dressing.js';
 
 // These blocks are authored around usable rooms and courtyards. Ground-level
 // collision follows individual walls, never the bounding box of an open room.
@@ -68,7 +70,14 @@ export function addAuthoredDistrict(api) {
   canopy.setIndex(canopyIndices); canopy.computeVertexNormals();
   const awning = (x, y, z, width, yaw) => instance(canopy, fabric, [x, y, z], [width, 1, 1], [0, yaw, 0]);
   const solid = (x, z, w, d, h = 4) => colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, minY: 0, maxY: h });
-  const wall = (material, x, z, w, d, h, y = h / 2) => { box(material, x, y, z, w, h, d); solid(x, z, w, d, y + h / 2); };
+  const wall = (material, x, z, w, d, h, y = h / 2) => {
+    box(material, x, y, z, w, h, d);
+    solid(x, z, w, d, y + h / 2);
+    // Use the solid wall segment itself. Doorways between segments stay open.
+    if (h >= 2 && Math.max(w, d) >= 6 && material && !material.transparent && !material.alphaTest) {
+      api.registerSolidBox?.(x, z, w, d, y - h / 2, y + h / 2);
+    }
+  };
   const floor = (material, x, z, w, d) => (api.walkableBox ?? box)(material, x, .022, z, w, .025, d, 0, false, 'district-floor');
   const flat = (material, x, z, w, d, angle = 0, y = .055) => instance(panelGeometry, material, [x, y, z], [w, d, 1], [-Math.PI / 2, 0, angle], false);
   const planter = (x, z, w = 1.2, d = 1.2, h = .65) => {
@@ -346,6 +355,7 @@ export function addAuthoredDistrict(api) {
   for (const z of [-137.8, -134.8, -112]) for (let i = 0; i < 3; i++) instance(tyre, m.iron, [40.8, .24 + i * .27, z], [1, 1, 1], [Math.PI / 2, 0, 0]);
   for (const z of [-132, -120]) for (const x of [25, 36]) box(m.lamp, x, 6.25, z, 3.4, .04, .22, 0, false);
   sign('WORK BAY 01', 47.99, 3.8, -126, 7.5, .7, -Math.PI / 2, { background: '#b3b19b', color: '#3b5048', border: false });
+  addLastLightFrontage(api);
   // Rear service court: dumpster, parts pallets and a shaded loading canopy.
   floor(m.patch, 33, -154, 31, 17);
   wall(m.concrete, 48.4, -154, .4, 17, 2.0);
@@ -473,9 +483,13 @@ export function addAuthoredDistrict(api) {
   box(m.dark, 51.1, 1.63, 46.2, 2.1, .12, 1.6);
   flat(m.stain, 48, 46, 4, 3.5);
 
+  addServiceLaneDressing(api);
+
   return {
-    landmarks: { contact: { x: -22, z: -25 }, garage: { x: 28, z: -126 }, safehouse: { x: -27, z: 28 } },
+    landmarks: { start: { x: -16.3, z: 20.1 }, contact: { x: -16, z: 16.8 }, garage: { x: 28, z: -126 }, safehouse: { x: -27, z: 28 } },
     zones: [
+      { name: 'Sunline Service Lane', minX: 50.7, maxX: 59.3, minZ: -80, maxZ: -10 },
+      { name: 'Calypso Surf Supply', minX: 17, maxX: 47, minZ: -44, maxZ: -15 },
       { name: 'Orbit Exchange', minX: -50, maxX: -16, minZ: -45, maxZ: -19 },
       { name: 'Paloma Motor Lodge', minX: -52, maxX: -17, minZ: 15, maxZ: 76 },
       { name: 'Astra Auto Works', minX: 16, maxX: 50, minZ: -163, maxZ: -108 },
