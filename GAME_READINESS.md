@@ -16,9 +16,9 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 ## What the playtests established
 
 - Two native keyboard runs reached the workshop on opposite routes. A separate Android emulator run delivered the Aurora at 100% and earned the full $2,000. A clean practice delivery paid $0 and retained the prior wallet.
-- The main delivery is short. The evening continues with an optional two-stop freight job and a drive-in screening. The planned 12–15 minutes is a first-time-player pacing target. Automated driving and software-renderer wall time do not measure that experience.
+- A continuous fresh-save keyboard run delivered the Aurora, carried Sunline glass and pier reels, and finished the screening in 5m14s of simulation and 9m01s of software-renderer wall time. The planned 12–15 minutes is a first-time-player pacing target. Human playtesting is still needed to measure it.
 - Equal inputs at 60 km/h produced 28.5° of turn-in for the Aurora and 17.9° for the Meridian over 0.75 seconds. Independent straight-line braking tests measured 9.79 m and 12.29 m respectively.
-- Compact character delivery transferred 14.52 MiB before movement in the controlled 25 Mbps test, down from 30.94 MiB. Higher-resolution character maps streamed afterward. The desktop software-renderer median before the final preload adjustment was 11.71 seconds. On the published build, Android 15 emulator Chrome 155 reached first movement in 9.835, 9.089 and 9.179 seconds under the same network profile. Each run transferred 15.29 MiB by that point.
+- Compact character delivery transferred 14.52 MiB before movement in the controlled 25 Mbps test, down from 30.94 MiB. Higher-resolution character maps streamed afterward. The desktop software-renderer median before the final preload adjustment was 11.71 seconds. On the published build, Android 15 emulator Chrome 155 reached first movement in 9.909, 8.916 and 8.852 seconds under the same network profile. Each run transferred 15.29 MiB by that point.
 - iPhone simulator Safari and Android emulator Chrome exercised real browser input paths. Physical phone feel, reference-GPU frame times and ratings from first-time human players are open.
 
 ## Release gates still open
