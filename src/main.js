@@ -1245,6 +1245,7 @@ function frame(now){
   requestAnimationFrame(frame);
   return;
  }
+ // Settle the follow camera at the checkpoint before revealing the first frame.
  if(renderFrame===0)updateCamera(10);
  renderFrame++;
  const wallDt=Math.max(0,(now-lastFrame)/1000),dt=Math.min(wallDt,.25);lastFrame=now;frameCount++;fpsTimer+=wallDt;

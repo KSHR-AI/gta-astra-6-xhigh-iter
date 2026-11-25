@@ -127,3 +127,16 @@ for (const mode of ['graphics-error', 'context-lost', 'fallback', 'normal']) {
     assert.deepEqual(warmed, mode === 'normal' || mode === 'fallback' ? [1] : []);
   });
 }
+
+test('the opaque menu polls controls without submitting a 3D frame', () => {
+  const calls = [];
+  const context = { environmentLighting: { revision: 1, update: () => true },
+    effectShaderWarmup: { update: () => true }, lastEnvironmentBuild: 1, lastFrame: 0,
+    renderFrame: 0, state: { started: false }, pollController: () => calls.push('input'),
+    requestAnimationFrame: () => calls.push('next frame'),
+    rendering: { render: () => assert.fail('the welcome screen covers the entire scene') } };
+  vm.createContext(context); vm.runInContext(main.slice(frameStart, frameEnd), context);
+  context.frame(17); context.frame(34);
+  assert.deepEqual(calls, ['input', 'next frame', 'input', 'next frame']);
+  assert.equal(context.renderFrame, 0);
+});
