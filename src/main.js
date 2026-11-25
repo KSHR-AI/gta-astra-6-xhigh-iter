@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createWorld } from './world.js';
+import { mapRoute } from './map-navigation.js';
 import { createCar, loadVehicleAssets } from './vehicles.js';
 import { loadCharacterAssets, createCharacter } from './characters.js';
 import { createUI } from './ui.js';
@@ -10,7 +11,8 @@ import { createRendering } from './rendering.js';
 import { createPhotoMode } from './photo-mode.js';
 import { createPhotoActorVisibility } from './photo-actor-visibility.js';
 import { createCitySimulation } from './simulation.js';
-import { createMission } from './missions.js';
+import { createCircuitGate } from './circuit-gate.js';
+import { CIRCUIT_START, createMission } from './missions.js';
 import { updateVehiclePhysics } from './driving.js';
 import { createVehicleApproach } from './vehicle-approach.js';
 import { clipCameraSegment, getCameraSweep } from './camera-collision.js';
@@ -160,7 +162,7 @@ ui=createUI({
  onPhotoCapture:()=>photo.capture(),onPhotoReset:()=>photo.reset(),
  onAim:down=>{if(!state.started||state.paused||state.mapOpen||photo.active||currentCar||interaction)return;aiming=Boolean(down&&weapon);},
  onMobile:(code,down,cancelled=false)=>{if(down){if(!keys.has(code)) action(code);keys.add(code);}else{keys.delete(code);if(cancelled&&code==='Mouse0')handling.cancel();}},
-});
+}, softwareRenderer ? 'performance' : 'high');
 ui.setReady(false);
 photo=createPhotoMode({camera,renderer,rendering,canvas,bounds:world.bounds,ui});
 
@@ -221,11 +223,12 @@ function addCar(x,z,heading,color,type='sport',traffic=false,police=false){
  const model=createCar({color,type,police});addContactShadow(model.mesh,3.4,5.6);model.mesh.position.set(x,0,z);model.mesh.rotation.y=heading;scene.add(model.mesh);
  const car={model,heading,speed:0,steer:0,traffic,police,occupied:false,health:100,home:new THREE.Vector3(x,0,z),homeHeading:heading,homeTraffic:traffic,homeRouteIndex:0,routeIndex:0,stolen:false,closeDoorAt:0,driverDownUntil:0,driverTrafficBeforeHit:false};vehicles.push(car);return car;
 }
+const charactersReady = loadCharacterAssets();
 await loadVehicleAssets();
 const heroCar=addCar(4.8,18,Math.PI,0x315c61);heroCar.isJobCar=true;
 addCar(-8,-26,0,0xa9b5a9,'sedan');
 addCar(8,-56,Math.PI,0x983b2f,'sport');
-addCar(-8,61,0,0xd6d5c9,'sedan');
+const palomaSedan=addCar(-8,CIRCUIT_START.z,0,0xd6d5c9,'sedan');
 addCar(75,-43,0,0x466c72,'sport');
 addCar(84,36,Math.PI,0x344050,'sedan');
 const trafficRoute=[new THREE.Vector3(-4,0,82),new THREE.Vector3(-4,0,-85),new THREE.Vector3(76,0,-85),new THREE.Vector3(76,0,82)];
@@ -241,6 +244,7 @@ const markerRing=new THREE.Mesh(new THREE.TorusGeometry(2.3,.055,8,64),markerMat
 const markerBeam=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,2.6,8),new THREE.MeshBasicMaterial({color:0xffcb75,transparent:true,opacity:.28,depthWrite:false}));markerBeam.position.y=1.3;marker.add(markerBeam);
 const markerDiamond=new THREE.Mesh(new THREE.OctahedronGeometry(.45),markerMat);markerDiamond.position.y=2.7;marker.add(markerDiamond);
 marker.position.copy(goal);scene.add(marker);
+const circuitGate=createCircuitGate();scene.add(circuitGate);
 
 function dialogue(speaker,lines){dialogueQueue.push(...lines.map(text=>({speaker,text})));}
 function crime(level,kind='gunshot',force=false){
@@ -266,6 +270,7 @@ function contextAction(){
  const p=player.mesh.position,land=world.landmarks||{};
  const near=(point,r=3.3)=>point&&Math.hypot(p.x-point.x,p.z-point.z)<r;
  const ms=job.getState();
+ if(currentCar&&ms.mission===5&&!ms.circuitActive&&near(CIRCUIT_START,8)&&Math.abs(currentCar.speed)<1.5&&currentCar.health>0)return{kind:'circuit',title:'PACIFIC CIRCUIT',name:'Start time trial · up to $750'};
  if(!currentCar&&near(land.contact))return{kind:'contact',title:ms.mission===0?'MEET YOUR CONTACT':'MARA · SUPPLIES',name:ms.mission===0?'Talk to Mara':state.reserve<192?'Pistol ammunition · $150':'Talk to Mara'};
  if(!currentCar&&near(land.safehouse,4)&&ms.mission>=4)return{kind:'safehouse',title:'THE PALOMA',name:'Rest & save your progress'};
  if(currentCar&&near(land.garage,6)&&Math.abs(currentCar.speed)<1.5){
@@ -319,7 +324,7 @@ function updateInteraction(dt){
   }
   if(!it.opened){it.opened=true;c.model.setDoor(true);sound.door?.(true);
    if(c.isJobCar&&job.getState().mission===1){c.stolen=true;crime(2,'theft',true);job.onVehicleTaken(c);}
-   else if(!c.stolen){c.stolen=true;crime(1,'theft');}
+   else if(!c.stolen && !(c===palomaSedan && job.getState().mission===5)){c.stolen=true;crime(1,'theft');}
   }
   const progress=clamp((it.elapsed-it.approachDuration)/1.7,0,1);
   player.mesh.position.lerpVectors(it.door,it.seat,smooth(clamp((progress-.15)/.75,0,1)));
@@ -474,11 +479,13 @@ function updatePlayer(dt){
  // Advancing the old pose here made rapid aim and each recoil event one step late.
  return {speed:playerMoveSpeed,armed:weapon,aiming,shooting:handling.queued||elapsed-lastShot<.32,shotId:handling.shots,jumping:support.height>.01,verticalVelocity:jumpVelocity,reloading,reloadProgress:1-reloadRemaining/PISTOL.reloadTime};
 }
+const drivingGround = {};
 function updateDriving(dt){
  const c=currentCar;
  const telemetry=updateVehiclePhysics(c,dt,{
   throttle:(keys.has('KeyW')||keys.has('ArrowUp')?1:0)-(keys.has('KeyS')||keys.has('ArrowDown')?1:0),
   steering:(keys.has('KeyA')||keys.has('ArrowLeft')?1:0)-(keys.has('KeyD')||keys.has('ArrowRight')?1:0),
+  surface:world.sampleGround(c.model.mesh.position.x,c.model.mesh.position.z,drivingGround).kind,
   handbrake:keys.has('Space'),moveBody,vehicles,carsOverlap,
   onImpact:({speed,other,position})=>{
    c.health=Math.max(0,c.health-speed*1.4);state.health=Math.max(0,state.health-Math.max(0,speed-8)*.3);
@@ -612,7 +619,7 @@ function updateGame(dt){
    }
   }
   Object.assign(state,simulation.update(dt,{playerPosition:player.mesh.position,currentCar:interaction?.car||currentCar,time:elapsed}));
-  const progress=job.update({wanted:state.wanted,policeState:state.policeState,vehicle:currentCar});
+  const progress=job.update({dt,wanted:state.wanted,policeState:state.policeState,vehicle:currentCar});
   if(progress.replaceJobCar){
    currentCar=null;interaction=null;state.inCar=false;player.mesh.position.set(1.4,0,23);groundActor(player);player.resetGrounding?.();setActorShadow(player,true);
    heroCar.model.mesh.position.copy(heroCar.home);heroCar.heading=heroCar.homeHeading;heroCar.health=100;heroCar.speed=0;heroCar.occupied=false;heroCar.stolen=false;heroCar.model.setDamage?.(100);simulation.reset();
@@ -626,7 +633,9 @@ function updateGame(dt){
  for(const c of vehicles)if(c!==currentCar&&!c.traffic&&!c.police&&!c.occupied&&Math.abs(c.speed)>.05){updateVehiclePhysics(c,simDt,{throttle:0,steering:0,moveBody,vehicles,carsOverlap});c.model.update(simDt,c.speed,c.steer);}
  updateDrivers(simDt);contactActor?.advance(simDt,{speed:0,
   lookTarget:state.started&&state.health>0?nearbyFaceTarget(contactActor,player,contactLookTarget):null});
- if(job){const progress=job.getState();Object.assign(state,progress);mission=progress.mission;if(progress.target){goal.set(progress.target.x,0,progress.target.z);marker.position.copy(goal);}marker.visible=!!progress.target&&state.started;const close=progress.target&&player.mesh.position.distanceTo(goal)<4;markerBeam.visible=!close;markerDiamond.visible=!close;markerRing.scale.setScalar(close?.5:1);}
+ if(job){const progress=job.getState();Object.assign(state,progress);mission=progress.mission;if(progress.target){goal.set(progress.target.x,0,progress.target.z);marker.position.copy(goal);}circuitGate.visible=progress.mission===5&&state.started;
+ if(circuitGate.visible){circuitGate.position.copy(goal);circuitGate.rotation.y=progress.target.heading??0;}
+ marker.visible=!!progress.target&&state.started&&!circuitGate.visible;const close=progress.target&&player.mesh.position.distanceTo(goal)<4;markerBeam.visible=!close;markerDiamond.visible=!close;markerRing.scale.setScalar(close?.5:1);}
  const context=player&&job?contextAction():null;
  Object.assign(state,{interactionVisible:!!context&&!interaction,interactionTitle:context?.title||'',interactionName:context?.name||'',interactionKey:'E'});
  for(let i=effects.length-1;i>=0;i--){const e=effects[i];if(e.born!==renderFrame)e.life-=simDt;if(e.life<=0){scene.remove(e.mesh);if(!e.mesh.isSprite)e.mesh.geometry?.dispose();effectMaterials.release(e.mesh.material);effects.splice(i,1);}else{if(e.vel){e.vel.y-=9*simDt;e.mesh.position.addScaledVector(e.vel,simDt);}if(e.spin){e.mesh.rotation.x+=e.spin.x*simDt;e.mesh.rotation.y+=e.spin.y*simDt;e.mesh.rotation.z+=e.spin.z*simDt;}e.mesh.material.opacity=(e.opacity??1)*e.life/e.max;}}
@@ -665,22 +674,33 @@ function updatePresentation(dt){
 function drawMap(target,full=false){
  if(!target||!player)return;const ctx=target.getContext('2d');const w=target.width,h=target.height;
  ctx.fillStyle='#1b292d';ctx.fillRect(0,0,w,h);
- const scale=full?Math.min(w/260,h/400):1.65;
- const center=full?{x:10,z:-20}:player.mesh.position;
+ const scale=full?Math.min(w/405,h/466):1.65;
+ const center=full?{x:-10,z:-20}:player.mesh.position;
  const px=x=>w/2+(x-center.x)*scale,py=z=>h/2+(z-center.z)*scale;
- ctx.fillStyle='#283f47';ctx.fillRect(0,0,px(-100),h);
- ctx.fillStyle='#65604f';ctx.fillRect(px(-100),0,19*scale,h);
+ ctx.fillStyle='#283f47';ctx.fillRect(0,0,px(-150),h);
+ ctx.fillStyle='#65604f';ctx.fillRect(px(-150),0,39*scale,h);
+ ctx.fillStyle='#917a61';
+ ctx.fillRect(px(-200.5),py(-21.5),15*scale,43*scale);
+ ctx.fillRect(px(-186),py(-3.5),45*scale,7*scale);
  ctx.fillStyle='#344145';
  world.colliders.forEach(b=>ctx.fillRect(px(b.minX),py(b.minZ),(b.maxX-b.minX)*scale,(b.maxZ-b.minZ)*scale));
- ctx.strokeStyle='#667276';ctx.lineWidth=full?13*scale:15;ctx.lineCap='butt';
- [0,80].forEach(x=>{ctx.beginPath();ctx.moveTo(px(x),py(-220));ctx.lineTo(px(x),py(180));ctx.stroke();});
- [-90,0,90].forEach(z=>{ctx.beginPath();ctx.moveTo(px(-92),py(z));ctx.lineTo(px(136),py(z));ctx.stroke();});
+ ctx.strokeStyle='#667276';ctx.lineCap='butt';
+ for(const road of world.roads){
+   const dx=road.axis==='x'?road.length/2:0,dz=road.axis==='z'?road.length/2:0;
+   ctx.lineWidth=road.width*scale;ctx.beginPath();
+   ctx.moveTo(px(road.x-dx),py(road.z-dz));ctx.lineTo(px(road.x+dx),py(road.z+dz));ctx.stroke();
+ }
  ctx.strokeStyle='#e5ab64';ctx.lineWidth=2;
- if(state.target){ctx.setLineDash([5,5]);ctx.beginPath();ctx.moveTo(px(player.mesh.position.x),py(player.mesh.position.z));ctx.lineTo(px(0),py(player.mesh.position.z));ctx.lineTo(px(0),py(goal.z));ctx.lineTo(px(goal.x),py(goal.z));ctx.stroke();ctx.setLineDash([]);}
+ if(state.target){
+   const [start,...turns]=mapRoute(world.roads,player.mesh.position,goal);
+   ctx.setLineDash([5,5]);ctx.beginPath();ctx.moveTo(px(start.x),py(start.z));
+   for(const turn of turns)ctx.lineTo(px(turn.x),py(turn.z));
+   ctx.stroke();ctx.setLineDash([]);
+ }
  for(const c of vehicles){const p=c.model.mesh.position;ctx.fillStyle=c.police?'#7caae3':c===currentCar?'#f4bc77':'#b6c0bb';ctx.save();ctx.translate(px(p.x),py(p.z));ctx.rotate(-c.heading);ctx.fillRect(-2,-3,4,6);ctx.restore();}
  if(state.target){ctx.fillStyle='#f6bd78';ctx.beginPath();ctx.arc(px(goal.x),py(goal.z),full?7:5,0,Math.PI*2);ctx.fill();}
  const pos=player.mesh.position;ctx.save();ctx.translate(px(pos.x),py(pos.z));ctx.rotate(-(currentCar?currentCar.heading:player.mesh.rotation.y));ctx.fillStyle='#fff5e2';ctx.shadowColor='#000';ctx.shadowBlur=5;ctx.beginPath();ctx.moveTo(0,7);ctx.lineTo(-5,-5);ctx.lineTo(0,-2);ctx.lineTo(5,-5);ctx.closePath();ctx.fill();ctx.restore();
- if(full){ctx.font='600 13px sans-serif';ctx.fillStyle='#c7cfca';ctx.fillText('VESPUCCI',px(-63),py(-25));ctx.fillText('DOWNTOWN',px(52),py(-150));ctx.save();ctx.translate(px(-109),h*.65);ctx.rotate(-Math.PI/2);ctx.fillStyle='#78959d';ctx.fillText('PACIFIC OCEAN',0,0);ctx.restore();}
+ if(full){ctx.font='600 13px sans-serif';ctx.fillStyle='#c7cfca';ctx.fillText('VESPUCCI',px(-63),py(-25));ctx.fillText('DOWNTOWN',px(52),py(-150));ctx.save();ctx.translate(px(-170),h*.65);ctx.rotate(-Math.PI/2);ctx.fillStyle='#78959d';ctx.fillText('PACIFIC OCEAN',0,0);ctx.restore();}
 }
 
 window.addEventListener('keydown',e=>{
@@ -741,7 +761,7 @@ function applyEnvironmentMaps({day,night:nightMap,vehicle}){
 function captureVehicleCube(dayEnvironment,skyData){
  const target=new THREE.WebGLCubeRenderTarget(128,{type:THREE.HalfFloatType});
  const probe=new THREE.CubeCamera(.2,350,target);probe.position.set(4.8,1.2,18);
- const hidden=new Map([...vehicles.map(car=>car.model.mesh),...photoShadowActors().map(actor=>actor.mesh),...effects.map(effect=>effect.mesh),marker].map(root=>[root,root.visible]));
+ const hidden=new Map([...vehicles.map(car=>car.model.mesh),...photoShadowActors().map(actor=>actor.mesh),...effects.map(effect=>effect.mesh),marker,circuitGate].map(root=>[root,root.visible]));
  const saved={night,background:scene.background,environment:scene.environment,rotation:scene.environmentRotation.clone(),
   exposure:renderer.toneMappingExposure,sunPosition:sun.position.clone(),sunTarget:sun.target.position.clone(),
   target:renderer.getRenderTarget(),face:renderer.getActiveCubeFace(),mip:renderer.getActiveMipmapLevel(),xr:renderer.xr.enabled};
@@ -764,7 +784,7 @@ function captureVehicleCube(dayEnvironment,skyData){
 
 async function boot(){
  try{
-  const [skyData]=await Promise.all([atmosphere.ready,world.ready,loadCharacterAssets()]);
+  const [skyData]=await Promise.all([atmosphere.ready,world.ready,charactersReady]);
   if(skyData?.texture){
    world.setSky(skyData);
    sunOffset.copy(skyData.sunDirection).multiplyScalar(350);
@@ -807,6 +827,12 @@ function frame(now){
   lastFrame=performance.now();requestAnimationFrame(frame);return;
  }
  if(lastEnvironmentBuild!==environmentLighting.revision){lastEnvironmentBuild=environmentLighting.revision;now=performance.now();lastFrame=now;}
+ // Render one warm frame, then let the opaque title artwork own the screen.
+ if (!state.started && renderFrame > 0) {
+  lastFrame = now;
+  requestAnimationFrame(frame);
+  return;
+ }
  renderFrame++;
  const wallDt=Math.max(0,(now-lastFrame)/1000),dt=Math.min(wallDt,.25);lastFrame=now;frameCount++;fpsTimer+=wallDt;
  if(fpsTimer>1){state.fps=Math.round(frameCount/fpsTimer);frameCount=0;fpsTimer=0;}

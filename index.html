@@ -6,10 +6,27 @@
     <meta name="theme-color" content="#151b1b" />
     <meta name="description" content="Grand Theft Astra — an original open-world driving and action sandbox. Play The Coastal Job in Los Pacificos: meet your contact, find a ride, escape the police, and build your reputation in a cinematic 3D coastal city." />
     <title>Grand Theft Astra — The Coastal Job</title>
+    <link rel="preload" as="image" href="%BASE_URL%art/coastal-job.webp" />
+    <style>
+      html, body { margin: 0; background: #111c23; }
+      #boot-splash { position: fixed; inset: 0; z-index: 9; display: grid; align-content: end;
+        box-sizing: border-box; padding: 7vw; color: #fff0d6; background: #152028;
+        font-family: system-ui, sans-serif; isolation: isolate; }
+      #boot-splash img { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; }
+      #boot-splash::before { content: ''; position: absolute; inset: 0; z-index: -1;
+        background: linear-gradient(0deg, #0a1822ed, transparent 60%); }
+      #boot-splash strong { font-size: clamp(24px, 4vw, 52px); line-height: 1; letter-spacing: -.05em; }
+      #boot-splash span { margin-top: 12px; color: #ffc49c; font-size: 13px; letter-spacing: .03em; }
+    </style>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body>
-    <main id="app"><canvas id="game" aria-label="Grand Theft Astra 3D city game"></canvas></main>
+    <main id="app"><canvas id="game" aria-label="Grand Theft Astra 3D city game"></canvas>
+      <div id="boot-splash" role="status">
+        <img src="%BASE_URL%art/coastal-job.webp" fetchpriority="high" alt="" />
+        <strong>Grand Theft Astra</strong><span>Loading Los Pacificos…</span>
+      </div>
+    </main>
     <script type="module" src="/src/entry.js"></script>
   </body>
 </html>

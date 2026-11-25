@@ -1,5 +1,19 @@
 const SAVE_KEY = 'grand-theft-astra:coastal-job:v1';
-const titles = ['A favor for Mara', 'Borrowed wheels', 'Disappear', 'Special delivery', 'A place to call home', 'Los Pacificos is yours'];
+const titles = ['A favor for Mara', 'Borrowed wheels', 'Disappear', 'Special delivery', 'A place to call home', 'Pacific Circuit'];
+// The start and gates sit in the traffic lanes of the authored 80 × 90 m grid.
+export const CIRCUIT_START = { x: -5, z: 28 };
+const circuitGates = [
+  { x: -5, z: 80, heading: 0, name: 'South boulevard', direction: 'Follow the boulevard south.' },
+  { x: 69, z: 94, heading: Math.PI / 2, name: 'South crossing', direction: 'Turn east at the crossing.' },
+  { x: 85, z: -77, heading: Math.PI, name: 'East avenue', direction: 'Head north along East Avenue.' },
+  { x: 10, z: -94, heading: -Math.PI / 2, name: 'North crossing', direction: 'Turn west across the north crossing.' },
+  { ...CIRCUIT_START, heading: 0, name: 'Paloma finish', direction: 'Head south to the Paloma.' },
+];
+const circuitLimit = 90;
+function clock(seconds) {
+  const tenths = Math.round(seconds * 10);
+  return `${Math.floor(tenths / 600)}:${String(Math.floor(tenths / 10) % 60).padStart(2, '0')}.${tenths % 10}`;
+}
 function browserStorage() { try { return globalThis.localStorage; } catch { return null; } }
 
 export function readProgress(storage = browserStorage()) {
@@ -21,16 +35,23 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
   let savedAt = saved?.savedAt || null;
   let saveAvailable = true;
   let repairCooldown = 0;
+  let circuit = null;
+  let best = Number.isFinite(saved?.circuitBest) && saved.circuitBest > 0 && saved.circuitBest <= circuitLimit ? saved.circuitBest : null;
   function save() {
     const now = Date.now();
     try {
       if (!storage || typeof storage.setItem !== 'function') throw new Error('Storage unavailable');
-      storage.setItem(SAVE_KEY, JSON.stringify({ version: 1, stage, money, completedJobs, savedAt: now }));
+      storage.setItem(SAVE_KEY, JSON.stringify({ version: 1, stage, money, completedJobs, circuitBest: best, savedAt: now }));
       savedAt = now; saveAvailable = true;
     } catch { saveAvailable = false; }
   }
   function dialogue(speaker, lines) { onDialogue?.(speaker, lines); }
   function interact(kind, { vehicle, time = 0, reserve = 0 } = {}) {
+    if (kind === 'circuit' && stage === 5 && !circuit && vehicle?.health > 0) {
+      circuit = { vehicle, gate: 0, elapsed: 0 };
+      onToast?.('PACIFIC CIRCUIT', 'Clock running. Follow the marked gates.');
+      return { startedCircuit: true };
+    }
     if (kind === 'contact') {
       if (stage === 0) {
         stage = 1;
@@ -51,6 +72,7 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
       money -= 100; repairCooldown = time + 2; save(); onToast?.('BACK IN SHAPE', 'Vehicle repaired · −$100'); return { repair: true };
     }
     if (kind === 'safehouse' && stage >= 4) {
+      if (stage === 4) dialogue('MARA', ['The boulevard outside your place is the start of the Pacific Circuit. Take the cream sedan outside or bring your own. Beat forty-five seconds and the full purse is yours.']);
       stage = 5; save(); onToast?.('HOME SWEET HOME', saveAvailable ? 'Progress saved. Health and supplies restored.' : 'Health restored. Browser storage is unavailable.');
       return { rest: true };
     }
@@ -62,7 +84,34 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
       dialogue('MARA', ['Someone saw you. Stay off the main road until the heat dies down.']);
     }
   }
-  function update({ wanted, policeState, vehicle }) {
+  function update({ wanted, policeState, vehicle, dt = 0 }) {
+    if (circuit) {
+      circuit.elapsed += Math.max(0, dt);
+      if (vehicle !== circuit.vehicle || vehicle.health <= 0 || circuit.elapsed > circuitLimit) {
+        const reason = circuit.elapsed > circuitLimit ? 'Time expired.' : 'Run interrupted.';
+        circuit = null;
+        onToast?.('PACIFIC CIRCUIT', reason + ' Restart outside the Paloma.');
+      } else {
+        const gate = circuitGates[circuit.gate];
+        const p = vehicle.model.mesh.position;
+        if (Math.hypot(p.x - gate.x, p.z - gate.z) < 9) {
+          circuit.gate++;
+          if (circuit.gate === circuitGates.length) {
+            const finish = Math.max(.1, circuit.elapsed);
+            const record = best === null || finish < best;
+            const reward = finish <= 45 ? 750 : finish <= 65 ? 500 : 300;
+            if (record) best = finish;
+            money += reward;
+            completedJobs++;
+            circuit = null;
+            save();
+            onComplete?.({ title: `${record ? 'PERSONAL BEST' : 'PACIFIC CIRCUIT'} · ${clock(finish)}`, reward });
+          } else {
+            onToast?.(`GATE ${circuit.gate} / ${circuitGates.length}`, circuitGates[circuit.gate].direction);
+          }
+        }
+      }
+    }
     if (stage === 2 && wanted === 0 && policeState === 'clear') {
       stage = 3; onToast?.('MAKE THE DELIVERY', 'Bring the convertible inside Mara’s workshop.');
       dialogue('MARA', ['You are clear. The workshop entrance is on the east side of the boulevard.']);
@@ -73,21 +122,28 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
     return {};
   }
   function getState() {
-    const target = stage === 0 ? landmarks.contact : stage === 1 ? getHeroPosition() : stage === 3 ? landmarks.garage : stage === 4 ? landmarks.safehouse : null;
+    if (circuit) {
+      const gate = circuitGates[circuit.gate];
+      return { mission: stage, money, completedJobs, savedAt, saveAvailable, circuitActive: true, circuitBest: best,
+        target: gate, objectiveTitle: `${gate.name} · ${Math.ceil(Math.max(0, circuitLimit - circuit.elapsed))}s`, missionStage: `PACIFIC CIRCUIT · ${circuit.gate + 1} / ${circuitGates.length}`,
+        objective: `${gate.direction}  ${clock(Math.max(0, circuitLimit - circuit.elapsed))} remaining.`,
+        missionProgress: circuit.gate / circuitGates.length };
+    }
+    const target = stage === 0 ? landmarks.contact : stage === 1 ? getHeroPosition() : stage === 3 ? landmarks.garage : stage === 4 ? landmarks.safehouse : stage === 5 ? CIRCUIT_START : null;
     const objective = [
       'Meet Mara inside the corner office. Press E to talk.',
       'Take the teal convertible on the boulevard.',
       'Break line of sight. Stay hidden while the patrol searches.',
       'Drive into Mara’s workshop. Stop and press E to deliver.',
       'Visit the Paloma courtyard. Press E to claim your room.',
-      'Explore. Repair at the workshop, rest at the Paloma, or buy supplies from Mara.',
+      'Stop on the boulevard outside the Paloma to race the Pacific Circuit.' + (best ? ` Best lap ${clock(best)}.` : ''),
     ][stage];
-    return { mission: stage, money, completedJobs, savedAt, saveAvailable, objectiveTitle: titles[stage], objective, missionStage: stage === 5 ? 'FREE ROAM' : `THE COASTAL JOB · ${Math.min(stage + 1, 5)} / 5`, missionProgress: stage / 5, target };
+    return { mission: stage, money, completedJobs, savedAt, saveAvailable, circuitActive: false, circuitBest: best, objectiveTitle: titles[stage], objective, missionStage: stage === 5 ? 'FREE ROAM' : `THE COASTAL JOB · ${Math.min(stage + 1, 5)} / 5`, missionProgress: stage / 5, target };
   }
   function fresh() {
-    stage = 0; money = 1250; completedJobs = 0; savedAt = null;
+    circuit = null; best = null; repairCooldown = 0; stage = 0; money = 1250; completedJobs = 0; savedAt = null;
     try { storage?.removeItem(SAVE_KEY); } catch { saveAvailable = false; }
   }
-  function retry() { if (stage === 2 || stage === 3) stage = 1; save(); }
+  function retry() { circuit = null; if (stage === 2 || stage === 3) stage = 1; save(); }
   return { interact, onVehicleTaken, update, getState, save, fresh, retry };
 }

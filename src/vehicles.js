@@ -1,3 +1,4 @@
+import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -429,7 +430,7 @@ function prepareAuroraTemplate(scene) {
 export function loadVehicleAssets(loader = new GLTFLoader()) {
   if (!vehicleAssetsPromise) {
     const sports = Promise.allSettled([
-      loader.loadAsync('/models/AstraAurora.glb'), loader.loadAsync('/models/AstraAurora-lod.glb'),
+      loader.loadAsync(assetUrl('models/AstraAurora.glb')), loader.loadAsync(assetUrl('models/AstraAurora-lod.glb')),
     ]).then(results => {
       if (results[0].status !== 'fulfilled') throw results[0].reason;
       const near = prepareAuroraTemplate(results[0].value.scene);
@@ -440,7 +441,7 @@ export function loadVehicleAssets(loader = new GLTFLoader()) {
       }
     }).catch(error => console.warn('Aurora sports-car assets unavailable; using the original coupe.', error));
     const sedans = Promise.all([
-      loader.loadAsync('/models/vehicles/meridian.glb'), loader.loadAsync('/models/vehicles/meridian-lod.glb'),
+      loader.loadAsync(assetUrl('models/vehicles/meridian.glb')), loader.loadAsync(assetUrl('models/vehicles/meridian-lod.glb')),
     ]).then(models => { sedanVehicleTemplates = models.map(model => model.scene); })
       .catch(error => console.warn('Meridian sedan assets unavailable; using the original coupe.', error));
     vehicleAssetsPromise = Promise.all([sports, sedans]).then(() => Boolean(auroraVehicleTemplates || sedanVehicleTemplates));

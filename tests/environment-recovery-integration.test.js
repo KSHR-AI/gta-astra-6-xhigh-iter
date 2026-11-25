@@ -21,7 +21,8 @@ for (const fail of [false, true]) test(`static recovery capture preserves actor 
   const actors = [true, false].map(visible => { const mesh = new THREE.Group(); mesh.visible = visible; return { mesh }; });
   const vehicles = [true, false].map(visible => { const mesh = new THREE.Group(); mesh.visible = visible; return { model: { mesh } }; });
   const effects = [{ mesh: new THREE.Group() }], marker = new THREE.Group(); marker.visible = false;
-  const roots = [...actors.map(actor => actor.mesh), ...vehicles.map(car => car.model.mesh), effects[0].mesh, marker];
+  const circuitGate = new THREE.Group();
+  const roots = [...actors.map(actor => actor.mesh), ...vehicles.map(car => car.model.mesh), effects[0].mesh, marker, circuitGate];
   const visibility = roots.map(root => root.visible);
   scene.background = { name: 'night sky' }; scene.environment = { name: 'night map' };
   scene.environmentRotation.set(.1, .2, .3); sun.position.set(80, 30, -90); sun.target.position.set(40, 0, -70);
@@ -47,7 +48,7 @@ for (const fail of [false, true]) test(`static recovery capture preserves actor 
         if (fail) throw new Error('capture failed');
       }
     },
-  }, scene, sun, sunOffset: new THREE.Vector3(3, 4, 5), renderer, vehicles, effects, marker,
+  }, scene, sun, sunOffset: new THREE.Vector3(3, 4, 5), renderer, vehicles, effects, marker, circuitGate,
   night: true, photoShadowActors: () => actors,
   world: { restoreInstances() { restoreCalls++; } },
   setTime(value) { context.night = value; renderer.toneMappingExposure = 1; scene.background = {}; scene.environment = {}; },
@@ -107,7 +108,7 @@ for (const mode of ['graphics-error', 'context-lost', 'fallback', 'normal']) {
     const failure = mode === 'graphics-error' ? 'PMREM capture failed' : null;
     const context = { atmosphere: { ready: Promise.resolve(skyData) },
       world: { ready: Promise.resolve(), setSky: value => registrations.push(value) },
-      loadCharacterAssets: () => Promise.resolve(),
+      charactersReady: Promise.resolve(),
       sunOffset: new THREE.Vector3(), shadowAnchor: new THREE.Vector3(), sun: new THREE.DirectionalLight(),
       environmentLighting: { revision: 1, setSky: value => registrations.push(value), update: () => { updates.push(1); return mode === 'normal' || mode === 'fallback'; }, getInfo: () => ({ error: failure, ready: mode === 'normal' || mode === 'fallback' }) },
       effectShaderWarmup: { update: revision => { warmed.push(revision); return true; } },

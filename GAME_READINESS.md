@@ -8,6 +8,9 @@ This is a playable browser prototype, not a release-ready AAA game. The ongoing 
 - Third-person walking, sprinting, aiming, semi-automatic pistol, reload, driving and photo mode.
 - Editable Blender props and vehicles, authored replacement human heads, credited external source assets.
 - Reduced gameplay HUD, keyboard/mouse and touch controls.
+- Repeatable five-gate Pacific Circuit, local time records, and a three-landmark postcard collection.
+- Animated Pacific Wheel and pier, surface-dependent vehicle grip, directional surf, and software-renderer quality selection.
+- Public WebGL build distributed through GitHub Pages.
 
 ## Release gates still open
 

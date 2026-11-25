@@ -4,6 +4,7 @@ import { addAuthoredDistrict } from './world-district.js';
 import { addStreetDetails } from './world-streets.js';
 import { createPalmAssets } from './world-palms.js';
 import { createShrubBuilder } from './world-shrubs.js';
+import { createPacificWheel } from './pacific-wheel.js';
 import { createOcean } from './world-ocean.js';
 import { createCityProps } from './world-props.js';
 import { createInstanceVisibility } from './instance-visibility.js';
@@ -648,7 +649,13 @@ export function createWorld(scene) {
   const beachParasols = createBeachParasols(root, parasolPlacements);
   const ready = Promise.all([materialReady, beachReady, cityProps.ready, beachParasols.ready]);
   const ocean = createOcean();
-  root.add(ocean.mesh);
+  // The shore steps meet the raised pier entrance at the district boundary.
+  for (let step = 0; step < 12; step++) {
+    const rise = (step + 1) * .199;
+    walkableBox(materials.terracotta, -141.1 - step * .6, rise / 2, 0, .6, rise, 6.4, 0, false, 'pier-steps');
+  }
+  const pacificWheel = createPacificWheel();
+  root.add(ocean.mesh, pacificWheel.root);
 
   // Distant metropolitan silhouettes wrap the drivable district without walls.
   // Conventional repeated interior atlas here gives each long strip a bank of
@@ -757,6 +764,6 @@ export function createWorld(scene) {
       illuminatedSigns.forEach(({material,intensity})=>material.emissiveIntensity=intensity*(value?3:1));
     },
     bounds: { minX: -148, maxX: 143, minZ: -238, maxZ: 194 },
-    update(dt, time) { ocean.update(time); breeze.value = time; updateTrafficSignals(time); },
+    update(dt, time) { ocean.update(time); pacificWheel.update(time); breeze.value = time; updateTrafficSignals(time); },
   };
 }

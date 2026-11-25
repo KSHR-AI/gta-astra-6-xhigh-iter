@@ -1,4 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800;900&family=DM+Sans:wght@400;500;600;700&display=swap');
+@font-face {
+  font-family: 'Barlow Condensed'; font-style: normal; font-weight: 500 700;
+  font-display: swap; src: url('/fonts/barlow-condensed-semibold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Barlow Condensed'; font-style: normal; font-weight: 800 900;
+  font-display: swap; src: url('/fonts/barlow-condensed-black.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'DM Sans'; font-style: normal; font-weight: 100 1000;
+  font-display: swap; src: url('/fonts/dm-sans.ttf') format('truetype');
+}
 
 :root{font-family:'DM Sans',Arial,sans-serif;color:#f9f7ef;background:#101b20;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;--paper:#f9f7ef;--muted:#c2c7c3;--accent:#d6bb8a;--sage:#b6ceaa;--line:rgba(255,255,255,.17);--panel:rgba(18,27,29,.77)}
 *{box-sizing:border-box}html,body,#app{width:100%;height:100%;margin:0;overflow:hidden}body{position:relative}canvas{display:block}#game-canvas,#game,#app>canvas,body>canvas{width:100%;height:100%;outline:none}button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}button:disabled{cursor:wait}button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:5px}button,summary{touch-action:manipulation}button svg{pointer-events:none}svg{width:24px;height:24px;flex:none}button{border:0}button[hidden],[hidden]{display:none!important}kbd{font-family:inherit;font-size:10px;font-weight:600;letter-spacing:.04em;line-height:1;white-space:nowrap}button:active{transform:translateY(1px)}
@@ -827,3 +838,56 @@ button:disabled { cursor: default; }
   .interaction-prompt, .has-subtitle .interaction-prompt { bottom: 174px; }
   .dialogue-panel, .has-completion .dialogue-panel { top: 76px; bottom: auto; width: min(420px, calc(100vw - 150px)); }
 }
+
+/* Painted title card for the coastal campaign. */
+.is-welcome .screen-shade {
+  background: linear-gradient(90deg, #101725da, #10172596 25%, #12172327 53%, transparent 72%),
+    linear-gradient(0deg, #071114ab, transparent 33%, transparent 78%, #1116223b),
+    url('/art/coastal-job.webp') center center / cover no-repeat;
+}
+.is-welcome .game-header { padding: clamp(18px, 3.8vh, 44px) 5%; }
+.is-welcome .brand-symbol { color: #ffab78; }
+.is-welcome .mode-chip, .is-welcome .world-clock, .is-welcome .brand-separator { display: none; }
+.is-welcome .menu-button { width: 42px; height: 42px; border-color: #fff4; background: #14212555; }
+.welcome { left: 7%; top: 51%; width: 480px; max-width: 52vw; transform: translateY(-50%); }
+.welcome-eyebrow { font-size: 10px; color: #ffd1a5; letter-spacing: .22em; }
+.welcome-eyebrow > span { width: 29px; height: 2px; background: #ffad79; }
+h1.title-lockup { margin: clamp(13px, 2.8vh, 30px) 0; transform: skew(-5deg); transform-origin: bottom left; }
+h1.title-lockup > .title-prelude { font-size: clamp(45px, min(6.5vw, 9vh), 98px); line-height: .88; color: #fff0d6; letter-spacing: -.025em; }
+h1.title-lockup > .title-astra { font-size: clamp(112px, min(16vw, 22vh), 240px); letter-spacing: -.034em; line-height: .86; padding-bottom: .05em; background: linear-gradient(#ffd599 10%, #ffa877 53%, #f37461); background-clip: text; }
+.story-label { color: #f3be93; font-size: 9px; margin-bottom: 4px; }
+.welcome-heading { font-size: clamp(22px, 3.3vh, 34px); letter-spacing: -.045em; font-weight: 700; }
+.welcome-copy { color: #e8ddd2; font-size: clamp(13px, 1.65vh, 16px); line-height: 1.5; margin: 6px 0 clamp(15px, 3.5vh, 33px); }
+.welcome-menu { width: min(320px, 100%); }
+.welcome-menu button { font-size: 14px; min-height: 46px; letter-spacing: 0; border-radius: 3px; }
+.welcome-menu .enter-button { color: #251b1b; background: #ffb384; border: 0; min-height: clamp(46px, 6.8vh, 62px); }
+.welcome-menu .enter-button:hover { background: #ffd0a8; }
+.welcome-menu .enter-button:disabled { background: #b3937f; }
+.welcome-menu .welcome-settings { margin-top: 7px; color: #f5e9da; background: #101e23a6; border: 1px solid #f9e5cc46; }
+.welcome-menu .welcome-settings:hover { background: #203031de; }
+.start-subtitle { font-size: 8px; letter-spacing: .11em; color: #ede0cf; }
+.welcome-world { right: 5%; bottom: 6%; align-items: flex-end; gap: 6px; color: #fff0db; text-shadow: 0 1px 6px #111b; }
+.welcome-world .world-line { background: #ffb384; }
+.welcome-world > span:nth-child(2) { color: #ffe5ca; font-size: 9px; }
+.welcome-world > b { font-size: clamp(27px, 3.6vw, 52px); font-weight: 600; letter-spacing: -.025em; }
+@media (max-width: 620px) {
+  .is-welcome .screen-shade {
+    background: linear-gradient(0deg, #0b1920fa 2%, #101b24bf 40%, #101b2411 80%), url('/art/coastal-job.webp') 65% center / cover;
+  }
+  .welcome { left: 7%; top: auto; bottom: max(6%, env(safe-area-inset-bottom)); width: 86%; max-width: none; transform: none; }
+  .welcome-world { display: none; }
+  .welcome-menu { width: min(330px, 100%); }
+}
+@media (max-height: 530px) {
+  .welcome { top: 57%; bottom: auto; transform: translateY(-50%); }
+  .welcome-eyebrow, .story-label, .start-subtitle { display: none; }
+  h1.title-lockup { margin: 0 0 12px; }
+  h1.title-lockup > .title-prelude { font-size: 35px; }
+  h1.title-lockup > .title-astra { font-size: 80px; }
+  .welcome-heading { font-size: 21px; }
+  .welcome-copy { margin-bottom: 10px; }
+}
+.welcome-menu .welcome-settings { justify-content: space-between; }
+.welcome-menu .welcome-settings > .button-arrow { margin-right: 0; }
+
+.photo-postcards { color: #eadac1; font-size: 12px; line-height: 1.4; margin-top: 8px; }

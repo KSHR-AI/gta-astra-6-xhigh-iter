@@ -1,3 +1,4 @@
+import { assetUrl } from './asset-url.js';
 // Recorded CC0 foley sits under a small, continuously running Web Audio mixer.
 // Nothing opens an AudioContext until start() is called from a user gesture.
 const ASSETS = {
@@ -14,7 +15,7 @@ export function createAudio() {
   let context, master, world, echoInput, noiseBuffer;
   let engine, exhaust, transmission, engineFilter, engineGain, exhaustGain, transmissionGain;
   let engineSample, engineSampleGain, roadFilter, roadGain, tireFilter, tireGain, tireTone;
-  let windGain, seaGain, gullGain, siren, sirenHarmonic, sirenFilter, sirenGain, sirenPan;
+  let seaPan, seaFilter, windGain, seaGain, gullGain, siren, sirenHarmonic, sirenFilter, sirenGain, sirenPan;
   let enabled = true, disposed = false, active = true;
   let lastTime = 0, lastSpeed = 0, lastGear = 1, lastDistance = 80, shiftUntil = 0;
   let stepDistance = 0, stepIndex = 0, trafficAt = 4, musicAt = 0, musicBeat = 0;
@@ -43,8 +44,11 @@ export function createAudio() {
     if (target) node.connect(target);
     return node;
   }
+  const targets = new WeakMap();
   function smooth(param, value, time = 0.12) {
-    if (param && Number.isFinite(value)) param.setTargetAtTime(value, context.currentTime, time);
+    if (!param || !Number.isFinite(value) || targets.get(param) === value) return;
+    targets.set(param, value);
+    param.setTargetAtTime(value, context.currentTime, time);
   }
   function loop(buffer, target, rate = 1) {
     const node = track(context.createBufferSource());
@@ -220,7 +224,11 @@ export function createAudio() {
     }
 
     windGain = gain(0); loop(noiseBuffer, filter('lowpass', 430, windGain));
-    seaGain = gain(0); loop(noiseBuffer, filter('bandpass', 720, seaGain, 0.45), 0.81);
+    seaPan = context.createStereoPanner ? track(context.createStereoPanner()) : null;
+    seaPan?.connect(world);
+    seaGain = gain(0, seaPan || world);
+    seaFilter = filter('lowpass', 720, seaGain);
+    loop(noiseBuffer, filter('highpass', 135, seaFilter), 0.81);
     gullGain = gain(0);
 
     engineGain = gain(0);
@@ -252,7 +260,7 @@ export function createAudio() {
     // All requests are local, total transfer < 400 KB; synthesis remains usable on failure.
     const owner = context;
     await Promise.allSettled(Object.entries(ASSETS).map(async ([name, filename]) => {
-      const response = await fetch(`/audio/${filename}`, { signal: abort.signal });
+      const response = await fetch(assetUrl(`audio/${filename}`), { signal: abort.signal });
       if (!response.ok) return;
       const data = await response.arrayBuffer();
       if (disposed) return;
@@ -361,10 +369,16 @@ export function createAudio() {
 
     const darkness = clamp(finite(night), 0, 1);
     const coast = playerPosition ? clamp((-finite(playerPosition.x) - 45) / 90, 0, 1) : 0.25;
-    const swell = 0.66 + Math.sin(now * 0.34) * 0.18 + Math.sin(now * 0.13) * 0.09;
+    // Breakers brighten as they crest and soften through a longer wash.
+    const wavePhase = now * 0.82 + 0.55 * Math.sin(now * 0.19);
+    const crest = (0.5 + 0.5 * Math.cos(wavePhase)) ** 3;
+    const wash = 0.5 + 0.5 * Math.cos(wavePhase - 0.8);
     const cabin = inCar ? 0.48 : 1;
     smooth(windGain.gain, (0.018 + coast * 0.015) * cabin * (0.85 + Math.sin(now * 0.23) * 0.15), 0.7);
-    smooth(seaGain.gain, coast * (0.018 + swell * 0.035) * cabin, 0.8);
+    smooth(seaGain.gain, coast * (0.027 + crest * 0.065 + wash * 0.031) * cabin, 0.36);
+    smooth(seaFilter.frequency, (620 + coast * (400 + crest * 2150)) * (inCar ? 0.58 : 1), 0.32);
+    // The sea lies west of the boulevard. Keep a broad stereo image as the camera turns.
+    smooth(seaPan?.pan, listener.forwardZ * 0.53, 0.2);
     smooth(gullGain.gain, (0.025 + coast * 0.09) * cabin * (1 - darkness * 0.97), 1.5);
 
     const police = Array.isArray(policePosition) ? policePosition[0] : policePosition;
@@ -389,8 +403,7 @@ export function createAudio() {
       : typeof velocity === 'number' ? Math.abs(velocity)
         : velocity ? Math.hypot(finite(velocity.x), finite(velocity.z)) : roadSpeed;
     if (!inCar && motion > 0.25) {
-      footsteps(Math.min(motion, 12) * dt, sprinting,
-        surface || (playerPosition && playerPosition.x < -119 ? 'sand' : 'concrete'));
+      footsteps(Math.min(motion, 12) * dt, sprinting, groundSurface);
     } else stepDistance = 0;
 
     if (now > trafficAt) {

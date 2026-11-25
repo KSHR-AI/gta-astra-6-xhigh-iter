@@ -2,6 +2,8 @@
 
 A single-player browser action game built with Three.js. Explore Los Pacificos, a compact coastal district, play **The Coastal Job**, steal and drive cars, and escape a police search. This is an original playable prototype inspired by open-world crime games, with a small authored neighborhood and one mission chain.
 
+[Play Grand Theft Astra on GitHub Pages](https://kshr-ai.github.io/gta-astra-6-xhigh-iter/)
+
 ## Run and test
 
 Requires Node.js 22+ and a browser supporting WebGL 2. Hardware-accelerated graphics are recommended.
@@ -21,6 +23,8 @@ npm run preview
 
 Tests exercise mission progression, persistence, witnesses, police-state transitions, shot occlusion, recoil timing, and the imported characters’ gait, grip, and reload poses. They do not replace playing the browser build. The production build is written to `dist/`; preview serves that build.
 
+The GitHub Pages project build uses `npm run build:pages`. The repository publishes the contents of `dist/` and an empty `.nojekyll` file from the root of the `gh-pages` branch.
+
 ## The Coastal Job
 
 1. Meet **Mara** inside the Orbit corner office and press **E** for the briefing.
@@ -29,9 +33,15 @@ Tests exercise mission progression, persistence, witnesses, police-state transit
 4. Drive into Mara’s workshop, stop, and press **E** to deliver the car for **$1,500**.
 5. Visit the **Paloma Motor Lodge** courtyard to claim your safehouse, rest, and save.
 
+Claiming the safehouse unlocks the **Pacific Circuit**. Stop a working car on the boulevard outside the Paloma and press **E** to start. Follow five gates, finish within 90 seconds, and try to beat your saved personal best. Payouts range from **$300 to $750**.
+
 After the delivery, continue exploring. Mara sells **36 pistol rounds for $150**, subject to the 192-round reserve limit. The workshop repairs a damaged vehicle for **$100** after the job. Resting at the Paloma restores health and stamina and replenishes the reserve to at least 96 rounds. A wrecked mission car resets the attempt so the job can be retried.
 
 Progress uses the current browser’s `localStorage`, under `grand-theft-astra:coastal-job:v1`. Saves retain the mission checkpoint, money, and completed-job count. Returning during an escape or delivery restores the pre-theft checkpoint with a fresh mission car; it does not serialize the live traffic, police, or every vehicle’s position. The title menu offers Continue when a save exists. **Start a fresh session** clears this progress. If browser storage is unavailable, play continues without persistent saves. Saves are local to this browser and site origin, with no account or cloud synchronization.
+
+## Coast postcards
+
+Press **P** during free roam to open Photo mode. Follow the album clue, frame the landmark, and capture a PNG. The Paloma sign, Sunline diner and Pacific Wheel each count once. Your album is saved separately from the story.
 
 ## Controls
 

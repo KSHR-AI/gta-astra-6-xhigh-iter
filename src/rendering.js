@@ -36,14 +36,14 @@ export function createRendering(renderer, scene, camera, software) {
     uniforms: {
       image: { value: colour.texture }, occlusion: { value: occlusion.texture },
       pixel: { value: new THREE.Vector2() }, aoPixel: { value: new THREE.Vector2() },
-      useAO: { value: 1 }, night: { value: 0 },
+      cinematicEffects: { value: 1 }, night: { value: 0 },
       depthMap: { value: depth }, nearPlane: { value: camera.near }, farPlane: { value: camera.far },
       focusDistance: { value: 8 }, aperture: { value: 0 },
     },
     vertexShader: 'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
     fragmentShader: `
       uniform sampler2D image; uniform sampler2D occlusion;
-      uniform vec2 pixel; uniform vec2 aoPixel; uniform float useAO; uniform float night;
+      uniform vec2 pixel; uniform vec2 aoPixel; uniform float cinematicEffects; uniform float night;
       uniform sampler2D depthMap; uniform float nearPlane; uniform float farPlane;
       uniform float focusDistance; uniform float aperture;
       varying vec2 vUv;
@@ -67,16 +67,18 @@ export function createRendering(renderer, scene, camera, software) {
           }
           c=total/weight;
         }
-        float ao=texture2D(occlusion,vUv).r*.4;
-        ao+=texture2D(occlusion,vUv+vec2(aoPixel.x,0.)).r*.15;
-        ao+=texture2D(occlusion,vUv-vec2(aoPixel.x,0.)).r*.15;
-        ao+=texture2D(occlusion,vUv+vec2(0.,aoPixel.y)).r*.15;
-        ao+=texture2D(occlusion,vUv-vec2(0.,aoPixel.y)).r*.15;
-        c*=mix(1.,mix(.42,1.,ao),useAO);
-        vec2 r=pixel*7.;
-        vec3 bloom=glow(r)+glow(-r)+glow(vec2(r.x,-r.y))+glow(vec2(-r.x,r.y));
-        bloom+=glow(vec2(r.x*2.,0.))+glow(vec2(-r.x*2.,0.))+glow(vec2(0.,r.y*2.))+glow(vec2(0.,-r.y*2.));
-        c+=bloom*.017;
+        if(cinematicEffects>.5){
+          float ao=texture2D(occlusion,vUv).r*.4;
+          ao+=texture2D(occlusion,vUv+vec2(aoPixel.x,0.)).r*.15;
+          ao+=texture2D(occlusion,vUv-vec2(aoPixel.x,0.)).r*.15;
+          ao+=texture2D(occlusion,vUv+vec2(0.,aoPixel.y)).r*.15;
+          ao+=texture2D(occlusion,vUv-vec2(0.,aoPixel.y)).r*.15;
+          c*=mix(.42,1.,ao);
+          vec2 r=pixel*7.;
+          vec3 bloom=glow(r)+glow(-r)+glow(vec2(r.x,-r.y))+glow(vec2(-r.x,r.y));
+          bloom+=glow(vec2(r.x*2.,0.))+glow(vec2(-r.x*2.,0.))+glow(vec2(0.,r.y*2.))+glow(vec2(0.,-r.y*2.));
+          c+=bloom*.017;
+        }
         // Restrained warm highlights and cool shadows; no opaque screen tint.
         float light=smoothstep(.08,1.8,sceneLuminance(c));
         c*=mix(vec3(.96,1.,1.035),vec3(1.035,1.008,.965),light)*(1.-night*.03);
@@ -108,7 +110,7 @@ export function createRendering(renderer, scene, camera, software) {
       if (colour.samples !== samples) { colour.samples = samples; colour.dispose(); }
     },
     setLens(focus, aperture) { finish.uniforms.focusDistance.value = focus; finish.uniforms.aperture.value = aperture; },
-    setQuality(value) { quality = value; finish.uniforms.useAO.value = value === 'high' ? 1 : 0; resize(); },
+    setQuality(value) { quality = value; finish.uniforms.cinematicEffects.value = value === 'high' ? 1 : 0; resize(); },
     render() {
       renderer.info.reset();
       renderer.setRenderTarget(colour);

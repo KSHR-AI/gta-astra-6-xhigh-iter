@@ -209,3 +209,7 @@ Gunfire, horns, police sirens, sea/wind beds, engine enhancement, UI cues, and t
 - **Budgets:** 80,800 source triangles, 39,438 near / 12,758 far exported triangles, and 47 material batches per LOD. All geometry and materials are locally served; there are no remote asset requests.
 
 These Aurora assets are original repository work and introduce no third-party attribution or licensing dependency. The historical Ferrari benchmark fixture retains its separate provenance caveat above.
+
+## Title presentation and Pacific Wheel
+
+The coastal title illustration is stored in `public/art/coastal-job.webp`. The game serves Barlow Condensed and DM Sans locally. Their SIL Open Font License notices ship alongside the font files in `public/fonts/`. The pier, wheel and gondolas are original procedural geometry in `src/pacific-wheel.js`.

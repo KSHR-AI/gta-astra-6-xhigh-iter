@@ -249,6 +249,8 @@ function simulate(car, state, dt, options) {
   const throttle = clamp(Number(options.throttle) || 0, -1, 1);
   const steering = clamp(Number(options.steering) || 0, -1, 1);
   const handbrake = Boolean(options.handbrake);
+  const sand = options.surface === 'sand';
+  const tireGrip = tuning.grip * (sand ? .58 : 1);
   const alive = !(car.health <= 0);
   const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
   let longitudinal = state.vx * fx + state.vz * fz;
@@ -263,13 +265,15 @@ function simulate(car, state, dt, options) {
   let acceleration = 0;
   if (alive && throttle !== 0 && !serviceBrake) {
     const torque = Math.max(.15, 1 - .7 * Math.pow(Math.abs(longitudinal) / Math.max(1, speedLimit), 1.5));
-    acceleration = throttle * tuning.acceleration * torque * healthFactor * (handbrake ? .35 : 1);
+    acceleration = throttle * tuning.acceleration * torque * healthFactor * (sand ? .70 : 1);
     if (throttle < 0) acceleration *= .65;
   }
-  const resistance = .38 + .0018 * speed * speed + (throttle === 0 ? .65 : 0)
-    + (handbrake ? 5.6 : 0) + (serviceBrake ? tuning.brake * Math.abs(throttle) : 0) + (alive ? 0 : 2.5);
-  const dragStep = Math.min(Math.abs(longitudinal), resistance * dt);
-  let nextLongitudinal = longitudinal - Math.sign(longitudinal) * dragStep + acceleration * dt;
+  const resistance = (sand ? 1.45 + .006 * speed * speed : .38) + .0018 * speed * speed + (throttle === 0 ? .65 : 0)
+    + (handbrake ? 9 : 0) + (serviceBrake ? tuning.brake * (sand ? .65 : 1) * Math.abs(throttle) : 0) + (alive ? 0 : 2.5);
+  if (handbrake) acceleration *= .35;
+  const drivenSpeed = longitudinal + acceleration * dt;
+  const dragStep = Math.min(Math.abs(drivenSpeed), resistance * dt);
+  let nextLongitudinal = drivenSpeed - Math.sign(drivenSpeed) * dragStep;
   // A disabled engine can roll to a stop but can never accelerate or reverse.
   nextLongitudinal = clamp(nextLongitudinal, -tuning.reverse, tuning.maxSpeed * Math.max(.68, healthFactor));
   const driveDelta = nextLongitudinal - longitudinal;
@@ -277,14 +281,14 @@ function simulate(car, state, dt, options) {
   state.vz += fz * driveDelta;
 
   const desiredBicycleYaw = nextLongitudinal * Math.tan(car.steer) / tuning.wheelbase;
-  const yawLimit = tuning.grip / Math.max(3.2, Math.abs(nextLongitudinal)) * (handbrake ? 1.75 : 1);
+  const yawLimit = tireGrip / Math.max(3.2, Math.abs(nextLongitudinal)) * (handbrake ? 1.75 : 1);
   const desiredYaw = yawLimit * Math.tanh(desiredBicycleYaw / Math.max(.01, yawLimit));
   state.yawRate = approach(state.yawRate, desiredYaw, handbrake ? 4.6 : 7.5, dt);
   if (speed < .1) state.yawRate = 0;
   const nextHeading = car.heading + state.yawRate * dt;
   const rightX = Math.cos(nextHeading), rightZ = -Math.sin(nextHeading);
   const lateral = state.vx * rightX + state.vz * rightZ;
-  const grip = tuning.grip * (handbrake ? .29 : 1);
+  const grip = tireGrip * (handbrake ? .29 : 1);
   const lateralDelta = clamp(-lateral * (1 - Math.exp(-(handbrake ? 1.8 : 8.5) * dt)), -grip * dt, grip * dt);
   state.vx += rightX * lateralDelta;
   state.vz += rightZ * lateralDelta;
@@ -304,6 +308,7 @@ function simulate(car, state, dt, options) {
 /**
  * Advance a car in metres/seconds. Controls use throttle/steering in [-1, 1];
  * steering is a normalized input, while car.steer is the actual wheel angle.
+ * surface accepts the authored ground kind under the car (sand has reduced grip).
  * moveBody mutates its position and returns whether world geometry blocked it.
  * onImpact runs once per new contact, with { speed, other, position }.
  * The model may implement setDynamics to apply suspension to its chassis only.

@@ -1,3 +1,4 @@
+import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
@@ -46,7 +47,7 @@ export function createCityProps(parent) {
   const ownedGeometries = new Set(), ownedMaterials = new Set();
   let disposed = false;
   const stats = { drawCalls: 0, triangles: 0, placements: CITY_PROP_PLACEMENTS.length };
-  const ready = new GLTFLoader().loadAsync('/models/city/city-streetscape.glb').then(gltf => {
+  const ready = new GLTFLoader().loadAsync(assetUrl('models/city/city-streetscape.glb')).then(gltf => {
     gltf.scene.updateMatrixWorld(true);
     for (const assetName of new Set(CITY_PROP_PLACEMENTS.map(p => p.asset))) {
       const source = gltf.scene.getObjectByName(assetName);

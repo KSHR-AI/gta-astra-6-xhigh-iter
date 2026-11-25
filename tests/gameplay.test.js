@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { createMission, readProgress } from '../src/missions.js';
+import { CIRCUIT_START, createMission, readProgress } from '../src/missions.js';
 import { createCitySimulation, hasSight } from '../src/simulation.js';
 
 const SAVE_KEY = 'grand-theft-astra:coastal-job:v1';
@@ -100,7 +100,7 @@ test('The Coastal Job can be played from briefing to delivery and home, with the
   assert.equal(mission.interact('safehouse').rest, true);
   assert.equal(mission.getState().mission, 5);
   assert.equal(mission.getState().missionProgress, 1);
-  assert.equal(mission.getState().target, null);
+  assert.equal(mission.getState().target, CIRCUIT_START);
   mission.interact('safehouse');
   assert.equal(mission.getState().completedJobs, 1);
   assert.equal(readProgress(storage).stage, 5);
@@ -377,4 +377,44 @@ test('An officer who has not deployed cannot reveal the player from a hidden mes
   assert.equal(officer.mesh.visible, false);
   assert.equal(tick(6.2).policeState, 'searching');
   assert.equal(tick(18.3).policeState, 'clear');
+});
+
+test('Pacific Circuit accepts only completed-story drivers, pays once and preserves the best lap', () => {
+  const storage = memoryStorage({ version: 1, stage: 5, money: 2750, completedJobs: 1 });
+  const { mission, completions } = missionFixture(storage);
+  const vehicle = carAt(-5, 28);
+  const start = () => mission.interact('circuit', { vehicle });
+  const update = dt => mission.update({ vehicle, dt, wanted: 0, policeState: 'clear' });
+  assert.deepEqual(missionFixture().mission.interact('circuit', { vehicle }), {});
+  assert.deepEqual(mission.interact('circuit'), {});
+  assert.equal(start().startedCircuit, true);
+  assert.deepEqual(start(), {});
+  for (const secondsPerGate of [8, 12]) {
+    if (!mission.getState().circuitActive) start();
+    for (let gate = 0; gate < 5; gate++) {
+      const { target, missionProgress } = mission.getState();
+      assert.equal(missionProgress, gate / 5);
+      vehicle.model.mesh.position.set(target.x, 0, target.z);
+      update(secondsPerGate);
+    }
+    update(1);
+  }
+  assert.deepEqual(completions.map(result => result.reward), [750, 500]);
+  assert.equal(mission.getState().money, 4000);
+  assert.equal(mission.getState().completedJobs, 3);
+  assert.equal(missionFixture(storage).mission.getState().circuitBest, 40);
+  mission.fresh();
+  assert.equal(mission.getState().circuitBest, null);
+});
+
+test('Interrupted circuits allow a clean restart without payment', () => {
+  const { mission, completions } = missionFixture(memoryStorage({ version: 1, stage: 5, money: 2750 }));
+  const vehicle = carAt(-5, 28);
+  for (const event of [{ dt: 91, vehicle }, { vehicle: null }, { vehicle: carAt(0, 0) }]) {
+    assert.equal(mission.interact('circuit', { vehicle }).startedCircuit, true);
+    mission.update(event);
+    assert.equal(mission.getState().circuitActive, false);
+    assert.equal(mission.getState().money, 2750);
+  }
+  assert.equal(completions.length, 0);
 });

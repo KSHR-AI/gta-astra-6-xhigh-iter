@@ -1,3 +1,4 @@
+import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 
 // Original road/iron maps and CC0 Poly Haven building surfaces. World-space
@@ -8,7 +9,7 @@ export function applyCityMaterials(materials, canvasTexture, random) {
   const load = (name, color = false) => {
     let resolve;
     pending.push(new Promise(done => { resolve = done; }));
-    const texture = loader.load(`/textures/city/${name}.jpg`, resolve, undefined, error => {
+    const texture = loader.load(assetUrl(`textures/city/${name}.jpg`), resolve, undefined, error => {
       console.warn(`City surface failed to load: ${name}`, error);
       resolve();
     });

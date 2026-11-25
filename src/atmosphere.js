@@ -1,9 +1,10 @@
+import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { separateSolarEnvironment } from './solar-environment.js';
 
 // Poly Haven / Greg Zaal + Jarod Guest, CC0. A photographic, terrain-free sky.
-const SKY_URL = '/textures/sky/qwantani_sunset_puresky_2k.hdr';
+const SKY_URL = assetUrl('textures/sky/qwantani_sunset_puresky_2k.hdr');
 export const SKY_ROTATION = -1.25;
 // Measured from the brightest source pixel, then rotated with the visible sky.
 export const SUN_DIRECTION = new THREE.Vector3(-0.3000497, 0.1056472, 0.9480547);

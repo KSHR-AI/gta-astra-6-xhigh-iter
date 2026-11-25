@@ -1,3 +1,4 @@
+import { assetUrl } from './asset-url.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
@@ -247,26 +248,27 @@ export async function loadCharacterAssets() {
       })
       .catch(() => loader.loadAsync(legacy));
     loadingPromise = Promise.allSettled([
-      loader.loadAsync('/models/Soldier.glb'),
+      loader.loadAsync(assetUrl('models/Soldier.glb')),
       Promise.all([
-        naturalOrLegacy('/models/CivilianFemaleNatural.glb', '/models/Michelle.glb'),
-        loadLocomotion('/models/pedestrian-motion.json'),
+        naturalOrLegacy(assetUrl('models/CivilianFemaleNatural.glb'), assetUrl('models/Michelle.glb')),
+        loadLocomotion(assetUrl('models/pedestrian-motion.json')),
       ]),
-      loader.loadAsync('/models/Michelle-crowd.glb'),
       Promise.all([
-        naturalOrLegacy('/models/CivilianMaleNatural.glb', '/models/CivilianMale.glb'),
-        loadLocomotion('/models/civilian-male-motion.json'),
+        naturalOrLegacy(assetUrl('models/CivilianMaleNatural.glb'), assetUrl('models/CivilianMale.glb')),
+        loadLocomotion(assetUrl('models/civilian-male-motion.json')),
       ]),
-      loader.loadAsync('/models/character_sidearm.glb'),
-    ]).then(([main, pedestrian, crowd, male, sidearm]) => {
+      loader.loadAsync(assetUrl('models/character_sidearm.glb')),
+    ]).then(async ([main, pedestrian, male, sidearm]) => {
         if (main.status === 'fulfilled') characterAsset = main.value;
         if (pedestrian.status === 'fulfilled') {
           pedestrianAsset = pedestrian.value[0];
           pedestrianAsset.animations = pedestrian.value[1];
           if (pedestrianAsset.naturalHuman) crowdAsset = pedestrianAsset;
-          else if (crowd.status === 'fulfilled') {
-            crowdAsset = crowd.value;
-            crowdAsset.animations = pedestrianAsset.animations;
+          else {
+            try {
+              crowdAsset = await loader.loadAsync(assetUrl('models/Michelle-crowd.glb'));
+              crowdAsset.animations = pedestrianAsset.animations;
+            } catch { /* Legacy pedestrians can share their full-detail model. */ }
           }
         }
         if (male.status === 'fulfilled') {
