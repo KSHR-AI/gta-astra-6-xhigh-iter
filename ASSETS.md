@@ -235,3 +235,7 @@ Astra Auto Works’ service furniture, tools, brake display, alignment diagram a
 Calypso’s limestone crown, bronze sunburst, window bays and shade ledges are original district geometry in `src/calypso-facade.js`. The low ridge visible down the eastbound streets is an original vertex-colored terrain mesh in `src/eastern-foothills.js`.
 
 Mara’s briefing and handoff use an original expression field in `src/mara-expression.js`. It deforms the existing female head and brow meshes and directs her eyes toward the Aurora. The source character and texture credits above also apply to these shots.
+
+## Downtown elevations
+
+The balcony, curtain-wall, limestone and brick loft elevations in `public/textures/downtown/` are original ImageGen facade artwork developed for Los Pacificos. Each four-storey colour tile has a matching night mask that lights individual rooms. The tower shapes, civic lanterns and tiered broadcast mast are original geometry in `src/downtown.js`.

@@ -1,3 +1,4 @@
+import { addDowntown } from './downtown.js';
 import { createEasternFoothills } from './eastern-foothills.js';
 import { createWorkshopInterior } from './workshop-interior.js';
 import { createNightShiftFreight } from './night-shift-freight.js';
@@ -17,6 +18,7 @@ import { createInstanceVisibility } from './instance-visibility.js';
 import { createBuildingOcclusion } from './building-occlusion.js';
 import { createWalkableGround } from './world-ground.js';
 import { applyBeachSurface } from './beach-surface.js';
+import { createBoulevardShops } from './boulevard-shops.js';
 import { createBeachParasols } from './beach-parasols.js';
 
 // Everything in the district is real geometry. Repeated architectural details
@@ -315,6 +317,7 @@ export function createWorld(scene) {
       new THREE.Vector3(x - width / 2, bottom, z - depth / 2),
       new THREE.Vector3(x + width / 2, top, z + depth / 2)));
   }
+  const boulevardShop = createBoulevardShops({ canvasTexture, box, instance, line, materials, illuminatedSigns });
   function building(x, z, width, depth, floors, style, index, front = 1) {
     const floorHeight = 3.2;
     const height = 4.2 + floors * floorHeight;
@@ -322,6 +325,7 @@ export function createWorld(scene) {
     const palette = [materials.white, materials.brick, materials.blush, materials.limestone, materials.pale, materials.sage];
     const facade = palette[style % palette.length];
     const accent = style % 3 === 0 ? materials.teal : style % 3 === 1 ? materials.terracotta : materials.dark;
+    const customShop = index === 4 || index === 14;
     const calypso = index === 15;
     function mass(cx, cz, w, d, bottom, top, material, groundSolid) {
       box(material,cx,(bottom+top)/2,cz,w,top-bottom,d);
@@ -354,6 +358,7 @@ export function createWorld(scene) {
     }
     for (const side of [-1, 1]) {
       for (let i = 0; i < Math.floor(depth / 3.5); i++) {
+        if (customShop && side === front) continue;
         const zz = z - depth / 2 + 2.1 + i * ((depth - 4.2) / Math.max(1, Math.floor(depth / 3.5) - 1));
         panel(materials.glassDark, x + side * (width / 2 + 0.09), 1.92, zz, 2.8, 2.8, side * Math.PI / 2);
         box(materials.trim, x + side * (width / 2 + 0.17), 1.95, zz - 1.45, 0.3, 3.5, 0.2);
@@ -471,7 +476,9 @@ export function createWorld(scene) {
       cylinder(materials.metal, x, height + extra + 3.3, z, .055, 6.4);
       colliders[colliders.length - 1].maxY = height + extra + 1;
     }
-    if (index < 21) {
+    if (customShop) {
+      boulevardShop(index, x + front * width / 2, z, front, depth);
+    } else if (index < 21) {
       const names = ['PALMA SOCIAL', 'THE MARLOW', 'SOL MARKET', 'COASTAL RECORDS', 'MOTEL AZUL', 'PACIFIC COFFEE', 'CASA LUNA', 'MARINA CLUB', 'LAUNDROMAT', 'SUNDOWN STUDIO', 'PALMETTO HOTEL', 'FRESH & LOCAL', 'GOLDEN HOUR', 'OCEAN DRIVE', 'VELOCE MOTORS', 'WAVES SURF CO.', 'CINÉMA', 'FLORIDA ROOM', 'THE TERRACE', 'SUNSET DELI', 'BAR CALYPSO'];
       const sx = x + front * (width / 2 + 0.25);
       sign(names[index], sx, 3.28, z, Math.min(depth - 1.3, 15), 0.82, front * Math.PI / 2, { background: style % 2 ? '#b16d4b' : '#233e3c', fontSize: 58 });
@@ -735,7 +742,8 @@ export function createWorld(scene) {
       yaw: towelYaw + i * .37, canvasColor: parasolCanvas[(i / 3) % parasolCanvas.length] });
   }
   const beachParasols = createBeachParasols(root, parasolPlacements);
-  const ready = Promise.all([materialReady, beachReady, cityProps.ready, beachParasols.ready, frontageReady]);
+  const downtown = addDowntown({ box, panel, cylinder, instance, bayGeometry, materials, range });
+  const ready = Promise.all([downtown.ready, materialReady, beachReady, cityProps.ready, beachParasols.ready, frontageReady]);
   const ocean = createOcean();
   // The shore steps meet the raised pier entrance at the district boundary.
   for (let step = 0; step < 12; step++) {
@@ -744,51 +752,6 @@ export function createWorld(scene) {
   }
   const pacificWheel = createPacificWheel();
   root.add(ocean.mesh, pacificWheel.root, createEasternFoothills());
-
-  // Distant metropolitan silhouettes wrap the drivable district without walls.
-  // Conventional repeated interior atlas here gives each long strip a bank of
-  // windows while retaining the real sky's reflections on the glazing.
-  const skylineGlass = materials.glass.clone();
-  skylineGlass.map = materials.glass.map.clone();
-  skylineGlass.map.wrapS = THREE.RepeatWrapping;
-  skylineGlass.map.repeat.set(2, 1);
-  skylineGlass.map.needsUpdate = true;
-  skylineGlass.color.set('#b0bfbd');
-  for (let i = 0; i < 46; i++) {
-    const x = i < 22 ? range(-80, 190) : range(155, 290);
-    const z = i < 22 ? range(-390, -268) : range(-235, 210);
-    const w = range(15, 31), d = range(16, 35), h = i % 7 === 0 ? range(105, 145) : range(28, 85);
-    const facade = i % 3 === 0 ? materials.blue : i % 3 === 1 ? materials.pale : materials.sage;
-    box(facade, x, h / 2, z, w, h, d);
-    box(materials.trim, x, h + 0.3, z, w + 0.4, 0.4, d + 0.4);
-    if (i % 3 === 0) {
-      box(facade, x - w * .08, h + 5, z, w * .72, 10, d * .68);
-      box(materials.metal, x - w * .08, h + 10.2, z, w * .75, .4, d * .71);
-    }
-    if (i % 7 === 0) {
-      box(facade, x, h + 14, z, w * .48, 12, d * .45);
-      box(materials.glassDark, x, h + 21, z, w * .28, 3, d * .28);
-      cylinder(materials.metal, x, h + 27, z, .09, 12);
-    }
-    for (let yy = 5; yy < h - 1; yy += 3.2) {
-      for (const side of [-1, 1]) {
-        panel(skylineGlass, x, yy, z + side * (d / 2 + 0.02), w - 1.6, 1.7, side < 0 ? Math.PI : 0);
-        panel(skylineGlass, x + side * (w / 2 + 0.02), yy, z, d - 1.6, 1.7, side * Math.PI / 2);
-      }
-    }
-  }
-  // A recognizable tapered downtown crown terminates the boulevard's sightline.
-  const towerX = -3, towerZ = -310;
-  for (const [y, height, radius] of [[42, 84, 15], [94, 20, 12.5], [111, 14, 9.5], [122, 8, 6.5]]) {
-    instance(bayGeometry, materials.blue, [towerX, y, towerZ], [radius, height, radius]);
-    instance(bayGeometry, materials.trim, [towerX, y + height / 2, towerZ], [radius + .2, .6, radius + .2]);
-    for (let yy = y - height / 2 + 2; yy < y + height / 2 - 1; yy += 3.3) {
-      for (let k = 0; k < 16; k++) {
-        const angle = k * Math.PI / 8;
-        panel(skylineGlass, towerX + Math.cos(angle) * (radius + .04), yy, towerZ + Math.sin(angle) * (radius + .04), radius * .35, 2.0, Math.PI / 2 - angle);
-      }
-    }
-  }
 
   // Per-instance visibility now culls individual facades and props. Opaque
   // material batches can span the district without submitting off-screen
@@ -856,6 +819,7 @@ export function createWorld(scene) {
     setNight(value) {
       pierScreening.setNight(value);
       ocean.setNight(value);
+      downtown.setNight(value);
       materials.lamp.emissiveIntensity=value?4.5:1.3;
       materials.glassWarm.userData.warmWindowLight.value=value;
       materials.glassWarm.emissiveIntensity=value?.8:.035;
