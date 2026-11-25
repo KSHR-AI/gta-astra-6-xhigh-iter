@@ -471,7 +471,10 @@ export function createUI(callbacks = {}, initialQuality = 'high') {
     if (s.objectiveTitle) { text('objective-title', s.objectiveTitle); text('objective-short', s.objectiveTitle); text('map-objective-title', s.objectiveTitle); }
     if (s.objective) { text('objective-description', s.objective); text('map-objective-description', s.objective); }
     if (s.objectiveDistance !== undefined) {
-      const distance = s.objectiveDistance > 0 ? `${Math.round(s.objectiveDistance)} m` : '';
+      // Either exit advances the job at Calypso. A single distance would point
+      // at the boulevard even while the driver correctly turns toward Sunline.
+      const choosingRoute = s.lastLight?.phase === 'fork' && !s.circuitActive && !s.radioActive && s.inCar && s.lastLight.drivingJobCar;
+      const distance = !choosingRoute && s.objectiveDistance > 0 ? `${Math.round(s.objectiveDistance)} m` : '';
       text('objective-distance', distance); text('objective-short-distance', distance);
     }
     if (s.wanted !== undefined) {
