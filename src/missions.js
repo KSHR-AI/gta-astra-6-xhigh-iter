@@ -296,5 +296,5 @@ export function createMission({ landmarks, getHeroPosition, onDialogue, onToast,
   const radioAction = (position, vehicle) => radioAvailable() ? radio.action(position, vehicle) : null;
   const nightShiftAction = (position, vehicle) => shiftAvailable() ? shift.action(position,vehicle) : null;
   const getFreightManifest = () => stage === 5 ? shift.manifest() : null;
-  return { get inspectionRemaining(){return Math.max(0,inspecting);}, inspectAction, radioAction, nightShiftAction, screeningAction, getFreightManifest, interact, onVehicleTaken, update, getState, save, fresh, retry };
+  return { get inspectionRemaining(){return Math.max(0,inspecting);}, inspectAction, radioAction, nightShiftAction, freightPickupNear:shift.pickupNear, selectFreightPickup:shift.selectPickup, screeningAction, getFreightManifest, interact, onVehicleTaken, update, getState, save, fresh, retry };
 }

@@ -88,3 +88,46 @@ test('Mara, Vale, and the race gate let the player explicitly release freight on
     assert.equal(job.active(),false);
   }
 });
+
+test('marking a pickup guides the driver through arrival until loading or clearing it', () => {
+  const {job,car,act,saved}=session();
+  const [glass,linen,reels]=SHIFT_STOPS;
+  assert.equal(job.selectPickup(reels),null);
+  act(landmarks.garage,'start');
+  assert.equal(job.view().target,glass);
+  assert.equal(job.pickupNear({x:reels.x+5,z:reels.z}),null);
+  job.selectPickup({x:reels.x+3,z:reels.z+2});
+  assert.equal(job.view().target,reels);
+  assert.equal(job.view().secondaryTarget,glass);
+  assert.equal(job.view().objectiveTitle,'Pier access road');
+  assert.match(job.view().objective,/projection reels/);
+  assert.equal(job.checkpoint().selectedPickup,'pier');
+  job.restore(saved());
+  assert.equal(job.view().nightShiftSelectedPickup,reels);
+  car.model.mesh.position={...reels};
+  job.update({vehicle:car});
+  assert.equal(job.view().target,reels);
+  assert.equal(job.action(reels,car).kind,'shift-load-pier');
+  job.selectPickup(null);
+  assert.equal(job.view().target,glass);
+  job.selectPickup(linen);
+  job.selectPickup({x:10,z:12});
+  assert.equal(job.view().nightShiftSelectedPickup,null);
+  job.selectPickup(reels);
+  act(reels,'load-pier');
+  assert.equal(job.view().nightShiftSelectedPickup,null);
+  assert.equal(job.selectPickup(reels),null);
+  assert.equal(job.view().target,glass);
+  job.selectPickup(linen);
+  job.restore(saved());
+  assert.equal(job.view().objectiveTitle,'Recover the freight');
+  assert.equal(job.view().target,reels);
+  assert.equal(job.view().nightShiftSelectedPickup,null);
+  act(reels,'recover');
+  assert.equal(job.view().target,linen);
+  act(linen,'load-paloma');
+  assert.equal(job.view().objectiveTitle,'Unload at Auto Works');
+  assert.equal(job.view().nightShiftSelectedPickup,null);
+  assert.equal(job.selectPickup(glass),null);
+  assert.equal(job.checkpoint().selectedPickup,undefined);
+});

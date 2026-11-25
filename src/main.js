@@ -236,7 +236,11 @@ function setMap(value){
  mapCursor=null;ui.showMap(state.mapOpen);
  if(state.mapOpen){if(document.pointerLockElement)document.exitPointerLock();updateDestinations();drawMap(document.querySelector('#city-map'),true);}
 }
-function setWaypoint(point,message){
+function setWaypoint(point,message,selectionPoint=point){
+ const pickup=job?.selectFreightPickup(selectionPoint);
+ displayWaypoint(pickup?{x:pickup.x,z:pickup.z,freightPickup:pickup.id}:point,message);
+}
+function displayWaypoint(point,message){
  waypoint=point;state.waypoint=point;
  document.querySelector('#waypoint-status').textContent=message;
  document.querySelector('#clear-waypoint').disabled=!point;
@@ -284,6 +288,10 @@ function updateDestinations(){
  list.hidden=!list.childElementCount;
 }
 function pinStreet(point){
+ const pickup=job?.freightPickupNear(point);
+ if(pickup){
+   mapCursor=null;setWaypoint(pickup,'Waypoint set · '+pickup.label);return;
+ }
  const nearest=nearestMapRoad(world.roads,point);
  const {minX,maxX,minZ,maxZ}=world.bounds;
  if(nearest.distance>nearest.road.width/2+3||point.x<minX||point.x>maxX||point.z<minZ||point.z>maxZ){
@@ -291,7 +299,7 @@ function pinStreet(point){
  }
  mapCursor=null;
  const pin={x:clamp(nearest.snap.x,minX,maxX),z:clamp(nearest.snap.z,minZ,maxZ)};
- setWaypoint(pin,'Waypoint set · '+world.locationAt(pin.x,pin.z));
+ setWaypoint(pin,'Waypoint set · '+world.locationAt(pin.x,pin.z),null);
 }
 const cityMap=document.querySelector('#city-map');
 cityMap.addEventListener('click',event=>pinStreet(mapClickPosition(cityMap,event.clientX,event.clientY)));
@@ -351,7 +359,7 @@ function restart(fresh=false){
  if(photo.active)exitPhoto();
  localSelfShadow.release('restart');
  if(fresh)job.fresh();else job.retry();
- setWaypoint(null,'Choose a street');
+ displayWaypoint(null,'Choose a street');
  simulation?.reset();interaction=null;currentCar=null;state.started=true;
  Object.assign(state,{health:100,stamina:100,wanted:0,ammo:12,reserve:96,inCar:false,speed:0,nearCar:false,policeState:'clear',searchProgress:0,subtitle:'',subtitleSpeaker:''});
  weapon=false;aiming=false;mouseDown=false;reloading=false;reloadRemaining=0;respawnTimer=0;doorTimer=0;lastShot=-100;lastCrime=-100;wantedSince=-100;lookTimer=elapsed;dialogueQueue=[];dialogueUntil=0;
@@ -478,6 +486,7 @@ function interact(){
  const action=contextAction();if(!action)return;
  if(action.kind==='vehicle'){enterExit();return;}
  const result=job.interact(action.kind,{position:player.mesh.position,vehicle:currentCar,jobVehicle:heroCar,wanted:state.wanted,policeState:state.policeState,time:elapsed,reserve:state.reserve});
+ if(result.shiftInteraction&&action.kind==='shift-start'&&waypoint)job.selectFreightPickup(waypoint);
  if(result.inspecting){
   lampInspection=createLampInspection(heroCar.model,player.mesh.position);
   playerVelocity.set(0,0,0);weapon=false;aiming=false;mouseDown=false;player.setWeapon(false);
@@ -938,6 +947,12 @@ function updateGame(dt){
  updateDrivers(simDt);contactActor?.advance(simDt,{speed:0,
   lookTarget:state.started&&state.health>0?nearbyFaceTarget(contactActor,player,contactLookTarget):null});
  if(job){const progress=job.getState();Object.assign(state,progress);mission=progress.mission;
+ const selectedPickup=progress.nightShiftSelectedPickup;
+ if(selectedPickup&&waypoint?.freightPickup!==selectedPickup.id){
+  displayWaypoint({x:selectedPickup.x,z:selectedPickup.z,freightPickup:selectedPickup.id},'Waypoint set · '+selectedPickup.label);
+ }else if(waypoint?.freightPickup&&!selectedPickup){
+  displayWaypoint(null,'Choose a street');
+ }
  if(mission===3&&!maraAtWorkshop)placeMara(true);
  else if(maraAtWorkshop&&mission!==3&&player.mesh.position.distanceTo(contactActor.mesh.position)>48)placeMara(false);
  if(progress.target){goal.set(progress.target.x,0,progress.target.z);marker.position.copy(goal);}circuitGate.visible=(progress.mission===0||progress.mission===5)&&!progress.radioActive&&!progress.nightShiftActive&&state.started;
@@ -1011,7 +1026,7 @@ function updatePresentation(dt){
  const destination=waypoint||state.target;
  turnCue.visible=turnCue.visible&&active&&!photo.active&&!!destination;
  if(miniTimer>.1){
-   if(active&&waypoint&&player&&Math.hypot(player.mesh.position.x-waypoint.x,player.mesh.position.z-waypoint.z)<8){
+   if(active&&waypoint&&!waypoint.freightPickup&&player&&Math.hypot(player.mesh.position.x-waypoint.x,player.mesh.position.z-waypoint.z)<8){
      setWaypoint(null,'Waypoint reached');ui.toast('WAYPOINT REACHED',world.locationAt(player.mesh.position.x,player.mesh.position.z));
    }
    drawMap(mapCanvas());miniTimer=0;
@@ -1021,8 +1036,8 @@ function updatePresentation(dt){
  }
 }
 
-function drawMap(target,full=false){
- if(!target||!player)return;const ctx=target.getContext('2d');const w=target.width,h=target.height;
+function drawMap(canvas,full=false){
+ if(!canvas||!player)return;const ctx=canvas.getContext('2d');const w=canvas.width,h=canvas.height;
  ctx.fillStyle='#1b292d';ctx.fillRect(0,0,w,h);
  const scale=full?cityMapScale(w,h):1.65;
  const center=full?cityMapCenter:player.mesh.position;
@@ -1040,9 +1055,10 @@ function drawMap(target,full=false){
    ctx.lineWidth=road.width*scale;ctx.beginPath();
    ctx.moveTo(px(road.x-dx),py(road.z-dz));ctx.lineTo(px(road.x+dx),py(road.z+dz));ctx.stroke();
  }
+ const {target,secondaryTarget}=full&&job?job.getState():state;
  ctx.strokeStyle=waypoint?'#c799ff':state.lastLight?.route==='service'?'#84dfd1':'#e5ab64';ctx.lineWidth=full?3.5:2;
- if(waypoint||state.target){
-   const [start,...turns]=mapRoute(world.roads,player.mesh.position,waypoint||goal);
+ if(waypoint||target){
+   const [start,...turns]=mapRoute(world.roads,player.mesh.position,waypoint||target);
    ctx.setLineDash([5,5]);ctx.beginPath();ctx.moveTo(px(start.x),py(start.z));
    for(const turn of turns)ctx.lineTo(px(turn.x),py(turn.z));
    ctx.stroke();ctx.setLineDash([]);
@@ -1056,12 +1072,12 @@ function drawMap(target,full=false){
    for(let row=0;row<2;row++)for(let col=row;col<4;col+=2)ctx.fillRect(x+col*cell,y+(row-4)*cell,cell,cell);
    if(full){ctx.font='bold 15px sans-serif';ctx.fillText('Pacific Circuit · courtesy sedan',x+5,y+18);}
  }
- if(state.secondaryTarget){
-   const point=state.secondaryTarget,x=px(point.x),y=py(point.z);
+ if(secondaryTarget){
+   const point=secondaryTarget,x=px(point.x),y=py(point.z);
    ctx.fillStyle='#84dfd1';ctx.beginPath();ctx.arc(x,y,full?7:5,0,Math.PI*2);ctx.fill();
    if(full){ctx.font='bold 16px sans-serif';ctx.fillText(point.label,x+10,y-8);}
  }
- if(state.target){ctx.fillStyle='#f6bd78';ctx.beginPath();ctx.arc(px(goal.x),py(goal.z),full?7:5,0,Math.PI*2);ctx.fill();}
+ if(target){ctx.fillStyle='#f6bd78';ctx.beginPath();ctx.arc(px(target.x),py(target.z),full?7:5,0,Math.PI*2);ctx.fill();}
  if(waypoint){ctx.save();ctx.translate(px(waypoint.x),py(waypoint.z));ctx.rotate(Math.PI/4);const size=full?8:5;ctx.fillStyle='#c799ff';ctx.fillRect(-size,-size,2*size,2*size);ctx.strokeStyle='#301f43';ctx.strokeRect(-size,-size,2*size,2*size);ctx.restore();}
  if(full&&mapCursor){const x=px(mapCursor.x),y=py(mapCursor.z);ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.strokeRect(x-9,y-9,18,18);}
  const pos=player.mesh.position;ctx.save();ctx.translate(px(pos.x),py(pos.z));ctx.rotate(-(currentCar?currentCar.heading:player.mesh.rotation.y));ctx.fillStyle='#fff5e2';ctx.shadowColor='#000';ctx.shadowBlur=5;ctx.beginPath();ctx.moveTo(0,7);ctx.lineTo(-5,-5);ctx.lineTo(0,-2);ctx.lineTo(5,-5);ctx.closePath();ctx.fill();ctx.restore();
